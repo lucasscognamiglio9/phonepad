@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>phonepad — emparejar</title>
+  <link rel="stylesheet" href="pair.css">
+</head>
+<body>
+  <!--
+    Vista de pairing — pantalla de la computadora (SPEC §12).
+    Read-only: solo muestra el QR y el estado de conexión en vivo.
+    QR  vía  <img src="/qr.svg">            (contrato: GET /qr.svg → image/svg+xml)
+    Estado vía EventSource("/events")        (contrato: SSE state|client_connected|client_disconnected)
+    Texto legible vía GET /api/pair-info     (URL sin token; solo localhost)
+  -->
+  <main class="pair" data-state="waiting" aria-live="polite">
+    <h1 class="wordmark">phonepad</h1>
+
+    <!-- Escenario del QR: contiene el QR (héroe) y, encima, el check de éxito. -->
+    <div class="stage">
+      <figure class="qr">
+        <!-- onerror: si el backend sirvió /qr.png en vez de /qr.svg, caemos a PNG. -->
+        <img id="qr-img" src="/qr.svg" alt="Código QR para emparejar el celular"
+             decoding="async" onerror="this.onerror=null;this.src='/qr.png';">
+      </figure>
+
+      <!-- Check de éxito: oculto hasta client_connected. -->
+      <div class="check" aria-hidden="true">
+        <span class="check__halo"></span>
+        <svg class="check__mark" viewBox="0 0 52 52" width="120" height="120" aria-hidden="true">
+          <circle class="check__circle" cx="26" cy="26" r="24" fill="none"/>
+          <path class="check__tick" fill="none" d="M14 27 l8 8 l16 -18"/>
+        </svg>
+      </div>
+    </div>
+
+    <p class="instruction" id="instruction">Escaneá con la cámara del celular</p>
+    <p class="url" id="url"></p>
+
+    <!-- Chip de estado: único estado dominante. -->
+    <div class="chip" id="chip" role="status">
+      <span class="chip__dot"></span>
+      <span class="chip__label" id="chip-label">conectando con el daemon…</span>
+    </div>
+
+    <!-- Detalle del cliente conectado (UA legible). Vacío salvo cuando hay celular. -->
+    <p class="device" id="device"></p>
+  </main>
+
+  <script src="pair.js"></script>
+</body>
+</html>

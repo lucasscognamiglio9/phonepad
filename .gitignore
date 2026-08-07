@@ -1,0 +1,5 @@
+/daemon/phonepad
+/daemon/bin/
+/daemon/claude-cu-prototype
+/daemon/.mcp.json
+*.log

@@ -1,0 +1,35 @@
+# Servicio systemd de USUARIO para phonepad.
+#
+# Lo instala setup/install.sh en ~/.config/systemd/user/phonepad.service.
+# El toggle de Quick Settings (extensión GNOME) hace `systemctl --user start/stop
+# phonepad` — por eso NO se habilita al boot por defecto (off = no corre nada,
+# decisión de diseño). Si preferís tenerlo siempre encendido al loguearte:
+#     systemctl --user enable --now phonepad
+#
+# Nota Wayland: la inyección de texto Unicode usa wl-copy/wl-paste, que necesitan
+# WAYLAND_DISPLAY. El instalador hace `systemctl --user import-environment` para
+# que el user manager lo tenga. Si faltara, el texto ASCII igual funciona (uinput,
+# kernel-level); solo el Unicode (acentos/emoji) dependería de esa variable.
+#
+# Modo dev (hot-reload): install.sh reemplaza @DEV_SRC@ por el dir del repo y
+# @GO_BIN_DIR@ por el dir de 'go'. Con PHONEPAD_DEV_SRC seteada el daemon sirve
+# web/ desde disco, vigila web/ + *.go y se recompila/re-ejecuta solo (ver
+# docs/adr/0003). El toggle de Quick Settings (start/stop) prende y apaga todo
+# eso. Sin esa env (deploy de binario suelto) corre en prod (embed + SW).
+
+[Unit]
+Description=phonepad — celular como touchpad + teclado de la laptop (por LAN)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/phonepad
+Restart=on-failure
+RestartSec=2
+# Hot-reload: dir del fuente + 'go' en el PATH para que el daemon se recompile.
+Environment=PHONEPAD_DEV_SRC=@DEV_SRC@
+Environment=PATH=@GO_BIN_DIR@:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

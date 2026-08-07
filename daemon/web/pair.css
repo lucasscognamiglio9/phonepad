@@ -1,0 +1,248 @@
+/* phonepad — vista de pairing (pantalla de la compu).
+   Se ve de lejos: QR enorme + un solo estado dominante. Cero densidad.
+   Paleta coherente con la PWA (style.css). */
+
+:root {
+  --bg: #15171c;
+  --surface: #20242c;
+  --border: #333845;
+  --text: #e6e9ef;
+  --text-dim: #8a92a3;
+  --ok: #3ecf8e;
+  --warn: #f0a93b;
+  --err: #ff6b6b;
+  --neutral: #6b7280;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  background:
+    radial-gradient(120vmax 80vmax at 50% -10%, #1b1f28 0%, var(--bg) 60%);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.pair {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  text-align: center;
+  padding: 4vmin;
+  max-width: 92vw;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: clamp(20px, 3.2vmin, 30px);
+  font-weight: 650;
+  letter-spacing: 0.5px;
+  color: var(--text-dim);
+}
+
+/* ---- Escenario del QR ---- */
+.stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.qr {
+  margin: 0;
+  padding: clamp(12px, 2vmin, 22px);
+  background: #fff;                 /* fondo blanco: QR siempre legible */
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+  transition: opacity .45s ease, transform .45s ease, filter .45s ease;
+}
+
+.qr img {
+  display: block;
+  width: min(58vmin, 460px);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  /* si el backend devolvió PNG, mantener bordes nítidos al escalar */
+  image-rendering: pixelated;
+}
+
+/* ---- Check de éxito (sobre el QR) ---- */
+.check {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .35s ease;
+}
+
+.check__halo {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: var(--ok);
+  opacity: 0;
+}
+
+.check__mark { color: var(--ok); }
+.check__circle {
+  stroke: var(--ok);
+  stroke-width: 3;
+  opacity: .9;
+}
+.check__tick {
+  stroke: var(--ok);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+}
+
+/* ---- Texto ---- */
+.instruction {
+  margin: 0;
+  font-size: clamp(18px, 2.6vmin, 26px);
+  font-weight: 500;
+  transition: opacity .35s ease;
+}
+
+.url {
+  margin: -8px 0 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: clamp(13px, 1.8vmin, 18px);
+  color: var(--text-dim);
+  word-break: break-all;
+  max-width: 90vw;
+  transition: opacity .35s ease;
+}
+
+/* ---- Chip de estado ---- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: clamp(15px, 1.9vmin, 20px);
+  font-weight: 500;
+  transition: background .35s ease, border-color .35s ease, color .35s ease;
+}
+
+.chip__dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--neutral);
+  flex: none;
+}
+
+.device {
+  margin: -10px 0 0;
+  min-height: 1.2em;
+  font-size: clamp(12px, 1.6vmin, 16px);
+  color: var(--text-dim);
+  transition: opacity .35s ease;
+}
+
+/* =====================================================================
+   ESTADOS (la vista es una máquina de 2 estados + transitorios)
+   data-state ∈ waiting | connected | disconnected | error | neutral
+   ===================================================================== */
+
+/* punto pulsante reutilizable */
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(240, 169, 59, .55); }
+  70%      { box-shadow: 0 0 0 9px rgba(240, 169, 59, 0); }
+}
+
+/* --- waiting: QR héroe, chip ámbar pulsante --- */
+.pair[data-state="waiting"] .chip__dot,
+.pair[data-state="disconnected"] .chip__dot {
+  background: var(--warn);
+  animation: pulse 1.6s infinite;
+}
+.pair[data-state="waiting"] .chip,
+.pair[data-state="disconnected"] .chip {
+  color: var(--text);
+  border-color: rgba(240, 169, 59, .4);
+}
+
+/* --- connected: QR atenuado, check verde, chip verde --- */
+.pair[data-state="connected"] .qr {
+  opacity: .22;
+  transform: scale(.9);
+  filter: saturate(.4);
+}
+.pair[data-state="connected"] .check { opacity: 1; }
+.pair[data-state="connected"] .instruction,
+.pair[data-state="connected"] .url { opacity: .35; }
+
+.pair[data-state="connected"] .chip {
+  background: rgba(62, 207, 142, .14);
+  border-color: rgba(62, 207, 142, .5);
+  color: var(--ok);
+}
+.pair[data-state="connected"] .chip__dot {
+  background: var(--ok);
+  animation: none;
+}
+
+/* animaciones de entrada del check al pasar a connected */
+.pair[data-state="connected"] .check__tick {
+  animation: draw .4s .15s ease forwards;
+}
+.pair[data-state="connected"] .check__mark {
+  animation: pop .45s cubic-bezier(.2, .9, .3, 1.2) both;
+}
+.pair[data-state="connected"] .check__halo {
+  animation: halo .7s .1s ease-out forwards;
+}
+
+@keyframes pop {
+  0%   { transform: scale(.4); opacity: 0; }
+  60%  { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes halo {
+  0%   { transform: scale(.6); opacity: .55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* --- error: token inválido / fallo --- */
+.pair[data-state="error"] .chip {
+  background: rgba(255, 107, 107, .12);
+  border-color: rgba(255, 107, 107, .5);
+  color: var(--err);
+}
+.pair[data-state="error"] .chip__dot { background: var(--err); animation: none; }
+
+/* --- neutral: sin conexión al daemon (EventSource caído) --- */
+.pair[data-state="neutral"] .chip { color: var(--text-dim); }
+.pair[data-state="neutral"] .chip__dot { background: var(--neutral); animation: none; }
+
+/* ---- Reduced motion: sin scale/halo/pulse, cambios instantáneos ---- */
+@media (prefers-reduced-motion: reduce) {
+  .qr, .chip, .check, .instruction, .url, .device { transition: none; }
+  .check__tick, .check__mark, .check__halo,
+  .pair[data-state="waiting"] .chip__dot,
+  .pair[data-state="disconnected"] .chip__dot { animation: none; }
+  .check__tick { stroke-dashoffset: 0; }
+  .check__halo { display: none; }
+}

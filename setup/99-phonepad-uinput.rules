@@ -1,0 +1,3 @@
+# phonepad: dar acceso a /dev/uinput al grupo "input"
+# para que el daemon inyecte input sin correr como root.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

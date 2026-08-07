@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>phonepad</title>
+  <!-- Sin zoom, sin escalado: el viewport es la herramienta entera. -->
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#15171c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- PWA instalable: ícono propio + arranque standalone (sin barra del navegador). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="phonepad">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ───── Header / wordmark: specimen + estado de conexión ─────
+       #status y #status-text son el contrato de Net (no cambian de id). -->
+  <header id="status" class="status status--connecting reveal" style="--i:0" aria-live="polite">
+    <div>
+      <span class="status__spec">01 — DEVICE&nbsp;&nbsp;<span class="verm">REMOTE TRACKPAD</span></span>
+      <h1 class="wordmark">PHONE<span class="pad">PAD</span></h1>
+    </div>
+    <div class="status__conn">
+      <span class="status__dot"></span>
+      <span id="status-text" class="status__text">conectando…</span>
+    </div>
+  </header>
+
+  <!-- ───── Touchpad: el instrumento, ocupa todo el espacio libre ─────
+       Mantiene id=pad, id=pad-hint (contrato). -->
+  <main id="pad" class="pad reveal" style="--i:3" aria-label="superficie táctil">
+    <!-- Specimen TYPE rotado de fondo (sin tapar el dato). -->
+    <div id="pad-hint" class="pad__hint">TRACKPAD</div>
+
+    <!-- Specimen label superior. -->
+    <div class="pad__label" aria-hidden="true">
+      <span><span class="num">02</span>&nbsp;&nbsp;SURFACE</span>
+      <span>MOVE · TAP · SCROLL</span>
+    </div>
+
+    <!-- Crosshair de instrumento (lo posiciona Telemetry). -->
+    <div id="tel-cross" class="pad__cross" aria-hidden="true"><span class="ring"></span></div>
+
+    <!-- Ficha técnica de telemetría en vivo (ids nuevos, sin contrato). -->
+    <div class="telemetry" aria-hidden="true">
+      <div class="tel"><span class="tel__k">Δx</span><span id="tel-dx" class="tel__v">+000</span><span class="tel__k">Δy</span><span id="tel-dy" class="tel__v">+000</span></div>
+      <div class="tel"><span class="tel__k">pos</span><span id="tel-pos" class="tel__v">000,000</span></div>
+      <div class="tel"><span class="tel__k">v</span><span id="tel-vel" class="tel__v tel__v--amber">0000</span><span class="tel__k">px/s</span></div>
+      <div class="tel tel--evt"><span class="tel__k">evt</span><span id="tel-evt" class="tel__v">IDLE</span></div>
+    </div>
+
+    <!-- Boot / status line de carga (lo controla Telemetry, se va a ~1s). -->
+    <div id="boot" class="boot" aria-hidden="true">
+      <div class="boot__line"><span class="dim">$</span> ./phonepad</div>
+      <div class="boot__line">phonepad <span class="verm">v0.1</span> <span class="dim">linux/amd64</span></div>
+      <div class="boot__line"><span class="dim">[0.01]</span> /dev/uinput ... <span class="ok">ok</span></div>
+      <div class="boot__line"><span class="dim">[0.04]</span> pointer + keyboard ... <span class="ok">ok</span></div>
+      <div class="boot__line"><span class="dim">[0.09]</span> ws link ... <span class="ok">ok</span></div>
+      <div class="boot__line"><span class="verm">ready.</span> awaiting input <span class="boot__cursor"></span></div>
+    </div>
+  </main>
+
+  <!-- ───── Fila de acciones anclada abajo (zona del pulgar) ─────
+       Mantiene id=actionbar, id=overview, id=apps, id=copy, id=paste,
+       id=kbd-toggle, id=mic (contrato). -->
+  <nav id="actionbar" class="actionbar reveal" style="--i:6" aria-label="acciones">
+    <button id="overview" class="action" aria-label="ver ventanas abiertas (overview de GNOME)">
+      <span class="action__icon" aria-hidden="true">▤</span>
+      <span class="action__label">Vista</span>
+    </button>
+    <button id="apps" class="action" aria-label="ver la grilla de aplicaciones (GNOME)">
+      <span class="action__icon" aria-hidden="true">▦</span>
+      <span class="action__label">Apps</span>
+    </button>
+    <button id="kbd-toggle" class="action" aria-label="mostrar u ocultar teclado" aria-expanded="false">
+      <span class="action__icon" aria-hidden="true">⌨</span>
+      <span class="action__label">Teclado</span>
+    </button>
+    <button id="mic" class="action mic" aria-label="dictar por voz" aria-pressed="false">
+      <span class="action__icon" aria-hidden="true">●</span>
+      <span class="action__label">Voz</span>
+    </button>
+    <button id="copy" class="action" aria-label="copiar en la PC (Ctrl+C)">
+      <span class="action__icon action__icon--kbd" aria-hidden="true">^C</span>
+      <span class="action__label">Copiar</span>
+    </button>
+    <button id="paste" class="action" aria-label="pegar en la PC (Ctrl+V)">
+      <span class="action__icon action__icon--kbd" aria-hidden="true">^V</span>
+      <span class="action__label">Pegar</span>
+    </button>
+  </nav>
+
+  <!-- Parcial del dictado en vivo (contrato: id=mic-interim). -->
+  <div id="mic-interim" class="mic-interim" aria-hidden="true"></div>
+
+  <!-- ───── Bottom-sheet del teclado ─────
+       Contrato: id=sheet, id=sheet-backdrop, id=sheet-handle, id=kbd-area,
+       id=hidden-input, y clases key--mod[data-mod] / key--special[data-key]. -->
+  <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+  <section id="sheet" class="sheet sheet--hidden" aria-label="teclado" aria-hidden="true">
+    <button id="sheet-handle" class="sheet__handle" aria-label="cerrar teclado">
+      <span class="sheet__grip"></span>
+    </button>
+
+    <!-- Grupo 1: modificadores sticky -->
+    <div class="keygroup keygroup--mods">
+      <button class="key key--mod" data-mod="ctrl">Ctrl</button>
+      <button class="key key--mod" data-mod="alt">Alt</button>
+      <button class="key key--mod" data-mod="super">Super</button>
+      <button class="key key--mod" data-mod="shift">Shift</button>
+    </div>
+
+    <!-- Grupo 2: navegación -->
+    <div class="keygroup keygroup--nav">
+      <button class="key key--special" data-key="Home">Inicio</button>
+      <button class="key key--special" data-key="End">Fin</button>
+      <button class="key key--special" data-key="PageUp">RePág</button>
+      <button class="key key--special" data-key="PageDown">AvPág</button>
+    </div>
+    <div class="keygroup keygroup--arrows">
+      <button class="key key--special key--arrow" data-key="ArrowLeft">←</button>
+      <button class="key key--special key--arrow" data-key="ArrowDown">↓</button>
+      <button class="key key--special key--arrow" data-key="ArrowUp">↑</button>
+      <button class="key key--special key--arrow" data-key="ArrowRight">→</button>
+    </div>
+
+    <!-- Grupo 3: edición / control -->
+    <div class="keygroup keygroup--edit">
+      <button class="key key--special" data-key="Escape">Esc</button>
+      <button class="key key--special" data-key="Tab">Tab</button>
+      <button class="key key--special" data-key="Delete">Supr</button>
+      <button class="key key--special" data-key="Enter" title="salto de línea (no envía; para enviar usá el Enter del teclado)">↵ Línea</button>
+    </div>
+
+    <!-- Área que enfoca el input oculto y despliega el teclado nativo -->
+    <div id="kbd-area" class="kbd-area" role="textbox" tabindex="-1">
+      <span class="kbd-area__label">tocá acá para escribir</span>
+      <!-- Input oculto: capta beforeinput del teclado virtual. -->
+      <input id="hidden-input" class="hidden-input"
+             type="text"
+             autocomplete="off" autocorrect="off" autocapitalize="off"
+             spellcheck="false" aria-hidden="true" tabindex="-1">
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

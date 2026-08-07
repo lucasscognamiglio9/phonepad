@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>PHONEPAD — Editorial / Brutalist</title>
+
+<!-- Fonts: Archivo Black (display grotesque, heavy) + Space Mono (specimen labels) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+
+<style>
+/* ============================================================
+   PHONEPAD — Editorial / Brutalist specimen UI
+   Palette: bone (#f4f1ea) + black (#0a0a0a) + vermilion (#e23b2e)
+   Type is the protagonist. Grid is visible. Motion is sharp.
+   ============================================================ */
+
+:root{
+  --bone:#f4f1ea;
+  --ink:#0a0a0a;
+  --verm:#e23b2e;
+  --line:rgba(10,10,10,.16);   /* hairline grid on bone */
+  --gap:1px;
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+
+html,body{ height:100%; }
+
+body{
+  background:
+    /* scene: faint dot field on a deep ink stage */
+    radial-gradient(circle at 1px 1px, rgba(244,241,234,.06) 1px, transparent 0) 0 0 / 22px 22px,
+    #161513;
+  font-family:"Space Mono", ui-monospace, monospace;
+  color:var(--ink);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:100vh;
+  padding:32px 16px;
+  cursor:crosshair;             /* editorial custom cursor */
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* ---- scene chrome around the phone (desktop only) ---- */
+.scene-tag{
+  position:fixed;
+  font-family:"Space Mono",monospace;
+  font-size:10px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:rgba(244,241,234,.42);
+  user-select:none;
+}
+.scene-tag.tl{ top:18px; left:20px; }
+.scene-tag.tr{ top:18px; right:20px; text-align:right; }
+.scene-tag.bl{ bottom:18px; left:20px; }
+.scene-tag.br{ bottom:18px; right:20px; text-align:right; }
+.scene-tag .verm{ color:var(--verm); }
+
+/* ============================================================
+   PHONE FRAME
+   ============================================================ */
+.phone{
+  position:relative;
+  width:390px;
+  max-width:100%;
+  height:840px;
+  max-height:92vh;
+  background:var(--bone);
+  border:3px solid var(--ink);
+  box-shadow:14px 14px 0 var(--verm), 0 0 0 1px var(--ink);
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+}
+
+/* visible structural grid columns over the whole device */
+.phone::before{
+  content:"";
+  position:absolute; inset:0;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px);
+  background-size:calc(100% / 6) 100%;
+  pointer-events:none;
+  z-index:2;
+  mix-blend-mode:multiply;
+}
+
+/* ---- HEADER ---- */
+.header{
+  position:relative;
+  z-index:3;
+  border-bottom:3px solid var(--ink);
+  padding:12px 14px 10px;
+  flex:0 0 auto;
+}
+.header-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  font-size:10px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+}
+.header-top .sec{ color:var(--verm); font-weight:700; }
+.wordmark{
+  font-family:"Archivo Black", sans-serif;
+  font-size:54px;
+  line-height:.84;
+  letter-spacing:-.03em;
+  margin-top:6px;
+  text-transform:uppercase;
+}
+.wordmark .pad{ color:var(--bone); -webkit-text-stroke:2px var(--ink); }
+.header-meta{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-top:8px;
+  font-size:9.5px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+}
+.badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  background:var(--ink);
+  color:var(--bone);
+  padding:3px 8px;
+  font-weight:700;
+  letter-spacing:.2em;
+}
+.dot{
+  width:7px; height:7px; background:var(--verm);
+  animation:blink 1.1s steps(2,end) infinite;
+}
+@keyframes blink{ 50%{ opacity:0; } }
+
+/* ============================================================
+   TRACKPAD ZONE
+   ============================================================ */
+.pad{
+  position:relative;
+  z-index:3;
+  flex:1 1 auto;
+  background:var(--bone);
+  border-bottom:3px solid var(--ink);
+  overflow:hidden;
+  user-select:none;
+  -webkit-user-select:none;
+  touch-action:none;
+}
+/* big rotated TYPE specimen, clipped by the grid */
+.pad-type{
+  position:absolute;
+  top:50%; left:50%;
+  transform:translate(-50%,-50%) rotate(-90deg);
+  transform-origin:center;
+  font-family:"Archivo Black", sans-serif;
+  font-size:128px;
+  line-height:.8;
+  letter-spacing:-.04em;
+  text-transform:uppercase;
+  white-space:nowrap;
+  color:var(--ink);
+  pointer-events:none;
+  opacity:.92;
+}
+.pad-type .mid{
+  color:var(--bone);
+  -webkit-text-stroke:2.5px var(--ink);
+}
+/* horizontal section rule with number, top-left of pad */
+.pad-rule{
+  position:absolute;
+  top:14px; left:14px; right:14px;
+  display:flex;
+  justify-content:space-between;
+  font-size:10px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  pointer-events:none;
+}
+.pad-rule .num{
+  font-family:"Archivo Black",sans-serif;
+  color:var(--verm);
+  font-size:14px;
+  letter-spacing:0;
+}
+/* live coordinate readout, bottom of pad */
+.pad-coords{
+  position:absolute;
+  bottom:12px; left:14px; right:14px;
+  display:flex;
+  justify-content:space-between;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.08em;
+  pointer-events:none;
+  color:var(--ink);
+}
+.pad-coords .lab{ opacity:.5; font-weight:400; }
+/* sharp vermilion flash block on tap */
+.pad-flash{
+  position:absolute; inset:0;
+  background:var(--verm);
+  opacity:0;
+  pointer-events:none;
+  mix-blend-mode:multiply;
+}
+.pad-flash.fire{
+  opacity:1;
+  transition:none;            /* instant on */
+}
+.pad-flash.fade{
+  opacity:0;
+  transition:opacity .22s steps(4,end);  /* sharp stepped fade */
+}
+/* moving target crosshair following pointer */
+.pad-cross{
+  position:absolute;
+  width:34px; height:34px;
+  border:2px solid var(--verm);
+  transform:translate(-50%,-50%);
+  pointer-events:none;
+  opacity:0;
+  mix-blend-mode:multiply;
+}
+.pad-cross::before,.pad-cross::after{
+  content:""; position:absolute; background:var(--verm);
+}
+.pad-cross::before{ left:50%; top:-7px; width:2px; height:8px; transform:translateX(-50%); }
+.pad-cross::after{ left:50%; bottom:-7px; width:2px; height:8px; transform:translateX(-50%); }
+.pad.active .pad-cross{ opacity:1; }
+
+/* ============================================================
+   DRAWER (controls)
+   ============================================================ */
+.drawer{
+  position:relative;
+  z-index:3;
+  flex:0 0 auto;
+  background:var(--ink);
+  color:var(--bone);
+  padding:12px 12px 14px;
+}
+.drawer-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  font-size:9.5px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:rgba(244,241,234,.55);
+  margin-bottom:9px;
+}
+.drawer-head .sec{ color:var(--verm); font-weight:700; }
+
+/* modifier row */
+.mods{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:var(--gap);
+  background:rgba(244,241,234,.18);   /* gap lines */
+  border:1px solid rgba(244,241,234,.18);
+  margin-bottom:8px;
+}
+.key{
+  background:var(--ink);
+  color:var(--bone);
+  font-family:"Space Mono",monospace;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:11px 4px;
+  text-align:center;
+  cursor:pointer;
+  user-select:none;
+  transition:background .04s steps(1), color .04s steps(1);
+}
+.key:active,.key.on{ background:var(--bone); color:var(--ink); }  /* sharp inversion */
+
+/* special keys row */
+.special{
+  display:grid;
+  grid-template-columns:1fr 1fr 1.4fr;
+  gap:var(--gap);
+  background:rgba(244,241,234,.18);
+  border:1px solid rgba(244,241,234,.18);
+  margin-bottom:8px;
+}
+.special .key{ font-size:10px; padding:12px 4px; }
+
+/* type field + mic */
+.row{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:8px;
+}
+.typefield{
+  border:1px solid rgba(244,241,234,.4);
+  padding:13px 12px;
+  font-size:11px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:rgba(244,241,234,.6);
+  cursor:text;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.typefield .car{
+  display:inline-block; width:9px; height:15px; background:var(--verm);
+  animation:blink 1s steps(2,end) infinite;
+}
+.mic{
+  background:var(--verm);
+  color:var(--bone);
+  border:none;
+  font-family:"Archivo Black",sans-serif;
+  font-size:14px;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+  padding:0 18px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  transition:none;
+}
+.mic:active,.mic.rec{ background:var(--bone); color:var(--verm); }  /* invert */
+.mic .tri{ font-size:11px; }
+.mic.rec .lab::after{ content:"REC"; }
+.mic .lab::after{ content:"MIC"; }
+
+/* footer specimen strip */
+.foot{
+  display:flex;
+  justify-content:space-between;
+  font-size:8.5px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:rgba(244,241,234,.4);
+  margin-top:11px;
+  border-top:1px solid rgba(244,241,234,.16);
+  padding-top:8px;
+}
+.foot .verm{ color:var(--verm); }
+
+/* ============================================================
+   STAGGERED REVEAL ON LOAD
+   ============================================================ */
+.reveal{ opacity:0; transform:translateY(14px); }
+.loaded .reveal{
+  opacity:1; transform:none;
+  transition:opacity .01s, transform .34s cubic-bezier(.16,.84,.3,1);
+}
+.loaded .reveal{ transition-delay:calc(var(--i,0) * 70ms); }
+/* wordmark slams in harder */
+.loaded .wordmark.reveal{ transform:none; }
+
+/* responsive: small phones */
+@media (max-height:700px){
+  .phone{ height:96vh; }
+  .pad-type{ font-size:100px; }
+  .wordmark{ font-size:46px; }
+}
+@media (max-width:430px){
+  .scene-tag{ display:none; }
+  body{ padding:0; }
+  .phone{ border-width:2px; box-shadow:8px 8px 0 var(--verm); height:100vh; max-height:100vh; }
+}
+</style>
+</head>
+<body>
+
+<!-- scene specimen tags (desktop framing) -->
+<div class="scene-tag tl">PHONEPAD&nbsp; / &nbsp;UI SPECIMEN<br /><span class="verm">DIR 01 — EDITORIAL / BRUTALIST</span></div>
+<div class="scene-tag tr">REMOTE TOUCHPAD<br />+ KEYBOARD</div>
+<div class="scene-tag bl">390 × 840 PX<br />es-AR</div>
+<div class="scene-tag br">SET IN ARCHIVO BLACK<br /><span class="verm">&amp; SPACE MONO</span></div>
+
+<!-- ========================= PHONE ========================= -->
+<main class="phone" id="phone">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-top reveal" style="--i:0">
+      <span class="sec">01 — DEVICE</span>
+      <span>v0.1</span>
+    </div>
+    <h1 class="wordmark reveal" style="--i:1">PHONE<span class="pad">PAD</span></h1>
+    <div class="header-meta reveal" style="--i:2">
+      <span>TYPE: REMOTE TRACKPAD</span>
+      <span class="badge"><i class="dot"></i> LIVE</span>
+    </div>
+  </header>
+
+  <!-- TRACKPAD -->
+  <section class="pad" id="pad">
+    <div class="pad-rule reveal" style="--i:3">
+      <span><span class="num">02</span>&nbsp;&nbsp;SURFACE</span>
+      <span>MOVE TO POINT</span>
+    </div>
+
+    <div class="pad-type reveal" style="--i:4">TRACK<span class="mid">·</span>PAD</div>
+
+    <div class="pad-cross" id="cross"></div>
+    <div class="pad-flash" id="flash"></div>
+
+    <div class="pad-coords reveal" style="--i:5">
+      <span><span class="lab">X</span> <b id="cx">000</b> &nbsp; <span class="lab">Y</span> <b id="cy">000</b></span>
+      <span><span class="lab">EVT</span> <b id="evt">IDLE</b></span>
+    </div>
+  </section>
+
+  <!-- DRAWER -->
+  <section class="drawer reveal" style="--i:6">
+    <div class="drawer-head">
+      <span><span class="sec">03</span>&nbsp;&nbsp;INPUT</span>
+      <span>MODIFIERS · KEYS · VOICE</span>
+    </div>
+
+    <!-- modifiers -->
+    <div class="mods" id="mods">
+      <div class="key" data-mod>CTRL</div>
+      <div class="key" data-mod>ALT</div>
+      <div class="key" data-mod>SUPER</div>
+      <div class="key" data-mod>SHIFT</div>
+    </div>
+
+    <!-- special keys -->
+    <div class="special">
+      <div class="key" data-tap>ESC</div>
+      <div class="key" data-tap>TAB</div>
+      <div class="key" data-tap>↵ ENTER</div>
+    </div>
+
+    <!-- type field + mic -->
+    <div class="row">
+      <div class="typefield" id="typefield">
+        <span id="typetext">TAP TO TYPE</span><span class="car"></span>
+      </div>
+      <button class="mic" id="mic">
+        <span class="tri">▶</span><span class="lab"></span>
+      </button>
+    </div>
+
+    <!-- specimen footer -->
+    <div class="foot">
+      <span>FIG. <span class="verm">03.1</span></span>
+      <span>0.42 ms RTT</span>
+      <span>© PHONEPAD</span>
+    </div>
+  </section>
+
+</main>
+
+<script>
+/* ============================================================
+   Interaction — sharp, brutalist. Minimal easing, max impact.
+   ============================================================ */
+(function(){
+  const phone = document.getElementById('phone');
+
+  /* staggered reveal on load */
+  window.requestAnimationFrame(()=> phone.classList.add('loaded'));
+
+  /* ---- TRACKPAD: live coords + crosshair + tap flash ---- */
+  const pad   = document.getElementById('pad');
+  const cross = document.getElementById('cross');
+  const flash = document.getElementById('flash');
+  const cx = document.getElementById('cx');
+  const cy = document.getElementById('cy');
+  const evt = document.getElementById('evt');
+
+  const pad3 = n => String(Math.max(0, Math.round(n))).padStart(3,'0');
+
+  function move(e){
+    const r = pad.getBoundingClientRect();
+    const p = e.touches ? e.touches[0] : e;
+    const x = p.clientX - r.left;
+    const y = p.clientY - r.top;
+    if(x < 0 || y < 0 || x > r.width || y > r.height) return;
+    pad.classList.add('active');
+    cross.style.left = x + 'px';
+    cross.style.top  = y + 'px';
+    cx.textContent = pad3(x);
+    cy.textContent = pad3(y);
+    evt.textContent = 'MOVE';
+  }
+  function leave(){ pad.classList.remove('active'); evt.textContent = 'IDLE'; }
+
+  pad.addEventListener('mousemove', move);
+  pad.addEventListener('mouseleave', leave);
+  pad.addEventListener('touchmove', e=>{ e.preventDefault(); move(e); }, {passive:false});
+  pad.addEventListener('touchend', leave);
+
+  /* sharp vermilion flash on tap/click */
+  let flashTimer;
+  function doFlash(){
+    clearTimeout(flashTimer);
+    flash.classList.remove('fade');
+    flash.classList.add('fire');
+    evt.textContent = 'TAP';
+    // force reflow so the instant-on registers before fade
+    void flash.offsetWidth;
+    flash.classList.remove('fire');
+    flash.classList.add('fade');
+    flashTimer = setTimeout(()=>{ if(!pad.matches(':hover')) evt.textContent='IDLE'; }, 240);
+  }
+  pad.addEventListener('mousedown', doFlash);
+  pad.addEventListener('touchstart', e=>{ doFlash(); }, {passive:true});
+
+  /* ---- MODIFIERS: toggle, sticky ---- */
+  document.querySelectorAll('[data-mod]').forEach(k=>{
+    k.addEventListener('click', ()=> k.classList.toggle('on'));
+  });
+
+  /* ---- SPECIAL KEYS: momentary flash ---- */
+  document.querySelectorAll('[data-tap]').forEach(k=>{
+    k.addEventListener('click', ()=>{
+      k.classList.add('on');
+      setTimeout(()=> k.classList.remove('on'), 110);
+    });
+  });
+
+  /* ---- TYPE FIELD: focus state ---- */
+  const tf = document.getElementById('typefield');
+  const tt = document.getElementById('typetext');
+  let typing = false;
+  tf.addEventListener('click', ()=>{
+    typing = !typing;
+    tt.textContent = typing ? 'LISTENING FOR KEYS…' : 'TAP TO TYPE';
+    tf.style.color = typing ? 'var(--bone)' : '';
+    tf.style.borderColor = typing ? 'var(--verm)' : '';
+  });
+
+  /* ---- MIC: record toggle ---- */
+  const mic = document.getElementById('mic');
+  mic.addEventListener('click', ()=> mic.classList.toggle('rec'));
+
+})();
+</script>
+</body>
+</html>

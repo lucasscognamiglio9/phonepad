@@ -1,0 +1,7 @@
+{
+  "uuid": "phonepad@local",
+  "name": "phonepad",
+  "description": "Toggle de Quick Settings (estilo Caffeine) para prender/apagar el daemon de phonepad y abrir la vista de pairing en el primer emparejamiento.",
+  "shell-version": ["50"],
+  "version": 1
+}

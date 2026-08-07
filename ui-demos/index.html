@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>phonepad · 3 direcciones de UI</title>
+<style>
+  :root { --bg:#101216; --fg:#e8e6e1; --muted:#8a8f99; --line:#262a31; }
+  * { box-sizing: border-box; }
+  body {
+    margin:0; background:
+      radial-gradient(1200px 600px at 50% -10%, #1b1f27 0%, var(--bg) 60%);
+    color:var(--fg); font:15px/1.5 ui-sans-serif,system-ui,sans-serif;
+    min-height:100vh;
+  }
+  header { padding:28px 32px 8px; }
+  header h1 { margin:0; font-size:20px; letter-spacing:.02em; font-weight:650; }
+  header p { margin:6px 0 0; color:var(--muted); font-size:13.5px; }
+  .row {
+    display:flex; gap:28px; padding:24px 32px 48px; overflow-x:auto;
+    align-items:flex-start; scroll-snap-type:x mandatory;
+  }
+  .card { flex:0 0 auto; scroll-snap-align:center; }
+  .card h2 {
+    margin:0 0 4px; font-size:15px; font-weight:650; letter-spacing:.01em;
+    display:flex; align-items:baseline; gap:8px;
+  }
+  .card h2 b { color:#f5a623; } .t b{color:#f5a623} .te b{color:#4ade80} .e b{color:#e23b2e}
+  .card .desc { color:var(--muted); font-size:12.5px; margin:0 0 14px; max-width:380px; min-height:34px; }
+  .phone {
+    width:390px; height:800px; border-radius:34px; overflow:hidden;
+    border:1px solid var(--line); background:#000;
+    box-shadow:0 30px 80px -20px rgba(0,0,0,.7), 0 0 0 1px rgba(255,255,255,.02) inset;
+  }
+  .phone iframe { width:100%; height:100%; border:0; display:block; }
+  .num { color:var(--muted); font:600 11px/1 ui-monospace,monospace; letter-spacing:.1em; }
+  footer { color:var(--muted); padding:0 32px 40px; font-size:12.5px; }
+  footer code { color:var(--fg); background:#1b1f27; padding:1px 6px; border-radius:5px; }
+</style>
+</head>
+<body>
+  <header>
+    <h1>phonepad — elegí la dirección de UI</h1>
+    <p>Tres pieles del mismo layout. Tocá el touchpad (ripple/trail), probá los botones y el mic. Deslizá horizontal si no entran en pantalla.</p>
+  </header>
+  <div class="row">
+    <div class="card">
+      <h2 class="t"><span class="num">01</span> Tactile <b>Instrument</b></h2>
+      <p class="desc">Hardware premium (Teenage Engineering / Braun). Grafito + ámbar, superficie física, ripple y trail.</p>
+      <div class="phone"><iframe src="tactile.html" title="Tactile Instrument" loading="eager"></iframe></div>
+    </div>
+    <div class="card">
+      <h2 class="te"><span class="num">02</span> Terminal <b>Phosphor</b></h2>
+      <p class="desc">CRT / TTY nerd. Negro + verde fósforo, scanlines, boot sequence, trail fosforescente y telemetría en vivo.</p>
+      <div class="phone"><iframe src="terminal.html" title="Terminal Phosphor" loading="eager"></iframe></div>
+    </div>
+    <div class="card">
+      <h2 class="e"><span class="num">03</span> Editorial <b>Brutalist</b></h2>
+      <p class="desc">Statement tipográfico. Blanco hueso + bermellón, grotesca enorme, grid visible, inversiones nítidas.</p>
+      <div class="phone"><iframe src="editorial.html" title="Editorial Brutalist" loading="eager"></iframe></div>
+    </div>
+  </div>
+  <footer>
+    ¿Cuál te llama? Decime el número (o mezclá: “el 1 pero con la telemetría del 2”). La ejecuto a 5/5 sobre la base que deje el workflow.
+  </footer>
+</body>
+</html>
