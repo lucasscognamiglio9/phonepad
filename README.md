@@ -15,7 +15,8 @@ El daemon Go conserva también un cliente web y el flujo de captura del navegado
 - Flechas y modificadores aparecen en Teclas extra; Copiar/Pegar, Esc y Tab tienen etiquetas visibles.
 
 Documentación actual: [app iPhone](mobile/README.md), [controles](docs/control-ux.md),
-[verificación del 12 de septiembre](docs/verificacion-2026-09-12.md).
+[verificación del 12 de septiembre](docs/verificacion-2026-09-12.md),
+[auditoría de requisitos y pendientes](docs/auditoria-requisitos.md).
 Los informes anteriores conservan pruebas y decisiones históricas; las mediciones
 locales de FPS no equivalen a cuadros presentados en el iPhone.
 
