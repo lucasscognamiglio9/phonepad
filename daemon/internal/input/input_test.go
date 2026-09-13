@@ -78,6 +78,30 @@ func TestAsyncText_SerializesKeyboardAndTouchFIFO(t *testing.T) {
 	}
 }
 
+type cancelRecordingInjector struct{ *fakeInjector }
+
+func (c *cancelRecordingInjector) CancelTouch() {
+	c.calls = append(c.calls, call{"CancelTouch", nil})
+}
+
+func TestAsyncText_QueuesTouchCancelAfterFrames(t *testing.T) {
+	inner := &cancelRecordingInjector{fakeInjector: &fakeInjector{}}
+	a := NewAsyncText(inner, 8)
+	a.Touch([]Contact{{ID: 4, X: .2, Y: .3}})
+	a.CancelTouch()
+	a.Touch([]Contact{{ID: 5, X: .8, Y: .7}})
+	a.Close()
+	want := []call{
+		{"Touch", []any{[]Contact{{ID: 4, X: .2, Y: .3}}}},
+		{"CancelTouch", nil},
+		{"Touch", []any{[]Contact{{ID: 5, X: .8, Y: .7}}}},
+		{"Close", nil},
+	}
+	if !reflect.DeepEqual(inner.calls, want) {
+		t.Fatalf("touch cancellation FIFO = %+v, want %+v", inner.calls, want)
+	}
+}
+
 func TestAsyncText_ResetDropsQueuedFrames(t *testing.T) {
 	g := &gatedInjector{fakeInjector: &fakeInjector{}, started: make(chan struct{}), release: make(chan struct{})}
 	a := NewAsyncText(g, 1)
@@ -553,8 +577,10 @@ var _ Injector = (*fakeInjector)(nil)
 
 // Y que la implementación real cumple ambas interfaces (relativa y absoluta).
 var (
-	_ Injector    = (*uinputDevice)(nil)
-	_ AbsInjector = (*uinputDevice)(nil)
+	_ Injector      = (*uinputDevice)(nil)
+	_ AbsInjector   = (*uinputDevice)(nil)
+	_ TouchCanceler = (*uinputDevice)(nil)
+	_ TouchCanceler = (*asyncText)(nil)
 )
 
 func TestFakeInjectorRecordsCalls(t *testing.T) {
@@ -578,5 +604,67 @@ func TestFakeInjectorRecordsCalls(t *testing.T) {
 	}
 	if !reflect.DeepEqual(f.calls, want) {
 		t.Errorf("calls = %+v, want %+v", f.calls, want)
+	}
+}
+
+// Exercise the actual Linux keyboard injector without emitting desktop input.
+type shortcutKeyboard struct {
+	*recordingKeyboard
+	events [][2]int
+}
+
+func (k *shortcutKeyboard) KeyDown(code int) error {
+	k.events = append(k.events, [2]int{1, code})
+	return nil
+}
+func (k *shortcutKeyboard) KeyPress(code int) error {
+	k.events = append(k.events, [2]int{2, code})
+	return nil
+}
+func (k *shortcutKeyboard) KeyUp(code int) error {
+	k.events = append(k.events, [2]int{0, code})
+	return nil
+}
+
+func TestMobileShortcutKeyboardEdges(t *testing.T) {
+	for _, tc := range []struct {
+		key      string
+		mods     []string
+		code     int
+		modCodes []int
+	}{
+		{"Enter", nil, uinput.KeyEnter, nil},
+		{"Enter", []string{"shift"}, uinput.KeyEnter, []int{uinput.KeyLeftshift}},
+		{"c", []string{"ctrl"}, uinput.KeyC, []int{uinput.KeyLeftctrl}},
+		{"v", []string{"ctrl"}, uinput.KeyV, []int{uinput.KeyLeftctrl}},
+		{"Tab", []string{"alt"}, uinput.KeyTab, []int{uinput.KeyLeftalt}},
+		{"a", []string{"super"}, uinput.KeyA, []int{uinput.KeyLeftmeta}},
+		{"Escape", nil, uinput.KeyEsc, nil},
+		{"ArrowLeft", []string{"shift"}, uinput.KeyLeft, []int{uinput.KeyLeftshift}},
+		{"ArrowRight", nil, uinput.KeyRight, nil},
+		{"ArrowUp", nil, uinput.KeyUp, nil},
+		{"ArrowDown", nil, uinput.KeyDown, nil},
+	} {
+		k := &shortcutKeyboard{recordingKeyboard: &recordingKeyboard{}}
+		d := &uinputDevice{kbd: k, held: make(map[int]struct{})}
+		if len(tc.mods) == 0 {
+			d.Special(tc.key)
+		} else {
+			d.Combo(tc.mods, tc.key)
+		}
+		var want [][2]int
+		for _, code := range tc.modCodes {
+			want = append(want, [2]int{1, code})
+		}
+		want = append(want, [2]int{2, tc.code})
+		for i := len(tc.modCodes) - 1; i >= 0; i-- {
+			want = append(want, [2]int{0, tc.modCodes[i]})
+		}
+		if !reflect.DeepEqual(k.events, want) {
+			t.Fatalf("%v + %s: got %v, want %v", tc.mods, tc.key, k.events, want)
+		}
+		if len(d.held) != 0 {
+			t.Fatalf("modifier stuck after %v + %s", tc.mods, tc.key)
+		}
 	}
 }

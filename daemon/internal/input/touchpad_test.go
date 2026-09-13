@@ -52,6 +52,7 @@ func TestMTFrameSecondFingerAdded(t *testing.T) {
 		{evAbs, absMTPositionX, 1120},
 		{evAbs, absMTPositionY, 980},
 		{evAbs, absMTSlot, 1}, // contacto 2 (nuevo)
+		{evAbs, absMTToolType, mtToolFinger},
 		{evAbs, absMTTrackingID, 2},
 		{evAbs, absMTPositionX, 1680},
 		{evAbs, absMTPositionY, 980},
@@ -89,6 +90,7 @@ func TestMTFrameSingleContactDown(t *testing.T) {
 	got := s.frame([]Contact{{ID: 7, X: 0.5, Y: 0.25}})
 	want := []evt{
 		{evAbs, absMTSlot, 0},
+		{evAbs, absMTToolType, mtToolFinger},
 		{evAbs, absMTTrackingID, 1},
 		{evAbs, absMTPositionX, 1400},
 		{evAbs, absMTPositionY, 490},
@@ -109,16 +111,67 @@ func TestMTResetReleasesSlotsAndRestartsTrackingIDs(t *testing.T) {
 	got := s.reset()
 	want := []evt{
 		{evAbs, absMTSlot, 0},
+		{evAbs, absMTToolType, mtToolPalm},
+		{evSyn, synReport, 0},
+		{evAbs, absMTSlot, 0},
 		{evAbs, absMTTrackingID, -1},
 		{evKey, btnToolFinger, 0},
+		{evKey, btnToolDoubletap, 0},
+		{evKey, btnToolTripletap, 0},
+		{evKey, btnToolQuadtap, 0},
+		{evKey, btnToolQuinttap, 0},
 		{evKey, btnTouch, 0},
 		{evSyn, synReport, 0},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("reset = %#v, want %#v", got, want)
 	}
-	if got := s.frame([]Contact{{ID: 10, X: .4, Y: .4}}); len(got) < 2 || got[1].val != 1 {
+	if got := s.frame([]Contact{{ID: 10, X: .4, Y: .4}}); len(got) < 3 || got[2].val != 1 {
 		t.Fatalf("tracking ID no reinició en 1: %#v", got)
+	}
+}
+
+func TestMTCancelMarksActiveSlotsPalmThenLifts(t *testing.T) {
+	s := newMTState(2800, 1960)
+	s.frame([]Contact{{ID: 9, X: .2, Y: .3}, {ID: 10, X: .8, Y: .7}})
+	got := s.cancel()
+	want := []evt{
+		{evAbs, absMTSlot, 0},
+		{evAbs, absMTToolType, mtToolPalm},
+		{evAbs, absMTSlot, 1},
+		{evAbs, absMTToolType, mtToolPalm},
+		{evSyn, synReport, 0},
+		{evAbs, absMTSlot, 0},
+		{evAbs, absMTTrackingID, -1},
+		{evAbs, absMTSlot, 1},
+		{evAbs, absMTTrackingID, -1},
+		{evKey, btnToolFinger, 0},
+		{evKey, btnToolDoubletap, 0},
+		{evKey, btnToolTripletap, 0},
+		{evKey, btnToolQuadtap, 0},
+		{evKey, btnToolQuinttap, 0},
+		{evKey, btnTouch, 0},
+		{evSyn, synReport, 0},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("cancel =\n%#v\nwant\n%#v", got, want)
+	}
+	if s.count != 0 || s.nextTID != 1 {
+		t.Fatalf("cancel state = count %d nextTID %d, want empty/reset", s.count, s.nextTID)
+	}
+	for slot, id := range s.slotID {
+		if id != -1 {
+			t.Fatalf("slot %d remained active: %d", slot, id)
+		}
+	}
+}
+
+func TestMTCancelWithoutActiveContactsStillSynchronizes(t *testing.T) {
+	s := newMTState(2800, 1960)
+	got := s.cancel()
+	want := []evt{{evSyn, synReport, 0}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("empty cancel = %#v, want %#v", got, want)
 	}
 }
 

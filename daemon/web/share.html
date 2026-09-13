@@ -1,0 +1,14 @@
+<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Compartir escritorio · Phonepad</title>
+<style>body{font:16px system-ui;background:#15171c;color:#f4f1ea;max-width:900px;margin:40px auto;padding:24px}a{color:#3ecf8e}h1{font-size:32px}p{line-height:1.6;color:#bbb}button{font:inherit;padding:14px 20px;border:0;border-radius:8px;margin:8px 8px 8px 0;cursor:pointer}#share-start{background:#3ecf8e}video{width:100%;max-height:55vh;background:#080a0c;border-radius:12px}#share-status{color:#f4f1ea;min-height:30px}</style>
+<a href="/pair">← Emparejar teléfono</a><h1>Tu escritorio, en el teléfono.</h1>
+<p>Elegí una pantalla o ventana. Solo el teléfono emparejado puede recibir el video. Dejá esta página abierta durante la sesión; no se graba ni se envía a servicios externos.</p>
+<label for="video-profile">Calidad objetivo</label>
+<select id="video-profile" style="padding:12px;font:inherit;margin:12px;background:#242930;color:#fff">
+<option value="fast">Fluido · 1080p / 60 fps</option>
+<option value="light">Ligero · 720p / 60 fps</option>
+<option value="eco">Ahorro · 720p / 30 fps</option></select>
+<p>El rendimiento real depende de la captura, la laptop, el teléfono y el Wi-Fi. Si hay demora, probá Ligero antes de aumentar la calidad.</p>
+<button id="share-start">Elegir pantalla y compartir</button><button id="share-stop" disabled>Dejar de compartir</button><p id="share-status" role="status">La captura está apagada.</p>
+<details><summary>Rendimiento real de la sesión</summary><pre id="video-diagnostics" style="white-space:pre-wrap">Iniciá una captura para medir.</pre><button id="save-diagnostics">Guardar diagnóstico</button></details>
+<video id="preview" autoplay muted playsinline></video><p>En el teléfono, tocá <strong>Ver escritorio</strong>. Si no conecta, verificá que ambos estén en la misma red y que el Wi-Fi permita comunicación entre dispositivos. Detener la captura mantiene disponible el touchpad; para detener todo, apagá Phonepad.</p>
+<script src="/desktop.js"></script></html>

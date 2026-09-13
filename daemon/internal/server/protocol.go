@@ -50,6 +50,10 @@ type Msg struct {
 	// t: foto de los contactos vivos del frame (touchpad de precisión, ADR 0005).
 	// Coordenadas normalizadas 0..1; el daemon las mapea a slots MT Type B.
 	Touches []input.Contact `json:"c"`
+	// cancel marks the end of an interrupted touch sequence. It is only valid
+	// with an explicitly empty contact snapshot; the input layer then reports
+	// MT_TOOL_PALM before releasing the slots.
+	Cancel bool `json:"cancel,omitempty"`
 }
 
 // Parse decodifica un text frame JSON a un Msg tipado.
@@ -66,6 +70,9 @@ func Parse(data []byte) (Msg, bool) {
 		return Msg{}, false
 	}
 	if m.Type == "" {
+		return Msg{}, false
+	}
+	if m.Cancel && m.Type != "t" {
 		return Msg{}, false
 	}
 	if m.Type == "t" {
@@ -138,6 +145,9 @@ func validMsg(m Msg) bool {
 			return false
 		}
 	case "t":
+		if m.Cancel && len(m.Touches) != 0 {
+			return false
+		}
 		if len(m.Touches) > maxContacts {
 			return false
 		}

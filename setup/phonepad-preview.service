@@ -1,0 +1,12 @@
+[Unit]
+Description=Phonepad on-demand screen preview
+After=graphical-session.target
+PartOf=graphical-session.target
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/lib/phonepad/capture.py
+EnvironmentFile=-%h/.config/phonepad/video.env
+EnvironmentFile=-%h/.config/phonepad/hfr.env
+Restart=on-failure
+RestartSec=3
+[Install]
+WantedBy=default.target

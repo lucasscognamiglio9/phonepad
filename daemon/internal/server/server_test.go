@@ -19,6 +19,8 @@ import (
 // staticAuth es un Authenticator de prueba con un token fijo (Paired=false).
 type staticAuth string
 
+func (a staticAuth) Token() string { return string(a) }
+
 func (a staticAuth) Valid(token string) bool { return token == string(a) }
 func (a staticAuth) MarkPaired() error       { return nil }
 func (a staticAuth) Paired() bool            { return false }
@@ -34,6 +36,7 @@ type fakeInjector struct {
 	combos   []comboCall
 	gestures []string
 	touches  [][]input.Contact
+	cancels  int
 }
 
 type buttonCall struct {
@@ -59,7 +62,8 @@ func (f *fakeInjector) Gesture(name string) { f.gestures = append(f.gestures, na
 func (f *fakeInjector) Touch(contacts []input.Contact) {
 	f.touches = append(f.touches, contacts)
 }
-func (f *fakeInjector) Close() {}
+func (f *fakeInjector) CancelTouch() { f.cancels++ }
+func (f *fakeInjector) Close()       {}
 
 // Garantiza en compilación que el fake implementa la interfaz.
 var _ input.Injector = (*fakeInjector)(nil)
@@ -94,6 +98,18 @@ func TestRouteTouch(t *testing.T) {
 	want := [][]input.Contact{{{ID: 1, X: 0.5, Y: 0.25}, {ID: 2, X: 0.1, Y: 0.9}}}
 	if !reflect.DeepEqual(f.touches, want) {
 		t.Errorf("touches = %v, want %v", f.touches, want)
+	}
+}
+
+func TestRouteTouchCancel(t *testing.T) {
+	f := &fakeInjector{}
+	s := New(staticAuth("tok"), f, nil, "http://192.168.1.40:8080/?token=tok")
+	routeMsg(s, `{"t":"t","c":[],"cancel":true}`)
+	if f.cancels != 1 {
+		t.Fatalf("cancel count = %d, want 1", f.cancels)
+	}
+	if len(f.touches) != 0 {
+		t.Fatalf("cancel unexpectedly routed as touch snapshot: %v", f.touches)
 	}
 }
 
@@ -178,7 +194,7 @@ func TestWS_RejectsBadToken(t *testing.T) {
 	// responde 401 sin intentar el handshake WS.
 	f := &fakeInjector{}
 	s := New(staticAuth("tok"), f, nil, "http://192.168.1.40:8080/?token=tok")
-	req := httptest.NewRequest(http.MethodGet, "/ws?token=wrong", nil)
+	req := localRequest(http.MethodGet, "/ws?token=wrong")
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
@@ -239,14 +255,14 @@ func TestPairingEndpointsRejectLAN(t *testing.T) {
 
 func TestAuthPreflight(t *testing.T) {
 	s := New(staticAuth("tok"), &fakeInjector{}, nil, "https://192.168.1.40:8080/?token=tok")
-	req := httptest.NewRequest(http.MethodGet, "/api/auth", nil)
+	req := localRequest(http.MethodGet, "/api/auth")
 	req.Header.Set("Authorization", "Bearer tok")
 	rec := httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("valid auth status=%d, want 204", rec.Code)
 	}
-	req = httptest.NewRequest(http.MethodGet, "/api/auth", nil)
+	req = localRequest(http.MethodGet, "/api/auth")
 	req.Header.Set("Authorization", "Bearer wrong")
 	rec = httptest.NewRecorder()
 	s.Handler().ServeHTTP(rec, req)
@@ -267,8 +283,8 @@ func TestWSReadIdleDeadlineResets(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=tok"
-	c, _, err := websocket.Dial(ctx, wsURL, nil)
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	c, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{"Cookie": {sessionCookieName + "=tok"}}})
 	if err != nil {
 		t.Fatalf("websocket.Dial: %v", err)
 	}
@@ -284,8 +300,8 @@ func TestWSWatchdogClosesHalfOpenAndResets(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws?token=tok"
-	c, _, err := websocket.Dial(ctx, wsURL, nil)
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
+	c, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{"Cookie": {sessionCookieName + "=tok"}}})
 	if err != nil {
 		t.Fatalf("websocket.Dial: %v", err)
 	}
@@ -382,7 +398,7 @@ func TestStaticHandlerDevInject(t *testing.T) {
 	s := New(staticAuth("tok"), &fakeInjector{}, webFS, "url", WithDevInject())
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	s.Handler().ServeHTTP(rec, localRequest("GET", "/"))
 	if !strings.Contains(rec.Body.String(), "__PHONEPAD_DEV__") {
 		t.Errorf("dev: GET / debe inyectar el flag dev, body=%s", rec.Body.String())
 	}
@@ -391,7 +407,7 @@ func TestStaticHandlerDevInject(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/sw.js", nil))
+	s.Handler().ServeHTTP(rec, localRequest("GET", "/sw.js"))
 	if !strings.Contains(rec.Body.String(), "unregister") {
 		t.Errorf("dev: /sw.js debe ser el SW de autodestrucción, body=%s", rec.Body.String())
 	}
@@ -404,7 +420,7 @@ func TestStaticHandlerProdNoInject(t *testing.T) {
 	s := New(staticAuth("tok"), &fakeInjector{}, webFS, "url") // sin WithDevInject
 
 	rec := httptest.NewRecorder()
-	s.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+	s.Handler().ServeHTTP(rec, localRequest("GET", "/"))
 	if strings.Contains(rec.Body.String(), "__PHONEPAD_DEV__") {
 		t.Errorf("prod NO debe inyectar el flag dev, body=%s", rec.Body.String())
 	}
@@ -418,5 +434,27 @@ func TestRouteUnknownAndPingNoInjection(t *testing.T) {
 	routeMsg(s, `{"t":"k","a":"raro"}`)
 	if len(f.moves)+len(f.buttons)+len(f.scrolls)+len(f.texts)+len(f.specials)+len(f.combos) != 0 {
 		t.Errorf("un mensaje desconocido inyectó algo: %+v", f)
+	}
+}
+
+func TestRejectPublicClientsEvenWithToken(t *testing.T) {
+	s := New(staticAuth("tok"), &fakeInjector{}, nil, "")
+	for _, remote := range []string{"8.8.8.8:1234", "[2001:4860:4860::8888]:1234"} {
+		req := localRequest("GET", "/api/auth")
+		req.RemoteAddr = remote
+		req.Header.Set("Authorization", "Bearer tok")
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("public source %s accepted", remote)
+		}
+	}
+	req := localRequest("GET", "/api/auth")
+	req.RemoteAddr = "192.168.1.20:1234"
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("private source rejected: %d", rec.Code)
 	}
 }

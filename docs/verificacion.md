@@ -1,3 +1,5 @@
+> Revisión 2026-09-08: consultar README.md, docs/verificacion-2026-09-08.md y ADR 0007 para bind local, video e iPhone. El contenido previo se conserva como historia del contrato.
+
 # Verificación end-to-end — setup express
 
 Lo automatizable ya está verificado (build, tests, `systemctl start/stop`,

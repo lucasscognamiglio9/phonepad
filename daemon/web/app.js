@@ -17,9 +17,12 @@ const Net = (() => {
   let pingTimer = null;
   let pongTimer = null;
   let missed = 0;
+  let pingSent = 0;
   let connected = false;     // socket abierto y handshake ok
   let manualClose = false;
   let reconnectTimer = null;
+  let connecting = false;
+  let epoch = 0;
   let authRejected = false;  // 401 definitivo: no volver a martillar el daemon
 
   // Token persistente: con pairing persistente del daemon, el token estable se
@@ -43,17 +46,21 @@ const Net = (() => {
     try { return localStorage.getItem(STORAGE_KEY) || ""; } catch { return ""; }
   }
 
-  const token = resolveToken();
+  let token = resolveToken(); // migration only; new sessions use an HttpOnly cookie
+  let pairCode = new URLSearchParams((location.hash || "").replace(/^#/, "")).get("pair") || "";
+  if (pairCode) {
+    try { const u = new URL(location.href); history.replaceState(null,"",u.pathname + u.search); } catch {}
+  }
   // Esquema derivado del protocolo de la página: https → wss, http → ws.
   // Una página https no puede abrir ws:// plano (mixed-content); esto lo evita.
   const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-  const wsURL = `${wsProto}//${location.host}/ws?token=${encodeURIComponent(token)}`;
+  const wsURL = `${wsProto}//${location.host}/ws`;
 
   function rejectAuth() {
     authRejected = true;
     connected = false;
     try { localStorage.removeItem(STORAGE_KEY); } catch {}
-    render("error", "token inválido — reescaneá el QR");
+    render("error", "vinculación necesaria · abrí un QR nuevo en la laptop");
   }
 
   // Los browsers esconden el status HTTP (401) del handshake WebSocket y solo
@@ -64,13 +71,19 @@ const Net = (() => {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timer = controller ? setTimeout(() => controller.abort(), AUTH_TIMEOUT) : null;
     try {
-      const r = await fetch("/api/auth", {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
+      const claiming = !!pairCode;
+      const r = await fetch(claiming ? "/api/claim" : "/api/auth", {
+        method: claiming ? "POST" : "GET",
+        headers: claiming ? {"Content-Type":"application/json"} : (token ? {Authorization:`Bearer ${token}`} : {}),
+        ...(claiming ? {body:JSON.stringify({code:pairCode})} : {}),
         cache: "no-store",
         credentials: "same-origin",
-        ...(controller ? { signal: controller.signal } : {}),
+        ...(controller ? {signal:controller.signal} : {}),
       });
+      if (r.status === 204) {
+        pairCode = ""; token = "";
+        try {localStorage.removeItem(STORAGE_KEY);} catch {}
+      }
       if (r.status === 401) {
         rejectAuth();
         return false;
@@ -107,16 +120,13 @@ const Net = (() => {
   }
 
   async function connect() {
-    // Sin token guardado (abriste la app sin haber escaneado nunca el QR):
-    // mensaje accionable en vez de un bucle de 401/reconexión.
-    if (!token) {
-      render("error", "escaneá el QR para emparejar");
-      return;
-    }
-    if (authRejected) return;
-    if (!await authPreflight()) return;
-    if (authRejected) return;
-    manualClose = false;
+    if (authRejected || manualClose || connecting || ws) return;
+    connecting = true;
+    const attempt = ++epoch;
+    const valid = await authPreflight();
+    if (attempt !== epoch) return;
+    connecting = false;
+    if (!valid || manualClose || authRejected) return;
     clearTimeout(reconnectTimer);
     render(connected ? "reconnecting" : "connecting", connected ? "reconectando…" : "conectando…");
     try {
@@ -126,23 +136,22 @@ const Net = (() => {
       return;
     }
 
-    ws.onopen = () => {
-      backoffIdx = 0;
-      connected = true;
-      missed = 0;
-      render("connected", "conectado");
-      startKeepalive();
-    };
+    const socket = ws;
+    ws.onopen = () => { if (ws === socket) startKeepalive(); };
 
     ws.onmessage = (ev) => {
+      if (ws !== socket) return;
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.t === "pong") {
         // Pong recibido: limpiar timeout pendiente y resetear contador de misses.
         if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
         missed = 0;
+        if (connected && pingSent) document.getElementById("status-text").textContent = `conectado · ${Math.max(0, Date.now() - pingSent)} ms de red`;
       } else if (msg.t === "ok") {
         connected = true;
+        backoffIdx = 0;
+        Pad.reset();
         render("connected", "conectado");
       } else if (msg.t === "err") {
         // Token inválido u otro error: el server cierra; mensaje accionable.
@@ -153,14 +162,20 @@ const Net = (() => {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (ws !== socket) return;
       cleanupSocket();
+      if (ev.code === 1008) {
+        manualClose = true;
+        render("error", "otra sesión tomó el control");
+        window.dispatchEvent(new Event("phonepad-paused"));
+      }
       if (!manualClose) scheduleReconnect();
     };
 
     ws.onerror = () => {
       // onclose se dispara después; dejamos que él agende la reconexión.
-      try { ws.close(); } catch {}
+      try { socket.close(); } catch {}
     };
   }
 
@@ -169,6 +184,7 @@ const Net = (() => {
     missed = 0;
     pingTimer = setInterval(() => {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      pingSent = Date.now();
       send({ t: "ping" });
       // Solo un timeout pendiente a la vez.
       if (pongTimer === null) {
@@ -193,10 +209,14 @@ const Net = (() => {
   function cleanupSocket() {
     stopKeepalive();
     ws = null;
+    connected = false;
+    Pad.reset();
+    window.dispatchEvent(new Event("phonepad-disconnected"));
   }
 
   function scheduleReconnect() {
-    if (authRejected || !token) return;
+    if (manualClose || authRejected) return;
+    clearTimeout(reconnectTimer);
     const delay = BACKOFFS[Math.min(backoffIdx, BACKOFFS.length - 1)];
     backoffIdx++;
     // Mostrar el intento da señal de vida cuando la LAN se cae un rato.
@@ -206,101 +226,83 @@ const Net = (() => {
 
   function send(obj) {
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(obj));
+      if (ws.bufferedAmount > 65536) { ws.close(); return; }
+      if (connected || obj.t === "ping") ws.send(JSON.stringify(obj));
     }
   }
 
   function isConnected() {
-    return !!ws && ws.readyState === WebSocket.OPEN;
+    return connected && !!ws && ws.readyState === WebSocket.OPEN;
   }
 
-  return { connect, send, isConnected };
+  function pause() {
+    manualClose = true;
+    epoch++;
+    connecting = false;
+    clearTimeout(reconnectTimer);
+    Pad.reset();
+    const old = ws;
+    cleanupSocket();
+    if (old) old.close();
+    render("error", "sesión pausada");
+  }
+  function resume() { manualClose = false; authRejected = false; return connect(); }
+  return { connect, send, isConnected, pause, resume };
 })();
 
-// ─────────────────────── Pad: forwarder de contactos (§3, ADR 0005) ─────────
-// El cliente NO clasifica. Captura Pointer Events sobre la superficie y reenvía
-// la foto de contactos vivos por frame (coalescing con requestAnimationFrame):
-// {"t":"t","c":[{id,x,y},…]} con coordenadas normalizadas 0..1. Un contacto que
-// desaparece de la foto = dedo levantado; foto vacía = se levantaron todos. El
-// daemon emula un touchpad de precisión y libinput clasifica los gestos.
+// Relative touchpad gestures, shared by the full-screen pad and live preview.
 const Pad = (() => {
-  const pad = document.getElementById("pad");
-
-  // Contactos vivos: pointerId -> {x, y} (última posición en px de pantalla).
-  const pointers = new Map();
-  let touchedOnce = false;
-  let rafId = 0;
-
-  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
-
-  // Serializa la foto de contactos vivos a coordenadas normalizadas y la envía.
-  function sendSnapshot() {
-    const r = pad.getBoundingClientRect();
-    const c = [];
-    for (const [id, p] of pointers) {
-      c.push({
-        id,
-        x: clamp01(r.width ? (p.x - r.left) / r.width : 0),
-        y: clamp01(r.height ? (p.y - r.top) / r.height : 0),
-      });
-    }
-    Net.send({ t: "t", c }); // c:[] cuando se levantó el último dedo
-  }
-
-  // Los moves (alta frecuencia) se coalescen en un frame; down/up (transiciones
-  // de estado que no se pueden perder, p.ej. un tap rápido) se envían en el acto.
-  function scheduleFrame() {
-    if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; sendSnapshot(); });
-  }
-  function flushNow() {
-    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
-    sendSnapshot();
-  }
-
-  function onDown(ev) {
-    pad.setPointerCapture?.(ev.pointerId);
-    pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  const pad = document.getElementById("pad"), points = new Map();
+  let peak=0, started=0, moved=false, last=null, origin=null, swiped=false, lastUp=0;
+  let scrollX=0, scrollY=0, dragTimer=null, dragging=false;
+  const center=()=>{ const p=[...points.values()];return p.length ? {x:p.reduce((s,p)=>s+p.x,0)/p.length,y:p.reduce((s,p)=>s+p.y,0)/p.length}:null; };
+  function reset(){clearTimeout(dragTimer);if(dragging)Net.send({t:"b",btn:"l",a:"up"});dragging=false;points.clear();peak=0;last=null;origin=null;scrollX=scrollY=0;pad.classList.remove("pad--active");}
+  function down(e){
+    if(!Net.isConnected())return;
+    e.preventDefault?.();
+    if(!points.size){started=Date.now();moved=false;swiped=false;peak=0;}
+    points.set(e.pointerId,{x:e.clientX,y:e.clientY});peak=Math.max(peak,points.size);
+    clearTimeout(dragTimer);
+    if(points.size===1)dragTimer=setTimeout(()=>{if(points.size===1 && !moved){dragging=true;Net.send({t:"b",btn:"l",a:"down"});}},450);
+    else if(dragging){Net.send({t:"b",btn:"l",a:"up"});dragging=false;}
+    last=center();origin=last;try{(e.currentTarget||pad).setPointerCapture(e.pointerId);}catch{}
     pad.classList.add("pad--active");
-    if (!touchedOnce) { touchedOnce = true; pad.classList.add("pad--touched"); }
-    flushNow();
   }
-
-  function onMove(ev) {
-    const p = pointers.get(ev.pointerId);
-    if (!p) return;
-    // getCoalescedEvents da las muestras intermedias; nos quedamos con la última
-    // (la foto es por frame, no por evento).
-    const events = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [ev];
-    const last = events[events.length - 1] || ev;
-    p.x = last.clientX; p.y = last.clientY;
-    scheduleFrame();
+  function move(e){
+    if(!points.has(e.pointerId))return;
+    e.preventDefault?.();points.set(e.pointerId,{x:e.clientX,y:e.clientY});const c=center();
+    const dx=c.x-last.x,dy=c.y-last.y;last=c;
+    if(Math.hypot(c.x-origin.x,c.y-origin.y)>8)moved=true;
+    if(points.size===1 && peak===1){Net.send({t:"m",dx:Math.round(dx*2),dy:Math.round(dy*2)});}
+    else if(points.size===2 && peak===2){
+      scrollX+=dx;scrollY+=dy;const x=Math.trunc(scrollX/18),y=Math.trunc(scrollY/18);
+      if(x||y){Net.send({t:"s",dx:x,dy:y});scrollX-=x*18;scrollY-=y*18;}
+    } else if(points.size===3 && !swiped && c.y-origin.y < -45 && Math.abs(c.x-origin.x)<60){
+      const now=Date.now();Net.send({t:"g",name:lastUp && now-lastUp<1600 ? "apps":"overview"});
+      lastUp=lastUp && now-lastUp<1600 ? 0:now;swiped=true;
+    }
   }
-
-  function onUp(ev) {
-    if (!pointers.has(ev.pointerId)) return;
-    pad.releasePointerCapture?.(ev.pointerId);
-    pointers.delete(ev.pointerId);
-    if (pointers.size === 0) pad.classList.remove("pad--active");
-    flushNow(); // foto con el contacto ya ausente; c:[] si era el último
+  function up(e){
+    if(!points.has(e.pointerId))return;
+    points.delete(e.pointerId);last=center();
+    if(!points.size){
+      if(!dragging && !moved && !swiped && Date.now()-started<350 && peak<=2){
+        const btn=peak===2?"r":"l";Net.send({t:"b",btn,a:"down"});Net.send({t:"b",btn,a:"up"});
+      }
+      reset();
+    }
   }
-
-  function onCancel(ev) {
-    if (!pointers.has(ev.pointerId)) return;
-    pointers.delete(ev.pointerId);
-    if (pointers.size === 0) pad.classList.remove("pad--active");
-    flushNow();
+  function init(){
+    window.addEventListener("resize",reset);
+    for (const surface of [pad, document.getElementById("desktop-preview")]) {
+      if (!surface) continue;
+      surface.addEventListener("pointerdown",down);surface.addEventListener("pointermove",move);surface.addEventListener("pointerup",up);
+      surface.addEventListener("pointercancel",reset);
+      surface.addEventListener("lostpointercapture",e=>{if(points.has(e.pointerId))reset();});
+      surface.addEventListener("contextmenu",e=>e.preventDefault());
+    }
   }
-
-  function init() {
-    pad.addEventListener("pointerdown", onDown);
-    pad.addEventListener("pointermove", onMove);
-    pad.addEventListener("pointerup", onUp);
-    pad.addEventListener("pointercancel", onCancel);
-    pad.addEventListener("contextmenu", (e) => e.preventDefault());
-    pad.addEventListener("dragstart", (e) => e.preventDefault());
-  }
-
-  return { init };
+  return {init,reset};
 })();
 
 // ─────────────────────────── Teclado (§3) ──────────────────────────────────
@@ -479,11 +481,12 @@ const Keyboard = (() => {
 
   function focusInput() {
     reseed();
-    input.focus();
+    input.focus({preventScroll:true});
     area.classList.add("is-focused");
   }
 
   function init() {
+    window.addEventListener("phonepad-disconnected", () => { disarmAll(); composing = false; reseed(); });
     reseed();
     input.addEventListener("compositionstart", onCompositionStart);
     input.addEventListener("compositionend", onCompositionEnd);
@@ -527,7 +530,7 @@ const Keyboard = (() => {
     });
   }
 
-  return { init, focusInput };
+  return { init, focusInput, releaseModifiers:disarmAll };
 })();
 
 // ─────────────────────────── Sheet del teclado ─────────────────────────────
@@ -538,13 +541,17 @@ const Sheet = (() => {
   function setOpen(next) {
     open = next;
     sheet.classList.toggle("sheet--hidden", !open);
+    document.body.classList.toggle("keyboard-open",open);
     sheet.setAttribute("aria-hidden", String(!open));
+    sheet.inert = !open;
     toggle.setAttribute("aria-expanded", String(open));
     if (open) {
-      backdrop.hidden = false;
-      requestAnimationFrame(() => backdrop.classList.add("is-visible"));
+      backdrop.hidden = true;
+      document.getElementById("keyboard-extras").hidden=false;
       Keyboard.focusInput();
     } else {
+      document.getElementById("keyboard-extras").hidden=true;
+      Keyboard.releaseModifiers();
       backdrop.classList.remove("is-visible");
       setTimeout(() => { backdrop.hidden = true; }, 240);
       const inp = document.getElementById("hidden-input");
@@ -560,257 +567,29 @@ const Sheet = (() => {
 
     toggle.addEventListener("click", () => setOpen(!open));
     handle.addEventListener("click", () => setOpen(false));
+    const focusTarget=document.getElementById("hidden-input");
+    focusTarget.addEventListener("blur",()=>setTimeout(()=>{
+      if(open && document.activeElement!==focusTarget && !sheet.contains(document.activeElement))setOpen(false);
+    },0));
     backdrop.addEventListener("click", () => setOpen(false));
-  }
-
-  return { init };
-})();
-
-// ─────────────────────────── Micrófono (Web Speech API) ────────────────────
-const Mic = (() => {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null;
-  let stillOn = false;
-  let btn, interim;
-  // Cuántos resultados finales de la sesión actual ya inyectamos. Evita el doble
-  // tipeo en Chrome Android, que con continuous=true re-emite resultados ya
-  // finalizados en eventos posteriores (la causa de las palabras repetidas).
-  // Se resetea en cada (re)arranque del reconocedor: cada sesión empieza en 0.
-  let finalCount = 0;
-
-  function setUI(state) {
-    if (!btn) return;
-    btn.classList.remove("mic--listening", "mic--error");
-    btn.setAttribute("aria-pressed", String(state === "listening"));
-    if (state === "listening") btn.classList.add("mic--listening");
-    else if (state === "error") {
-      btn.classList.add("mic--error");
-      setTimeout(() => btn.classList.remove("mic--error"), 2000);
+    function fit(){
+      const v=window.visualViewport;
+      document.body.classList.toggle("native-keyboard",!!v && window.innerHeight-v.height>100);
+      document.documentElement.style.setProperty("--visible-height", `${v?v.height:window.innerHeight}px`);
+      document.documentElement.style.setProperty("--visible-top", `${v?v.offsetTop:0}px`);
     }
+    window.visualViewport?.addEventListener("resize",fit);
+    window.visualViewport?.addEventListener("scroll",fit);
+    window.addEventListener("resize",fit);fit();
   }
 
-  function showInterim(text) {
-    if (!interim) return;
-    interim.textContent = text;
-    interim.classList.toggle("is-visible", !!text);
-  }
-
-  function onResult(e) {
-    // Recorremos toda la lista (no desde e.resultIndex): en Chrome Android ese
-    // índice no es confiable y reprocesar finales ya enviados es lo que duplicaba
-    // las palabras. finalCount es la barrera: solo inyectamos finales nuevos.
-    // Defensivo: si la lista es más corta que la barrera, arrancó una sesión nueva
-    // que no pasó por start()/onend → resetear para no descartar sus finales.
-    if (e.results.length < finalCount) finalCount = 0;
-    let live = "";
-    for (let i = 0; i < e.results.length; i++) {
-      const r = e.results[i];
-      if (r.isFinal) {
-        if (i >= finalCount) {
-          const text = r[0].transcript.trim();
-          if (text) Net.send({ t: "k", a: "text", text: text + " " });
-          finalCount = i + 1;
-        }
-      } else {
-        // Solo el interim más reciente: acumular todos los parciales del evento
-        // los pega repetidos en pantalla ("hohola").
-        live = r[0].transcript;
-      }
-    }
-    showInterim(live);
-  }
-
-  function start() {
-    stillOn = true;
-    finalCount = 0; // nueva sesión: la lista de resultados arranca de cero
-    try { rec.start(); } catch {}
-  }
-
-  function stop() {
-    stillOn = false;
-    try { rec.stop(); } catch {}
-    showInterim("");
-    setUI("idle");
-  }
-
-  function toggle() {
-    if (!rec) return;
-    if (stillOn) stop();
-    else start();
-  }
-
-  function init() {
-    btn = document.getElementById("mic");
-    interim = document.getElementById("mic-interim");
-    if (!btn) return;
-
-    // Sin secure-context / sin soporte → botón deshabilitado con motivo.
-    if (!SR || !window.isSecureContext) {
-      btn.disabled = true;
-      btn.setAttribute("aria-disabled", "true");
-      btn.title = SR ? "requiere HTTPS" : "voz no soportada en este navegador";
-      return;
-    }
-
-    rec = new SR();
-    rec.lang = "es-AR"; // fijo: el dictado es en español aunque el SO del cel esté en otro idioma
-    rec.continuous = true;
-    rec.interimResults = true;
-    rec.maxAlternatives = 1;
-
-    rec.onstart = () => setUI("listening");
-    rec.onresult = onResult;
-    rec.onend = () => {
-      // continuous se corta solo tras silencio: reanudar mientras el usuario lo quiera.
-      // El rearranque abre una sesión nueva (results desde 0) → resetear la barrera.
-      if (stillOn) { finalCount = 0; try { rec.start(); } catch {} }
-      else { setUI("idle"); showInterim(""); }
-    };
-    rec.onerror = (e) => {
-      switch (e.error) {
-        case "not-allowed":
-        case "service-not-allowed":
-          stillOn = false;
-          // Permiso denegado: motivo accionable (no deshabilitamos por si el
-          // usuario lo concede después y reintenta).
-          btn.title = "micrófono bloqueado — permitilo en el navegador";
-          setUI("error");
-          break;
-        case "audio-capture":
-          stillOn = false;
-          btn.disabled = true;
-          setUI("error");
-          break;
-        case "no-speech":
-        case "aborted":
-          break; // benigno; onend decide
-        case "network":
-          setUI("error");
-          break;
-        default:
-          setUI("error");
-      }
-    };
-
-    btn.addEventListener("pointerdown", (ev) => {
-      ev.preventDefault();   // no robar foco al input ni disparar gestos
-      ev.stopPropagation();
-    });
-    btn.addEventListener("click", toggle);
-  }
-
-  return { init };
+  return { init, close: () => setOpen(false) };
 })();
 
 // ─────────────────── Telemetría / boot ──────────────────────────────────────
 // Módulo ADITIVO: solo lee. HUD de depuración que muestra Δx/Δy, posición,
 // velocidad y un crosshair con listeners PASIVOS sobre el pad, más la animación
 // de boot. Independiente del forwarder de contactos (Pad): no interfiere con él.
-const Telemetry = (() => {
-  let pad, cross, elDx, elDy, elPos, elVel, elEvt;
-  let last = null;          // {x, y, t} del último pointermove
-  let padRect = null;       // bounds del pad, cacheado por interacción (ver onMove)
-  let evtHoldTimer = null;  // mantiene el último evento discreto visible
-
-  const reduce = () => window.matchMedia
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-  // "+012" / "-004": signo + 3 dígitos con relleno.
-  const sgn3 = (n) => (n >= 0 ? "+" : "-") + String(Math.abs(n)).padStart(3, "0");
-  const pad3 = (n) => String(Math.max(0, Math.round(n))).padStart(3, "0");
-
-  // Setea el readout de evento; los discretos se sostienen ~600ms.
-  function evt(label, hold) {
-    if (!elEvt) return;
-    elEvt.textContent = label;
-    clearTimeout(evtHoldTimer);
-    if (hold) {
-      evtHoldTimer = setTimeout(() => {
-        elEvt.textContent = pad.classList.contains("pad--active") ? "MOVE" : "IDLE";
-      }, 600);
-    }
-  }
-
-  function onMove(e) {
-    // El pad no se mueve ni redimensiona mientras hay un dedo encima, así que su
-    // rect es estable durante una interacción: lo medimos una sola vez (en el
-    // primer move, cuando last es null) en vez de forzar un reflow por frame en
-    // este hot path. onUp resetea last → el próximo gesto lo vuelve a medir.
-    if (!last) padRect = pad.getBoundingClientRect();
-    const r = padRect;
-    const x = e.clientX - r.left;
-    const y = e.clientY - r.top;
-    const now = performance.now();
-
-    if (last) {
-      const dx = Math.round(x - last.x);
-      const dy = Math.round(y - last.y);
-      const dt = (now - last.t) / 1000;
-      const dist = Math.hypot(dx, dy);
-      const v = dt > 0 ? dist / dt : 0;
-      elDx.textContent = sgn3(dx);
-      elDy.textContent = sgn3(dy);
-      elVel.textContent = String(Math.min(9999, Math.round(v))).padStart(4, "0");
-    }
-    elPos.textContent = pad3(x) + "," + pad3(y);
-
-    // Crosshair sigue al puntero (a menos que se reduzca movimiento).
-    if (!reduce()) {
-      cross.style.left = x + "px";
-      cross.style.top = y + "px";
-    }
-
-    // Solo etiqueta MOVE si no hay un discreto sostenido encima.
-    if (!evtHoldTimer && elEvt.textContent !== "DRAG" && elEvt.textContent !== "SCROLL") {
-      elEvt.textContent = "MOVE";
-    }
-    last = { x, y, t: now };
-  }
-
-  function onUp() {
-    last = null;
-    if (!evtHoldTimer) evt("IDLE");
-  }
-
-  function init() {
-    pad = document.getElementById("pad");
-    cross = document.getElementById("tel-cross");
-    elDx = document.getElementById("tel-dx");
-    elDy = document.getElementById("tel-dy");
-    elPos = document.getElementById("tel-pos");
-    elVel = document.getElementById("tel-vel");
-    elEvt = document.getElementById("tel-evt");
-    if (!pad || !elEvt) return;
-
-    // Listeners PASIVOS y adicionales: no interfieren con los del clasificador.
-    pad.addEventListener("pointermove", onMove, { passive: true });
-    pad.addEventListener("pointerup", onUp, { passive: true });
-    pad.addEventListener("pointercancel", onUp, { passive: true });
-
-    boot();
-  }
-
-  // Secuencia de boot: revela líneas tipo log y luego se desvanece (~1s).
-  function boot() {
-    const bootEl = document.getElementById("boot");
-    if (!bootEl || reduce()) { if (bootEl) bootEl.classList.add("is-done"); return; }
-    const lines = [...bootEl.querySelectorAll(".boot__line")];
-    let i = 0;
-    const step = () => {
-      if (i < lines.length) {
-        lines[i].classList.add("show");
-        i++;
-        setTimeout(step, 80 + Math.random() * 90);
-      } else {
-        setTimeout(() => bootEl.classList.add("is-done"), 380);
-      }
-    };
-    setTimeout(step, 120);
-  }
-
-  return { init };
-})();
-
 // ─────────────────────────── Copiar / Pegar (§3) ───────────────────────────
 // Dos botones de la actionbar que disparan Ctrl+C / Ctrl+V sobre la app
 // enfocada en la PC. Son combos comunes (mismo camino que el teclado): el
@@ -821,7 +600,7 @@ const Clipboard = (() => {
   function bind(id, key) {
     const btn = document.getElementById(id);
     if (!btn) return; // defensivo: id ausente no debe romper el boot
-    // pointerdown: evitar robar foco / disparar gestos del pad (igual que Mic).
+    // Keep keyboard focus while operating clipboard actions.
     btn.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
@@ -866,6 +645,40 @@ const Shell = (() => {
   return { init };
 })();
 
+// Production updates apply automatically once interaction is idle.
+const Updates = (() => {
+  let registration, pending = false, timer, activePointers = new Set();
+  function apply() {
+    if (!pending || document.hidden || activePointers.size) return;
+    if (document.activeElement?.id === "hidden-input") { idle(); return; }
+    Net.pause();
+    location.reload();
+  }
+  function idle() { clearTimeout(timer); timer = setTimeout(apply, 5000); }
+  function check() {
+    if (document.hidden) return;
+    navigator.serviceWorker.controller?.postMessage({type:"PHONEPAD_VERSION"});
+    registration?.update().catch(() => {});
+  }
+  function init() {
+    if (!("serviceWorker" in navigator) || window.__PHONEPAD_DEV__) return;
+    navigator.serviceWorker.addEventListener("message", e => {
+      if (e.data?.type === "PHONEPAD_VERSION" && e.data.build !== "22") { pending = true; idle(); }
+    });
+    navigator.serviceWorker.addEventListener("controllerchange", () => { pending = true; idle(); });
+    navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r => { registration = r; check(); }).catch(() => {});
+    document.addEventListener("pointerdown", e => { activePointers.add(e.pointerId); idle(); }, true);
+    for (const name of ["pointerup", "pointercancel"]) document.addEventListener(name, e => { activePointers.delete(e.pointerId); idle(); }, true);
+    for (const name of ["keydown", "input"]) document.addEventListener(name, idle, true);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) activePointers.clear(); else { check(); idle(); }
+    });
+    window.addEventListener("online", check);
+    setInterval(check, 60000);
+  }
+  return {init};
+})();
+
 // ─────────────────────────────── Bootstrap ─────────────────────────────────
 function main() {
   document.addEventListener("gesturestart", (e) => e.preventDefault());
@@ -874,11 +687,27 @@ function main() {
   Pad.init();
   Keyboard.init();
   Sheet.init();
-  Mic.init();
   Clipboard.init();
   Shell.init();
-  Telemetry.init();
+
+  document.getElementById("refresh-control").addEventListener("click", () => { paused = false; Net.pause(); Net.resume(); window.dispatchEvent(new Event("phonepad-recover")); });
+
   Net.connect();
+  let paused = false;
+  const sessionButton = document.getElementById("session-toggle");
+  window.addEventListener("phonepad-paused", () => { paused = true; sessionButton.textContent = "Reanudar"; });
+  sessionButton.addEventListener("click", () => {
+    paused = !paused;
+    if (paused) Net.pause(); else Net.resume();
+    sessionButton.textContent = paused ? "Reanudar" : "Pausar";
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) Net.pause();
+    else if (!paused) Net.resume();
+  });
+  window.addEventListener("online", () => { if (!paused && !document.hidden) Net.resume(); });
+  window.addEventListener("pagehide", () => Net.pause());
+  window.addEventListener("pageshow", () => { if (!paused) Net.resume(); });
 
   // Service worker: arranque instantáneo del shell. Requiere secure-context
   // (HTTPS), que ya tenemos; en http simplemente no se registra.
@@ -890,7 +719,7 @@ function main() {
       navigator.serviceWorker.getRegistrations()
         .then((rs) => rs.forEach((r) => r.unregister())).catch(() => {});
     } else if (location.protocol === "https:") {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      Updates.init();
     }
   }
 

@@ -1,3 +1,5 @@
+> Revisión 2026-09-08: consultar README.md, docs/verificacion-2026-09-08.md y ADR 0007 para bind local, video e iPhone. El contenido previo se conserva como historia del contrato.
+
 # phonepad — spec
 
 > Celular como touchpad + teclado de la laptop, por LAN. Casero, custom, simple, baja latencia.

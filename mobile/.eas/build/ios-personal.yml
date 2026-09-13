@@ -1,0 +1,19 @@
+build:
+  name: Phonepad personal — unsigned iPhone Release
+  steps:
+    - eas/checkout
+    - eas/install_node_modules
+    - run:
+        name: Check the app
+        command: |
+          npm run typecheck
+          npm test
+          python3 -m unittest discover -s tests -p '*_test.py'
+    - run:
+        name: Build for a real iPhone without Apple signing credentials
+        command: bash scripts/build-ios-personal.sh
+    - eas/upload_artifact:
+        name: IPA for local signing with iloader (not a TestFlight build)
+        inputs:
+          type: application-archive
+          path: build/Phonepad-unsigned.ipa

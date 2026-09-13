@@ -3,3 +3,27 @@
 /daemon/claude-cu-prototype
 /daemon/.mcp.json
 *.log
+
+# Generated caches and local build output
+__pycache__/
+*.py[cod]
+.DS_Store
+node_modules/
+/phonepad
+/outputs/
+
+# Local credentials/configuration are never source artifacts
+.env
+.env.*
+!.env.example
+credentials.json
+pairing.json
+*.key
+*.pem
+*.p8
+*.p12
+*.mobileprovision
+*.mobiledevicepairing
+*.rppairing
+*.ipa
+**/.claude/settings*.json

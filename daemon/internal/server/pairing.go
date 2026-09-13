@@ -39,7 +39,12 @@ func (s *Server) handleQR(w http.ResponseWriter, r *http.Request) {
 	if !localOnly(w, r) {
 		return
 	}
-	q, err := qrcode.New(s.pairURL, qrcode.Medium)
+	pairURL, err := s.issuePairURL()
+	if err != nil {
+		http.Error(w, "pairing unavailable", 500)
+		return
+	}
+	q, err := qrcode.New(pairURL, qrcode.Medium)
 	if err != nil {
 		http.Error(w, "qr", http.StatusInternalServerError)
 		return
@@ -96,16 +101,20 @@ func (s *Server) handlePairInfo(w http.ResponseWriter, r *http.Request) {
 // infinito que los browsers provocan al ocultar el status del handshake WS.
 func (s *Server) handleAuth(w http.ResponseWriter, r *http.Request) {
 	tok := strings.TrimSpace(r.Header.Get("Authorization"))
+	legacy := tok != ""
 	if strings.HasPrefix(strings.ToLower(tok), "bearer ") {
 		tok = strings.TrimSpace(tok[len("Bearer "):])
 	} else {
-		tok = ""
+		tok = sessionToken(r)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Vary", "Authorization")
-	if !s.auth.Valid(tok) {
+	if !trustedNode(r) && !s.auth.Valid(tok) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
+	}
+	if legacy && !trustedNode(r) {
+		setSession(w, tok)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -135,6 +144,7 @@ func safePairURL(raw string) string {
 	q := u.Query()
 	q.Del("token")
 	u.RawQuery = q.Encode()
+	u.Fragment = ""
 	return u.String()
 }
 

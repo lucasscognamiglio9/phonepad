@@ -5,9 +5,12 @@ package input
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io"
 	"log"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,12 +48,28 @@ type Resettable interface {
 	Reset()
 }
 
+// TouchCanceler is optional so older Injector implementations remain source
+// compatible. A cancel is distinct from an empty touch snapshot: it tells the
+// MT device to mark every active slot as MT_TOOL_PALM before releasing it,
+// which prevents libinput from interpreting pointercancel as a tap.
+type TouchCanceler interface {
+	CancelTouch()
+}
+
+// ClipboardMu serializes the daemon's short-lived Unicode paste with the
+// server's attachment clipboard provider. Both paths temporarily become the
+// desktop clipboard owner; without one process-wide gate, an upload can race
+// the Unicode path and leave either the prompt text or the attachment as the
+// final selection. It does not read or retain clipboard contents itself.
+var ClipboardMu sync.Mutex
+
 // SerializedInjector expone el Injector junto con Reset. NewAsyncText devuelve
 // esta interfaz para que el dueño del recurso pueda limpiar el estado al cortar
 // una sesión sin hacer type assertions; sigue siendo asignable a Injector.
 type SerializedInjector interface {
 	Injector
 	Resettable
+	TouchCanceler
 }
 
 // AbsInjector es un Injector que además posiciona el cursor de forma ABSOLUTA.
@@ -94,6 +113,7 @@ const (
 	opCombo
 	opGesture
 	opTouch
+	opTouchCancel
 	opReset
 	opClose
 )
@@ -155,6 +175,14 @@ func (a *asyncText) loop() {
 			a.inner.Gesture(op.name)
 		case opTouch:
 			a.inner.Touch(op.touch)
+		case opTouchCancel:
+			if canceler, ok := a.inner.(TouchCanceler); ok {
+				canceler.CancelTouch()
+			} else {
+				// Keep compatibility with simple Injector test doubles and
+				// legacy devices that only understand touch snapshots.
+				a.inner.Touch(nil)
+			}
 		case opReset:
 			if r, ok := a.inner.(Resettable); ok {
 				r.Reset()
@@ -195,6 +223,10 @@ func (a *asyncText) Gesture(name string) { a.submit(asyncOp{kind: opGesture, nam
 func (a *asyncText) Touch(contacts []Contact) {
 	a.submit(asyncOp{kind: opTouch, touch: append([]Contact(nil), contacts...)})
 }
+
+// CancelTouch is queued in the same FIFO as touch frames, so a cancellation
+// cannot overtake a preceding movement or touch-down frame.
+func (a *asyncText) CancelTouch() { a.submit(asyncOp{kind: opTouchCancel}) }
 
 // Reset invalida operaciones pendientes y espera a que el worker aplique el
 // reset físico. El barrier queda en la FIFO luego de todas las operaciones que
@@ -257,7 +289,13 @@ func New() (Injector, error) {
 		kbd.Close()
 		return nil, err
 	}
-	return &uinputDevice{kbd: kbd, mt: mt, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
+	mouse, err := uinput.CreateMouse("/dev/uinput", []byte("phonepad-mouse"))
+	if err != nil {
+		mt.close()
+		kbd.Close()
+		return nil, err
+	}
+	return &uinputDevice{mouse: mouse, kbd: kbd, mt: mt, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
 }
 
 // NewAbsolute crea los devices para control absoluto (computer use): mouse (para
@@ -306,6 +344,16 @@ func (d *uinputDevice) Touch(contacts []Contact) {
 		return
 	}
 	d.mt.touch(contacts)
+}
+
+// CancelTouch is the explicit pointercancel path. The absolute injector has
+// no MT slots, so its implementation is intentionally a no-op.
+func (d *uinputDevice) CancelTouch() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.mt != nil {
+		d.mt.cancel()
+	}
 }
 
 func (d *uinputDevice) Move(dx, dy int) {
@@ -447,13 +495,17 @@ func (d *uinputDevice) Text(s string) {
 // (GNOME Terminal) pegan con Ctrl+Shift+V, así que ahí el fragmento no aparece;
 // el ASCII (la mayoría del texto y de los comandos) sí, porque va por keycode.
 func (d *uinputDevice) pasteUnicode(frag string) {
-	// Ignoramos el error de wl-paste a propósito: con el clip vacío sale con
-	// código !=0 y eso es esperado (no hay nada que restaurar). La ausencia de
-	// wl-clipboard se detecta abajo, en wl-copy.
-	saved, _ := exec.Command("wl-paste", "--no-newline").Output()
+	ClipboardMu.Lock()
+	defer ClipboardMu.Unlock()
+	// Snapshot one useful offered MIME before the temporary Unicode paste. A
+	// plain wl-paste read would turn a PNG/file URI selection into untyped
+	// bytes, so restoring it later would make image/document paste targets stop
+	// recognizing the attachment. Empty clipboard and unavailable wl-clipboard
+	// are both ordinary no-op cases here.
+	saved, haveSaved := snapshotClipboard()
 	cp := exec.Command("wl-copy")
 	cp.Stdin = strings.NewReader(frag)
-	if err := cp.Run(); err != nil {
+	if err := runClipboardCommand(cp); err != nil {
 		log.Printf("wl-copy: %v (¿está instalado wl-clipboard?)", err)
 		return
 	}
@@ -462,12 +514,147 @@ func (d *uinputDevice) pasteUnicode(frag string) {
 	d.keyUp(uinput.KeyLeftctrl)
 	// Dar tiempo a la app a consumir el paste antes de restaurar el clip.
 	time.Sleep(40 * time.Millisecond)
-	if len(saved) > 0 {
-		rp := exec.Command("wl-copy")
-		rp.Stdin = bytes.NewReader(saved)
-		if err := rp.Run(); err != nil {
+	if haveSaved {
+		rp := exec.Command("wl-copy", "--type", saved.mime)
+		rp.Stdin = bytes.NewReader(saved.data)
+		if err := runClipboardCommand(rp); err != nil {
 			log.Printf("restaurar clipboard: %v", err)
 		}
+	}
+}
+
+const (
+	maxClipboardSnapshotBytes = 128 << 20
+	clipboardCommandTimeout   = 2 * time.Second
+)
+
+type clipboardSnapshot struct {
+	mime string
+	data []byte
+}
+
+// snapshotClipboard captures only the format we can restore faithfully with
+// wl-copy. The format list is metadata; no clipboard data is retained unless
+// one of these known MIME types is offered. The size cap keeps restoring an
+// unexpectedly large selection bounded.
+func snapshotClipboard() (clipboardSnapshot, bool) {
+	types, err := commandOutputLimited(exec.Command("wl-paste", "--list-types"), 64<<10)
+	if err != nil {
+		return clipboardSnapshot{}, false
+	}
+	var candidates []string
+	for _, line := range strings.Split(string(types), "\n") {
+		mime := strings.TrimSpace(line)
+		if mime == "" || clipboardMimeRank(mime) < 0 {
+			continue
+		}
+		candidates = append(candidates, mime)
+	}
+	// wl-paste does not promise an ordering. Prefer image data, then URI
+	// formats, then plain text so a file selection remains a file selection.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		return clipboardMimeRank(candidates[i]) < clipboardMimeRank(candidates[j])
+	})
+	for _, mime := range candidates {
+		data, err := commandOutputLimited(exec.Command("wl-paste", "--type", mime, "--no-newline"), maxClipboardSnapshotBytes)
+		if err == nil {
+			return clipboardSnapshot{mime: mime, data: data}, true
+		}
+	}
+	return clipboardSnapshot{}, false
+}
+
+func clipboardMimeRank(value string) int {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/png":
+		return 0
+	case "image/jpeg", "image/jpg":
+		return 1
+	case "image/gif", "image/webp":
+		return 2
+	case "text/uri-list":
+		return 10
+	case "x-special/gnome-copied-files":
+		return 11
+	case "application/x-kde4-urilist":
+		return 12
+	case "text/plain;charset=utf-8":
+		return 20
+	case "text/plain":
+		return 21
+	default:
+		return -1
+	}
+}
+
+func commandOutputLimited(command *exec.Cmd, limit int64) ([]byte, error) {
+	stdout, err := command.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	type outputResult struct {
+		data []byte
+		err  error
+	}
+	readDone := make(chan outputResult, 1)
+	go func() {
+		data, err := io.ReadAll(io.LimitReader(stdout, limit+1))
+		readDone <- outputResult{data: data, err: err}
+	}()
+	var result outputResult
+	timer := time.NewTimer(clipboardCommandTimeout)
+	select {
+	case result = <-readDone:
+		timer.Stop()
+	case <-timer.C:
+		_ = command.Process.Kill()
+		result = <-readDone
+		_ = command.Wait()
+		return nil, fmt.Errorf("clipboard read timed out")
+	}
+	data, readErr := result.data, result.err
+	if int64(len(data)) > limit {
+		// Stop an over-sized producer before Wait; otherwise it can remain
+		// blocked writing into the full pipe while we wait for its exit.
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return nil, fmt.Errorf("clipboard output exceeds %d bytes", limit)
+	}
+	if readErr != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		return nil, readErr
+	}
+	waitErr := command.Wait()
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	return data, nil
+}
+
+// runClipboardCommand bounds both the temporary Unicode copy and the MIME
+// restore. A clipboard owner can disappear or stop servicing requests; the
+// input worker must then continue processing keyboard events promptly.
+func runClipboardCommand(command *exec.Cmd) error {
+	ctx, cancel := context.WithTimeout(context.Background(), clipboardCommandTimeout)
+	defer cancel()
+	if err := command.Start(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		<-done
+		return ctx.Err()
 	}
 }
 

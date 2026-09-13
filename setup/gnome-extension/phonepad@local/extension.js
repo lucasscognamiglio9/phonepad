@@ -93,7 +93,8 @@ const PhonepadToggle = GObject.registerClass(
 class PhonepadToggle extends QuickMenuToggle {
     _init() {
         super._init({
-            title: 'phonepad',
+            title: 'Phonepad',
+            subtitle: 'Disponible al iniciar sesión',
             iconName: 'input-touchpad-symbolic',
             toggleMode: true,
         });
@@ -103,7 +104,13 @@ class PhonepadToggle extends QuickMenuToggle {
 
         // Acción a demanda: abre /pair SIEMPRE, sin importar si ya hay un cel
         // emparejado (sirve para re-escanear el QR o emparejar otro dispositivo).
-        this.menu.addAction('Mostrar QR / emparejar', () => openPair());
+        this.menu.addAction('Vincular teléfono / mostrar QR', () => this._startAndOpen(PAIR_URL));
+        this.menu.addAction('Ver y compartir escritorio', () => this._startAndOpen('https://localhost:8080/share'));
+        this.menu.addAction('Activar inicio automático', () => runAsync(['systemctl', '--user', 'enable', SERVICE], ok => osd(ok ? 'Inicio automático activado' : 'No se pudo activar')));
+        this.menu.addAction('Desactivar inicio automático', () => runAsync(['systemctl', '--user', 'disable', SERVICE], ok => osd(ok ? 'Inicio automático desactivado' : 'No se pudo desactivar')));
+        this._alive = true;
+        this._openingTimer = null;
+        this._busy = false;
 
         this.connect('clicked', () => this._onClicked());
         this._refresh();
@@ -116,37 +123,45 @@ class PhonepadToggle extends QuickMenuToggle {
     }
 
     _refresh() {
-        isActive((active) => { this.checked = active; });
+        if (this._busy) return;
+        isActive((active) => {
+            if (!this._alive || this._busy) return;
+            this.checked = active;
+            this.subtitle = active ? 'Disponible · conexión automática' : 'Apagado';
+        });
+    }
+
+    _startAndOpen(url) {
+        runAsync(['systemctl', '--user', 'start', SERVICE], ok => {
+            if (!this._alive) return;
+            if (!ok) { osd('No se pudo iniciar Phonepad'); this._refresh(); return; }
+            if (this._openingTimer) GLib.source_remove(this._openingTimer);
+            this._openingTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 700, () => {
+                this._openingTimer = null;
+                if (this._alive) Gio.AppInfo.launch_default_for_uri(url, null);
+                return GLib.SOURCE_REMOVE;
+            });
+        });
     }
 
     _onClicked() {
-        // toggleMode ya invirtió this.checked al estado deseado.
-        // toggleMode ya dejó this.checked en el estado deseado, así que el toggle
-        // es optimista: NO re-consultamos isActive() en el camino feliz (eso podía
-        // pisar el estado con un "activating" transitorio y hacer parpadear el
-        // toggle). Solo refrescamos al estado real si el comando FALLA; el timer
-        // de 5s reconcilia igual ante cambios externos.
-        if (this.checked) {
-            osd('phonepad encendido');
-            runAsync(['systemctl', '--user', 'start', SERVICE], (ok) => {
-                if (!ok) { this._refresh(); return; }
-                if (!isPaired()) {
-                    // Dar un instante a que el daemon levante y abrir /pair.
-                    GLib.timeout_add(GLib.PRIORITY_DEFAULT, 700, () => {
-                        openPair();
-                        return GLib.SOURCE_REMOVE;
-                    });
-                }
-            });
-        } else {
-            osd('phonepad apagado');
-            runAsync(['systemctl', '--user', 'stop', SERVICE], (ok) => {
-                if (!ok) this._refresh();
-            });
-        }
+        if (this._busy) return;
+        this._busy = true;
+        const enabled = this.checked;
+        this.subtitle = enabled ? 'Iniciando…' : 'Deteniendo…';
+        runAsync(['systemctl', '--user', enabled ? 'start' : 'stop', SERVICE], ok => {
+            if (!this._alive) return;
+            this._busy = false;
+            this._refresh();
+            if (!ok) { osd('No se pudo cambiar Phonepad'); return; }
+            osd(enabled ? 'Phonepad disponible' : 'Phonepad apagado');
+            if (enabled && !isPaired()) this._startAndOpen(PAIR_URL);
+        });
     }
 
     destroy() {
+        this._alive = false;
+        if (this._openingTimer) { GLib.source_remove(this._openingTimer); this._openingTimer = null; }
         if (this._timer) {
             GLib.source_remove(this._timer);
             this._timer = null;

@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><title>Phonepad: prueba WebRTC aislada</title>
+<video autoplay muted playsinline style="width:640px"></video><pre id="result">Midiendo video sintético. Este receptor no es el iPhone.</pre>
+<script>
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+const call=async data=>{const r=await fetch('/rtc',{method:'POST',body:JSON.stringify(data)});if(!r.ok)throw Error(await r.text());return r.json()};
+const query=new URLSearchParams(location.search);
+const cycles=Math.max(1,Math.min(5,Number(query.get('cycles'))||1));
+const seconds=Math.max(5,Math.min(60,Number(query.get('seconds'))||45));
+let activePeer;
+async function runCycle(){
+const pc=activePeer=new RTCPeerConnection({iceServers:[]});
+pc.ontrack=e=>document.querySelector('video').srcObject=e.streams[0]||new MediaStream([e.track]);
+const begin=performance.now();
+const offer=await call({op:'start',width:1920,codec:'H264'});window.offerCodec=offer.sdp.match(/profile-level-id=[^;\r\n]+/g);
+const offerMs=performance.now()-begin;
+await pc.setRemoteDescription({type:'offer',sdp:offer.sdp});await pc.setLocalDescription(await pc.createAnswer());
+if(pc.iceGatheringState!=='complete')await new Promise(r=>pc.onicegatheringstatechange=()=>{if(pc.iceGatheringState==='complete')r()});
+await call({op:'answer',id:offer.id,sdp:pc.localDescription.sdp});
+const sample=async()=>{let result,pair;(await pc.getStats()).forEach(s=>{if(s.type==='inbound-rtp'&&s.kind==='video')result=s;if(s.type==='candidate-pair'&&s.nominated&&s.state==='succeeded')pair=s});return result?{...result,rtt:pair?.currentRoundTripTime||0}:undefined};
+let previous;const samples=[];window.partialCycle={samples,phase:'receiving'};
+for(let i=0;i<seconds;i++){
+ await sleep(1000);const current=await sample();
+ const delta=key=>Math.max(0,(current?.[key]||0)-(previous?.[key]||0));
+ const lost=delta('packetsLost'),received=delta('packetsReceived'),emitted=delta('jitterBufferEmittedCount');
+ const feedback=previous?{loss:lost/Math.max(1,lost+received),delay:emitted?delta('jitterBufferDelay')/emitted:0}:{loss:0,delay:0};
+ const server=await call({op:'feedback',id:offer.id,...feedback,rtt:current?.rtt||0});
+ if(previous&&current){samples.push({decodedFps:1000*(current.framesDecoded-previous.framesDecoded)/(current.timestamp-previous.timestamp),width:current.frameWidth,height:current.frameHeight,framesDropped:current.framesDropped,decoder:current.decoderImplementation,powerEfficient:current.powerEfficientDecoder,decodeMs:1000*(current.totalDecodeTime-previous.totalDecodeTime)/Math.max(1,current.framesDecoded-previous.framesDecoded),jitterMs:1000*(current.jitterBufferDelay-previous.jitterBufferDelay)/Math.max(1,current.jitterBufferEmittedCount-previous.jitterBufferEmittedCount),server});}
+ if(i>0&&(!previous||!current))samples.push({decodedFps:0,error:'no receiver stats'});
+ previous=current;document.querySelector('#result').textContent=JSON.stringify(samples.at(-1),null,2);
+}
+await call({op:'suspend',id:offer.id});await sleep(500);const paused=await sample();await sleep(1500);const still=await sample();
+const resumeBegin=performance.now();await call({op:'resume',id:offer.id});let resumed;
+for(let i=0;i<100;i++){resumed=await sample();if(resumed.framesDecoded>still.framesDecoded)break;await sleep(20)}
+const result={receiver:'local Chrome, not iPhone',feedback:'measured loss, jitter and RTT',offerMs,samples,pausedFrames:paused.framesDecoded,afterPauseFrames:still.framesDecoded,resumeMs:performance.now()-resumeBegin,receivedAfterResume:resumed.framesDecoded>still.framesDecoded,codec:window.offerCodec};
+window.partialCycle={...result,phase:'stop'};
+await call({op:'stop',id:offer.id});pc.close();result.stopped=true;activePeer=null;return result;
+}
+(async()=>{
+const results=[];for(let i=0;i<cycles;i++)results.push(await runCycle());
+window.result=cycles===1?results[0]:{cycles:results};
+document.querySelector('#result').textContent=JSON.stringify(window.result,null,2);await call({op:'result',result:window.result});
+})().catch(async e=>{window.result={...window.partialCycle,error:e.message};document.querySelector('#result').textContent=e.stack;activePeer?.close();try{await call({op:'result',result:window.result})}catch{}});
+</script>

@@ -12,14 +12,13 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
-
-	qrcode "github.com/skip2/go-qrcode"
 
 	"phonepad/daemon/internal/devreload"
 	"phonepad/daemon/internal/input"
@@ -35,12 +34,15 @@ import (
 var webEmbed embed.FS
 
 func main() {
+	gatewayPort := flag.Int("gateway-port", 0, "HTTP loopback port for an external HTTPS gateway; 0 disables")
+	publicURL := flag.String("public-url", "", "trusted HTTPS origin exposed by private gateway")
+	certPath := flag.String("tls-cert", "", "certificado TLS firmado por una CA confiable (opcional)")
+	keyPath := flag.String("tls-key", "", "clave del certificado TLS (requiere --tls-cert)")
+	demo := flag.Bool("demo", false, "demo sin entrada física; visible en la interfaz")
+	bind := flag.String("bind", "127.0.0.1", "IP de escucha o lan (solo clientes privados/locales)")
+	advertiseHost := flag.String("advertise-host", "", "nombre DNS/mDNS estable del equipo para pairing")
 	port := flag.Int("port", 8080, "puerto HTTP/WS")
 	rotateToken := flag.Bool("rotate-token", false, "revoca el pairing y genera un token nuevo; reiniciar el daemon después")
-	// --sens se expone para el operador, pero la sensibilidad la aplica el
-	// CLIENTE antes de mandar deltas (SPEC §5). Acá solo lo mostramos para que
-	// el valor configurado quede visible; el server no escala (SPEC §4).
-	sens := flag.Float64("sens", 1.0, "factor de sensibilidad (informativo; lo aplica el cliente)")
 	flag.Parse()
 	if *rotateToken {
 		pair, err := pairing.Open(configDir())
@@ -58,10 +60,20 @@ func main() {
 	// correcto para que el navegador lo acepte como manifest de PWA.
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 
-	ip, err := lanIP()
-	if err != nil {
-		log.Fatalf("no pude detectar IP de LAN: %v", err)
+	ip := *bind
+	bindLAN := ip == "lan"
+	if bindLAN {
+		var err error
+		ip, err = lanIP()
+		if err != nil {
+			ip = "127.0.0.1"
+		}
 	}
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil || (!parsedIP.IsLoopback() && !parsedIP.IsPrivate()) {
+		log.Fatal("--bind debe ser una IP loopback o privada de LAN")
+	}
+	var err error
 
 	// Pairing persistente: el token vive en ~/.config/phonepad y se reusa entre
 	// reinicios, así el acceso directo del celular no muere al reiniciar el
@@ -70,9 +82,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("no pude abrir el pairing: %v", err)
 	}
-	token := pair.Token()
 
-	inj, err := input.New()
+	var inj input.Injector
+	if *demo {
+		inj = &input.Demo{}
+	} else {
+		inj, err = input.New()
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, `
 ERROR: no pude abrir /dev/uinput: %v
@@ -97,6 +113,9 @@ loguearte para tomar el grupo 'input':
 	devSrc := os.Getenv("PHONEPAD_DEV_SRC")
 	var webFS fs.FS
 	var srvOpts []server.Option
+	if *demo {
+		srvOpts = append(srvOpts, server.WithDemo())
+	}
 	if devSrc != "" {
 		webFS = os.DirFS(filepath.Join(devSrc, "web"))
 		srvOpts = append(srvOpts, server.WithDevInject())
@@ -112,34 +131,86 @@ loguearte para tomar el grupo 'input':
 
 	// URL de pairing: única fuente de verdad (terminal + /qr.svg la comparten).
 	// HTTPS porque secure-context desbloquea el micrófono y la VirtualKeyboard
-	// API (SPEC §8). El celular acepta el warning del cert self-signed una vez.
-	url := fmt.Sprintf("https://%s:%d/?token=%s", ip, *port, token)
+	// API (SPEC §8). El acceso remoto requiere HTTPS públicamente confiable.
+	host := ip
+	if *advertiseHost != "" {
+		host = *advertiseHost
+	}
+	pairURL := fmt.Sprintf("https://%s/", net.JoinHostPort(host, fmt.Sprint(*port)))
+	if *gatewayPort != 0 {
+		u, e := url.Parse(*publicURL)
+		if e != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+			log.Fatal("gateway requiere --public-url con origen HTTPS válido")
+		}
+		if *gatewayPort < 1 || *gatewayPort > 65535 || *gatewayPort == *port {
+			log.Fatal("puerto gateway inválido")
+		}
+		pairURL = *publicURL
+	}
 
-	srv := server.New(pair, inj, webFS, url, srvOpts...)
+	srvOpts = append(srvOpts, server.WithTrustedTailscaleNode(os.Getenv("PHONEPAD_TRUSTED_NODE")))
+	srvOpts = append(srvOpts, server.WithNativeUpdate(os.Getenv("PHONEPAD_NATIVE_UPDATE")))
+	srv := server.New(pair, inj, webFS, pairURL, srvOpts...)
+	if *gatewayPort != 0 {
+		gateway := &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*gatewayPort)), Handler: srv.RemoteHandler(*publicURL), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
+		go func() {
+			if err := gateway.ListenAndServe(); err != nil {
+				log.Fatalf("gateway: %v", err)
+			}
+		}()
+	}
 
-	cert, err := tlscert.LoadOrCreate(configDir(), []string{ip})
+	var cert tls.Certificate
+	if (*certPath == "") != (*keyPath == "") {
+		log.Fatal("usar --tls-cert y --tls-key juntos")
+	}
+	if *certPath != "" {
+		cert, err = tls.LoadX509KeyPair(*certPath, *keyPath)
+	} else {
+		cert, err = tlscert.LoadOrCreate(configDir(), []string{ip, host})
+	}
 	if err != nil {
 		log.Fatalf("cert TLS: %v", err)
 	}
 
-	printQR(url)
-	fmt.Printf("\nphonepad listo. sens=%.2f\nAbrí en el celular:\n  %s\n", *sens, url)
+	fmt.Printf("\nPhonepad listo. Dirección del teléfono: %s\n", pairURL)
 	// /pair y su QR están restringidos a loopback: no publicamos la pantalla
 	// de pairing en la LAN. El QR sigue codificando `url`, que sí apunta al cel.
 	fmt.Printf("Vista de pairing (solo esta compu):\n  https://localhost:%d/pair\n", *port)
-	fmt.Print("\nLa PRIMERA vez el celular mostrará una advertencia de certificado:\n" +
-		"tocá 'Avanzado' -> 'Continuar de todos modos'. Es esperado (cert casero).\n\n")
+	if *certPath == "" {
+		fmt.Println("Certificado autofirmado: para Safari/PWA usá el certificado confiable explicado en docs/iphone.md.")
+	}
+	if *demo {
+		fmt.Println("DEMO: no se envían eventos a Linux.")
+	}
+	if parsedIP.IsLoopback() && !bindLAN {
+		fmt.Println("Solo localhost. Para el teléfono, reiniciar con --bind IP_PRIVADA_DE_LA_LAPTOP.")
+	}
 
 	if devSrc != "" {
 		startDevWatchers(devSrc, srv)
 	}
 
-	addr := fmt.Sprintf(":%d", *port)
+	addr := net.JoinHostPort(ip, fmt.Sprint(*port))
+	if bindLAN {
+		addr = net.JoinHostPort("0.0.0.0", fmt.Sprint(*port))
+	}
 	log.Printf("escuchando (https) en %s", addr)
 	httpSrv := &http.Server{
-		Addr:      addr,
-		Handler:   srv.Handler(),
-		TLSConfig: &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
+		Addr:              addr,
+		Handler:           srv.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
+	}
+	// Keep operator endpoints available on loopback when explicitly binding LAN.
+	if !parsedIP.IsLoopback() && !bindLAN {
+		localSrv := &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*port)), Handler: srv.Handler(), TLSConfig: httpSrv.TLSConfig, ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			if err := localSrv.ListenAndServeTLS("", ""); err != nil {
+				log.Fatalf("local server: %v", err)
+			}
+		}()
 	}
 	// Cert y key vacíos: el certificado ya está en TLSConfig.
 	if err := httpSrv.ListenAndServeTLS("", ""); err != nil {
@@ -244,20 +315,10 @@ func lanIP() (string, error) {
 				continue
 			}
 			ip4 := ipnet.IP.To4()
-			if ip4 != nil && !ip4.IsLoopback() {
+			if ip4 != nil && ip4.IsPrivate() {
 				return ip4.String(), nil
 			}
 		}
 	}
 	return "", fmt.Errorf("ninguna interfaz con IPv4 de LAN")
-}
-
-// printQR imprime el QR en la terminal usando half-blocks (ToSmallString).
-func printQR(url string) {
-	q, err := qrcode.New(url, qrcode.Medium)
-	if err != nil {
-		log.Printf("no pude generar QR: %v", err)
-		return
-	}
-	fmt.Print(q.ToSmallString(false))
 }

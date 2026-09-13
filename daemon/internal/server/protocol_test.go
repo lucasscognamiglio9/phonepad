@@ -18,6 +18,23 @@ func TestParseTouch(t *testing.T) {
 	}
 }
 
+func TestParseTouchCancelRequiresEmptySnapshot(t *testing.T) {
+	got, ok := Parse([]byte(`{"t":"t","c":[],"cancel":true}`))
+	if !ok || !got.Cancel || len(got.Touches) != 0 {
+		t.Fatalf("cancel parse = (%+v, %t), want empty canceled touch", got, ok)
+	}
+	for _, raw := range []string{
+		`{"t":"t","c":[{"id":1,"x":0.5,"y":0.5}],"cancel":true}`,
+		`{"t":"t","cancel":true}`,
+		`{"t":"t","c":null,"cancel":true}`,
+		`{"t":"m","dx":0,"dy":0,"cancel":true}`,
+	} {
+		if _, ok := Parse([]byte(raw)); ok {
+			t.Errorf("Parse(%s) ok=true, want strict cancel rejection", raw)
+		}
+	}
+}
+
 func TestParseValid(t *testing.T) {
 	tests := []struct {
 		name string
@@ -126,6 +143,7 @@ func TestParseRejectsOutOfBoundsAndMalformedFrames(t *testing.T) {
 		`{"t":"t","c":[{"id":1,"x":0.5,"y":0.5},{"id":1,"x":0.6,"y":0.5}]}`,
 		`{"t":"t"}`,
 		`{"t":"t","c":null}`,
+		`{"t":"t","c":[{"id":1,"x":0.5,"y":0.5}],"cancel":true}`,
 		`{"t":"g","name":"not-a-gesture"}`,
 	}
 	for _, raw := range cases {

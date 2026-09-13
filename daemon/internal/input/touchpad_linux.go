@@ -110,7 +110,7 @@ func newMTTouchpad() (*mtTouchpad, error) {
 			return failClose(fd, "UI_SET_KEYBIT", err)
 		}
 	}
-	for _, a := range []int{absX, absY, absMTSlot, absMTTrackingID, absMTPositionX, absMTPositionY} {
+	for _, a := range []int{absX, absY, absMTSlot, absMTTrackingID, absMTPositionX, absMTPositionY, absMTToolType} {
 		if err := set(uiSetAbsbit, a); err != nil {
 			return failClose(fd, "UI_SET_ABSBIT", err)
 		}
@@ -130,6 +130,7 @@ func newMTTouchpad() (*mtTouchpad, error) {
 		{absMTPositionX, 0, devMaxX, devRes},
 		{absMTPositionY, 0, devMaxY, devRes},
 		{absMTSlot, 0, maxSlots - 1, 0},
+		{absMTToolType, mtToolFinger, mtToolPalm, 0},
 		{absMTTrackingID, 0, 65535, 0},
 	}
 	for _, a := range axes {
@@ -218,7 +219,7 @@ func writeEvents(fd int, evs []evt) error {
 
 func (m *mtTouchpad) reset() {
 	next := *m.state
-	events := next.reset()
+	events := next.cancel()
 	if m.desynced {
 		// A failed frame may have written an uncommitted prefix. Release every
 		// slot/tool bit instead of trusting the last committed snapshot.
@@ -226,6 +227,28 @@ func (m *mtTouchpad) reset() {
 	}
 	if err := writeEvents(m.fd, events); err != nil {
 		log.Printf("touchpad uinput reset: %v", err)
+		m.desynced = true
+		return
+	}
+	*m.state = next
+	m.desynced = false
+}
+
+// cancel reports active contacts as palms for one SYN_REPORT before releasing
+// them. This gives libinput the cancellation signal it needs to suppress a
+// ghost click when a touch sequence ends unexpectedly (pointercancel,
+// reconnect, or a transport reset).
+func (m *mtTouchpad) cancel() {
+	next := *m.state
+	events := next.cancel()
+	if m.desynced {
+		// A failed frame may have written an unknown prefix. The hard reset is
+		// the only safe recovery because the committed slot snapshot may be
+		// stale; it still emits a complete release frame.
+		events = next.hardReset()
+	}
+	if err := writeEvents(m.fd, events); err != nil {
+		log.Printf("touchpad uinput cancel: %v", err)
 		m.desynced = true
 		return
 	}

@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -28,6 +30,17 @@ type Authenticator interface {
 // token, rutea mensajes al Injector y maneja ping/pong. Asume 1 cliente (SPEC
 // §1 no-goals): una conexión nueva con token válido reemplaza a la anterior.
 type Server struct {
+	nativeUpdatePath string
+	uploadMu         sync.Mutex
+	uploadDir        string
+	clipboardMu      sync.Mutex
+	clipboard        clipboardWriter
+	trustedPeer      func(*http.Request) bool
+	pairMu           sync.Mutex
+	pairCode         string
+	pairExpires      time.Time
+
+	desktop desktopRelay
 	auth    Authenticator
 	inj     input.Injector
 	mux     *http.ServeMux
@@ -39,6 +52,7 @@ type Server struct {
 	gen         uint64          // generación monotónica; invalida frames de sesiones viejas
 	readTimeout time.Duration   // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
 
+	demo      bool
 	devInject bool // dev: inyectar el flag dev en index.html y no cachear
 }
 
@@ -51,6 +65,8 @@ const (
 // Option configura el Server en New. Las opciones de dev quedan apagadas por
 // defecto, así producción no carga ningún camino de dev.
 type Option func(*Server)
+
+func WithDemo() Option { return func(s *Server) { s.demo = true } }
 
 // WithDevInject hace que el server inyecte el flag dev en index.html (para que
 // la PWA desregistre el service worker) y mande las páginas con Cache-Control:
@@ -75,12 +91,23 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 		o(s)
 	}
 	s.mux.HandleFunc("/ws", s.handleWS)
+	s.mux.HandleFunc("/api/preview/", s.handlePreview)
+	s.mux.HandleFunc("/api/desktop", s.handleDesktop)
+	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc(nativeUpdateRoute, s.handleNativeUpdate)
+	s.mux.HandleFunc("/share", s.handleShare(webFS))
 	// Vista de pairing (SPEC §12): página + QR + canal SSE + metadata.
 	s.mux.HandleFunc("/pair", s.handlePair(webFS))
 	s.mux.HandleFunc("/qr.svg", s.handleQR)
 	s.mux.HandleFunc("/events", s.handleEvents)
 	s.mux.HandleFunc("/api/pair-info", s.handlePairInfo)
 	s.mux.HandleFunc("/api/auth", s.handleAuth)
+	s.mux.HandleFunc("/api/claim", s.handleClaim)
+	s.mux.HandleFunc("/api/mode", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		fmt.Fprintf(w, `{"demo":%t}`, s.demo)
+	})
 	// La PWA se sirve siempre, con o sin token (SPEC §7): el token solo lo
 	// exige el WS. Sin token la PWA carga pero no puede conectar.
 	s.mux.Handle("/", s.staticHandler(webFS))
@@ -133,27 +160,30 @@ func (s *Server) PushReload() {
 	}
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || (!ip.IsLoopback() && !ip.IsPrivate()) {
+			http.Error(w, "Phonepad solo admite clientes de LAN o loopback", http.StatusForbidden)
+			return
+		}
+		s.mux.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// Validar token ANTES de hacer el upgrade (SPEC §3: "valida antes de
 	// procesar nada"). El token viaja en la query, no en un mensaje.
-	if !s.auth.Valid(r.URL.Query().Get("token")) {
+	if !trustedNode(r) && !s.auth.Valid(sessionToken(r)) {
 		http.Error(w, "bad token", http.StatusUnauthorized)
 		return
 	}
 
-	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// OJO: InsecureSkipVerify acá NO toca TLS (main termina HTTPS/WSS); solo
-		// desactiva la verificación del header Origin de
-		// coder/websocket. La PWA se sirve desde el mismo origen que el daemon,
-		// así que el Origin coincide con el host y la verificación default
-		// pasaría igual; lo desactivamos para tolerar que el navegador del
-		// celular mande un Origin inesperado (ej. null) sin romper la conexión.
-		// La barrera real de acceso es el token persistente/revocable (SPEC §7) sumado a estar
-		// en la misma LAN; el Origin no aporta protección extra en ese modelo.
-		InsecureSkipVerify: true,
-	})
+	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		log.Printf("ws accept: %v", err)
 		return
@@ -349,7 +379,18 @@ func (s *Server) routeInjector(m Msg) {
 	case "t":
 		// Foto de contactos del frame (touchpad de precisión, ADR 0005). El
 		// cliente reenvía contactos crudos; libinput clasifica los gestos.
-		s.inj.Touch(m.Touches)
+		if m.Cancel {
+			if canceler, ok := s.inj.(input.TouchCanceler); ok {
+				canceler.CancelTouch()
+			} else {
+				// Compatibility fallback for older Injectors. New MT devices
+				// implement TouchCanceler so this path reports a palm before
+				// lifting; legacy snapshot-only devices still receive lift-all.
+				s.inj.Touch(nil)
+			}
+		} else {
+			s.inj.Touch(m.Touches)
+		}
 	case "ping":
 		// Las conexiones reales responden en route antes de llegar acá; el caso
 		// nil solo aparece en tests y no tiene un socket donde escribir.

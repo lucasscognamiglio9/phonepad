@@ -7,8 +7,8 @@
 // style.css). El fetch es cache-first sin revalidación, así que un cambio de
 // shell NO llega a las PWA ya instaladas hasta que cambia el nombre del cache:
 // el SW nuevo reinstala (recachea el shell) y activate borra el cache viejo.
-const CACHE = "phonepad-v2";
-const SHELL = ["/", "/index.html", "/app.js", "/style.css", "/manifest.webmanifest"];
+const CACHE = "phonepad-v22";
+const SHELL = ["/", "/index.html", "/app.js?v=22", "/preview.js?v=22", "/rtc.js?v=22", "/style.css?v=22", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -24,6 +24,10 @@ self.addEventListener("activate", (e) => {
   );
 });
 
+self.addEventListener("message", (e) => {
+  if (e.data?.type === "PHONEPAD_VERSION") e.source?.postMessage({type:"PHONEPAD_VERSION", build:"22"});
+});
+
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   // Dinámico/tiempo real: nunca cachear ni servir de cache.
@@ -32,9 +36,27 @@ self.addEventListener("fetch", (e) => {
     url.pathname.startsWith("/ws") ||
     url.pathname.startsWith("/events") ||
     url.pathname.startsWith("/api") ||
-    url.pathname === "/qr.svg"
+    url.pathname === "/qr.svg" || url.pathname === "/share" || url.pathname.startsWith("/pair")
   ) {
     return; // dejar pasar a la red (comportamiento por defecto)
+  }
+  // Navigation checks the current HTML. Versioned assets keep each release coherent.
+  if (e.request.mode === "navigate" && url.origin === location.origin) {
+    e.respondWith((async () => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+      try {
+        const response = await fetch(e.request, {cache:"no-store", signal:controller.signal});
+        if (!response.ok) throw Error("navigation unavailable");
+        return response;
+      } catch (error) {
+        const cache = await caches.open(CACHE);
+        const offline = await cache.match("/index.html");
+        if (offline) return offline;
+        throw error;
+      } finally { clearTimeout(timeout); }
+    })());
+    return;
   }
   // Cache-first para el shell: abre al instante; red como fallback y para poblar
   // assets nuevos (p.ej. fonts) la primera vez.

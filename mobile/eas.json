@@ -1,0 +1,46 @@
+{
+  "cli": {
+    "version": ">= 16.0.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "distribution": "store",
+      "developmentClient": false,
+      "autoIncrement": true,
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    },
+    "testflight": {
+      "extends": "production"
+    },
+    "personal": {
+      "developmentClient": false,
+      "distribution": "internal",
+      "environment": "development",
+      "autoIncrement": true,
+      "ios": {
+        "withoutCredentials": true,
+        "simulator": false,
+        "image": "macos-tahoe-26.5-xcode-26.6",
+        "resourceClass": "medium",
+        "buildConfiguration": "Release",
+        "config": "ios-personal.yml",
+        "applicationArchivePath": "build/Phonepad-unsigned.ipa"
+      },
+      "channel": "personal"
+    }
+  },
+  "submit": {
+    "production": {},
+    "testflight": {}
+  }
+}

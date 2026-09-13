@@ -40,7 +40,15 @@ const (
 	absMTSlot       = 0x2f
 	absMTPositionX  = 0x35
 	absMTPositionY  = 0x36
+	absMTToolType   = 0x37
 	absMTTrackingID = 0x39
+)
+
+// ABS_MT_TOOL_TYPE values from linux/input-event-codes.h. libinput treats a
+// palm contact as canceled and will not synthesize a button click from it.
+const (
+	mtToolFinger = 0
+	mtToolPalm   = 2
 )
 
 const maxSlots = 5
@@ -137,7 +145,13 @@ func (s *mtState) frame(cs []Contact) []evt {
 		}
 		ev = append(ev, evt{evAbs, absMTSlot, int32(slot)})
 		if isNew {
-			ev = append(ev, evt{evAbs, absMTTrackingID, s.nextTID})
+			// Set the tool type before the first tracking id. A new contact after
+			// cancellation must always start as a finger; otherwise the kernel
+			// slot can retain MT_TOOL_PALM from the cancellation report.
+			ev = append(ev,
+				evt{evAbs, absMTToolType, mtToolFinger},
+				evt{evAbs, absMTTrackingID, s.nextTID},
+			)
 			s.nextTID++
 		}
 		ev = append(ev,
@@ -167,12 +181,61 @@ func (s *mtState) frame(cs []Contact) []evt {
 	return ev
 }
 
-// reset libera cualquier slot que el último frame haya dejado activo y vuelve
-// a una secuencia de tracking IDs fresca. El frame vacío siempre termina en
-// SYN_REPORT, incluso si ya no había dedos, para que libinput reciba la
-// frontera del estado al desconectar/reemplazar el cliente.
+// reset cancela cualquier slot que el último frame haya dejado activo y vuelve
+// a una secuencia de tracking IDs fresca. Incluso sin dedos emite un
+// SYN_REPORT para que libinput reciba la frontera del estado al
+// desconectar/reemplazar el cliente.
 func (s *mtState) reset() []evt {
-	ev := s.frame(nil)
+	return s.cancel()
+}
+
+// cancel first reports every active slot as MT_TOOL_PALM, then emits a
+// separate SYN_REPORT so libinput can classify the contact as a palm before it
+// receives the lift. The second report releases all slots and tool bits and
+// starts a fresh tracking-id sequence. Keeping these as two reports is
+// intentional: collapsing them into one lets a short tap reach libinput as a
+// click before the cancellation is visible.
+func (s *mtState) cancel() []evt {
+	active := 0
+	for _, id := range s.slotID {
+		if id != -1 {
+			active++
+		}
+	}
+	if active == 0 {
+		s.count = 0
+		s.nextTID = 1
+		return []evt{{evSyn, synReport, 0}}
+	}
+
+	ev := make([]evt, 0, active*4+8)
+	for slot, id := range s.slotID {
+		if id == -1 {
+			continue
+		}
+		ev = append(ev,
+			evt{evAbs, absMTSlot, int32(slot)},
+			evt{evAbs, absMTToolType, mtToolPalm},
+		)
+	}
+	ev = append(ev, evt{evSyn, synReport, 0})
+	for slot, id := range s.slotID {
+		if id == -1 {
+			continue
+		}
+		ev = append(ev,
+			evt{evAbs, absMTSlot, int32(slot)},
+			evt{evAbs, absMTTrackingID, -1},
+		)
+	}
+	for _, code := range []uint16{btnToolFinger, btnToolDoubletap, btnToolTripletap, btnToolQuadtap, btnToolQuinttap, btnTouch} {
+		ev = append(ev, evt{evKey, code, 0})
+	}
+	ev = append(ev, evt{evSyn, synReport, 0})
+	for i := range s.slotID {
+		s.slotID[i] = -1
+	}
+	s.count = 0
 	s.nextTID = 1
 	return ev
 }

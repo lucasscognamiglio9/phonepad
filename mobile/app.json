@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "Phonepad",
+    "slug": "phonepad",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/phonepad-icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "app.phonepad.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bitcode": false,
+      "buildNumber": "4"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/phonepad-icon.png",
+        "backgroundColor": "#090b0e"
+      },
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "./plugins/receive-only.cjs",
+      "./plugins/video-renderer.cjs",
+      "expo-router",
+      "@config-plugins/react-native-webrtc",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Tomar una foto para enviarla a tu computadora.",
+          "photosPermission": "Elegir fotos para enviarlas a tu computadora.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "scheme": "phonepad",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "a424819c-da67-44c6-bf43-8a09b2e554a2"
+      }
+    },
+    "owner": "lucas0expo",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/a424819c-da67-44c6-bf43-8a09b2e554a2",
+      "requestHeaders": {
+        "expo-channel-name": "personal"
+      },
+      "checkAutomatically": "ON_ERROR_RECOVERY",
+      "fallbackToCacheTimeout": 0,
+      "useEmbeddedUpdate": true
+    }
+  }
+}
