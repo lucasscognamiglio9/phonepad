@@ -17,7 +17,7 @@ def replay(controller, cases):
         samples, ends = [], []
         for stage in case['stages']:
             for _ in range(stage['count']):
-                samples.append(rate.update(stage['loss'], stage['delay'], stage['rtt']))
+                samples.append(rate.update(stage['loss'], stage['delay'], stage['rtt'], now=len(samples)))
             ends.append(samples[-1])
         results.append({'name': case['name'], 'targets_kbps': samples,
                         'stage_end_kbps': ends, 'min_kbps': min(samples),

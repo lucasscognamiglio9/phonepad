@@ -1,5 +1,13 @@
 # Estado de ejecución — 17/09/2026
 
+## Checkpoint vigente: P01 implementada, aceptación física pendiente
+
+P01.1–P01.5 entregadas con pruebas y comparación contra P00. P01.6 cuenta con A/B de encoder real aislado; faltan detalle visual y tráfico/colas extremo a extremo en dispositivo. Ver `p01.md` para resultados, límites y rollback. P00.6 sigue pendiente; no hubo despliegue ni publicación OTA.
+
+Próximo bloque autorizado por fases: P01A, integridad de entrada y adjuntos. Conservar evidencia de `outputs/p00` y `outputs/p01`, ambas ignoradas por Git. Al retomar, usar este checkpoint en lugar de la reanudación histórica P01 que aparece debajo.
+
+## Historial P00
+
 ## Checkpoint P00: laboratorio y referencia preservados
 
 Autorizado ejecutar por fases y detenerse entre entregas para revisar cuota. Rama `refactor/p00-baseline`, copia aislada; origen congelado en `adab7c77bc74f0e6e6d9e48bc55d330d7e15e77e`. No se desplegó ni reinició PhonePad. El plan maestro sigue en `../../outputs/PHONEPAD-PLAN-MAESTRO.md` respecto de la raíz de este checkout.

@@ -1,4 +1,4 @@
-import json, os, pathlib, threading, time, faulthandler
+import json, os, pathlib, threading, time, faulthandler, sys
 from frame_metrics import summarize
 import gi
 gi.require_version('Gst', '1.0')
@@ -38,15 +38,24 @@ try:
         source = f'pipewiresrc name=capture path={nodes[0]} do-timestamp=true'
     pipeline = Gst.parse_launch(
         source + ' '
-        '! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream '
+        '! queue name=capture_queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream '
         '! vapostproc name=convert ! video/x-raw(memory:VAMemory),format=NV12 '
         '! vah264enc name=encoder rate-control=vbr bitrate=12000 b-frames=0 ref-frames=1 '
         'key-int-max=60 cpb-size=720 target-usage=5 '
         '! video/x-h264,profile=constrained-baseline ! h264parse '
         f'! filesink location={root}/motion.h264 sync=false')
     arrivals = {'source': [], 'encoded': []}
+    encoded_bytes = [0]
+    rate_samples = []
+    rate = None
+    if os.environ.get('PHONEPAD_LAB_RATE_AB') == '1':
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'setup/preview'))
+        from rate_control import RateController
+        rate = RateController(initial=12000, policy=os.environ['PHONEPAD_RATE_POLICY'])
     def count(pad, info, key):
-        arrivals[key].append(time.monotonic()); return Gst.PadProbeReturn.OK
+        arrivals[key].append(time.monotonic())
+        if key == 'encoded': encoded_bytes[0] += info.get_buffer().get_size()
+        return Gst.PadProbeReturn.OK
     pipeline.get_by_name('capture').get_static_pad('src').add_probe(Gst.PadProbeType.BUFFER, count, 'source')
     pipeline.get_by_name('encoder').get_static_pad('src').add_probe(Gst.PadProbeType.BUFFER, count, 'encoded')
     pipeline.use_clock(Gst.SystemClock.obtain()); pipeline.set_latency(0)
@@ -59,6 +68,14 @@ try:
         error = pipeline.get_bus().timed_pop_filtered(Gst.SECOND, Gst.MessageType.ERROR)
         snapshot = {name: len(values) for name, values in arrivals.items()}
         snapshot['elapsed'] = round(time.monotonic() - measurement_start, 2)
+        if rate:
+            elapsed = time.monotonic() - measurement_start
+            target = rate.update(0, .02, .02 if elapsed < 3 else .2, now=elapsed)
+            pipeline.get_by_name('encoder').set_property('bitrate', target)
+            rate_samples.append({'elapsed': elapsed, 'decision': rate.decision.copy(),
+                                 'appliedKbps': pipeline.get_by_name('encoder').get_property('bitrate'),
+                                 'encodedBytes': encoded_bytes[0],
+                                 'captureQueueNs': pipeline.get_by_name('capture_queue').get_property('current-level-time')})
         print(json.dumps(snapshot), flush=True)
         if error: break
     measurement_end = time.monotonic()
@@ -71,7 +88,7 @@ try:
               'encodedFrames': metrics['encoded']['frames'], 'sourceCaps': caps.to_string() if caps else None,
               'error': str(error.parse_error()[0]) if error else None,
               'scope': 'isolated GNOME animation; no network or iPhone',
-              'distinctFramesVerified': False}
+              'distinctFramesVerified': False, 'rateExperiment': rate_samples, 'encodedBytes': encoded_bytes[0]}
     (root / 'result.json').write_text(json.dumps(result, indent=2))
     print(json.dumps(result), flush=True)
 finally:

@@ -78,7 +78,10 @@ try:
     # the system libraries. The worker refuses a primary-session bus.
     cycles = int(os.environ.get('PHONEPAD_LAB_CYCLES', '1'))
     if not 1 <= cycles <= 10: raise ValueError('Invalid cycle count')
+    if os.environ.get('PHONEPAD_LAB_RATE_AB') == '1': cycles = 2
     for cycle in range(cycles):
+        if os.environ.get('PHONEPAD_LAB_RATE_AB') == '1':
+            env['PHONEPAD_RATE_POLICY'] = ('legacy', 'windowed')[cycle]
         worker = start(['/usr/bin/python3', str(here / 'runtime.py'), str(here / ('webrtc_lab.py' if os.environ.get('PHONEPAD_LAB_WEBRTC') == '1' else 'measure.py'))], 'measure-' + str(cycle))
         if os.environ.get('PHONEPAD_LAB_FAULT') == '1':
             time.sleep(8)

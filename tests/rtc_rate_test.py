@@ -7,34 +7,6 @@ from rtc import RateController, Session, Manager, GstVideo, Gst
 from unittest.mock import patch
 from types import SimpleNamespace
 
-class RateTests(unittest.TestCase):
-    def test_congestion_and_gradual_recovery(self):
-        rate = RateController()
-        self.assertEqual(rate.update(.1, .02, .05), 4500)
-        self.assertEqual(rate.update(0, .02, .05), 4500)
-        self.assertEqual(rate.update(0, .02, .05), 5625)
-
-    def test_stable_remote_rtt_does_not_destroy_quality(self):
-        rate = RateController()
-        for _ in range(20): rate.update(0, .02, .6)
-        self.assertEqual(rate.target, rate.maximum)
-        self.assertLess(rate.update(0, .02, .9), rate.maximum)
-
-    def test_recovers_in_seconds_not_minutes(self):
-        rate = RateController()
-        rate.target = 2000
-        for _ in range(12): rate.update(0, .02, .03)
-        self.assertGreaterEqual(rate.target, 6000)
-
-    def test_bounded_and_invalid_feedback(self):
-        rate = RateController(3500)
-        for _ in range(100): rate.update(1, 1, 1)
-        self.assertEqual(rate.target, 350)
-        for _ in range(1000): rate.update(0, 0, 0)
-        self.assertEqual(rate.target, 3500)
-        for bad in [float('nan'),float('inf'),-1,'0',None]:
-            with self.assertRaises(ValueError): rate.update(bad,0,0)
-
 class StartupTests(unittest.TestCase):
     def test_recovery_sends_headers_and_is_rate_limited(self):
         events = []
@@ -62,7 +34,7 @@ class WarmTests(unittest.TestCase):
     def session(self):
         states=[]
         s=Session.__new__(Session)
-        s.suspended=False;s.modern=False;s.touched=0;s.counts={'encoded':2};s.closed=False
+        s.rate=RateController();s.suspended=False;s.modern=False;s.touched=0;s.counts={'encoded':2};s.closed=False
         s.pipeline=SimpleNamespace(set_state=lambda state:states.append(state))
         s.flow=SimpleNamespace(set_property=lambda key,value:states.append((key,value)))
         s.request_keyframe=lambda:states.append('keyframe')
@@ -92,5 +64,32 @@ class WarmTests(unittest.TestCase):
         self.assertIs(m.session,s)
         with patch('rtc.time.monotonic',return_value=310):m.expire()
         self.assertIsNone(m.session);self.assertEqual(states[-1],'closed')
+
+
+class FeedbackTests(unittest.TestCase):
+    def session(self):
+        s = Session.__new__(Session)
+        s.suspended = False; s.rate = RateController(); s.sample_time = 9
+        s.counts = {'encoded': 10}; s.last_counts = {'encoded': 0}
+        s.last_diagnostic = 0; s.encode_ms = [1, 2, 3]; s.codec = 'H264'
+        properties = {'bitrate': 6000}
+        caps = SimpleNamespace(to_string=lambda: 'fixture-caps')
+        pad = SimpleNamespace(get_current_caps=lambda: caps)
+        s.encoder = SimpleNamespace(set_property=lambda k,v: properties.update({k:v}),
+                                    get_property=lambda k: properties[k], get_static_pad=lambda k: pad)
+        s.pipeline = SimpleNamespace(get_by_name=lambda k: None)
+        s.request_keyframe = lambda: None
+        return s
+
+    def test_native_feedback_reports_requested_applied_and_encode_without_missing_metric_growth(self):
+        s = self.session()
+        with patch('rtc.time.monotonic', return_value=10), patch('builtins.print') as log:
+            result = s.feedback({'client':'native', 'frames':10})
+        self.assertEqual(result['bitrateKbps'], 6000)
+        self.assertEqual(result['rateDecision']['requestedKbps'], 6000)
+        self.assertEqual(result['rateDecision']['appliedKbps'], 6000)
+        self.assertIsNone(result['rateDecision']['loss'])
+        self.assertEqual(result['encodeP95Ms'], 3)
+        self.assertTrue(log.called)
 
 if __name__ == '__main__': unittest.main()

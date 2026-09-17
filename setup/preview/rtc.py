@@ -4,6 +4,8 @@ The controller is receiver-feedback AIMD, not Google Congestion Control.
 All pipeline operations run on the GLib thread; sessions have a short lease.
 """
 import os
+import math
+import json
 import secrets
 import threading
 import time
@@ -71,7 +73,7 @@ class Session:
         self.codec = codec
         print('rtc start codec=' + codec, flush=True)
         hevc = codec == 'H265'
-        self.rate = RateController(8000 if hevc else 12000, 4000 if hevc else 6000)
+        self.rate = RateController(8000 if hevc else 12000, 4000 if hevc else 6000, policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
         encoder = 'vaapih265enc' if hevc else 'vaapih264enc'
         profile = 'video/x-h265,profile=main' if hevc else 'video/x-h264,profile=constrained-baseline'
         parser, payloader = ('h265parse', 'rtph265pay') if hevc else ('h264parse', 'rtph264pay')
@@ -220,6 +222,7 @@ class Session:
             self.close()
             raise ValueError('session expired')
         self.suspended = False
+        self.rate.reset()
         self.touched = time.monotonic()
         self.sample_time = time.monotonic()
         self.last_counts = self.counts.copy()
@@ -231,7 +234,7 @@ class Session:
         if self.suspended:
             return {'suspended': True}
 
-        target = self.rate.update(data.get('loss', 0), data.get('delay', 0), data.get('rtt', 0))
+        target = self.rate.update(data.get('loss'), data.get('delay'), data.get('rtt'), route=data.get('route'), sequence=data.get('sequence'))
         self.encoder.set_property('bitrate', target)
         self.touched = time.monotonic()
         now=time.monotonic();elapsed=max(.001,now-self.sample_time)
@@ -242,9 +245,9 @@ class Session:
         if data.get('client') == 'native' and now-self.last_diagnostic >= 1:
             self.last_diagnostic = now
             metrics = {key: data.get(key) for key in ('frames','fps','width','height','bytes') if isinstance(data.get(key),(int,float)) and math.isfinite(data[key])}
-            print('rtc native=' + str(metrics) + ' sender=' + str(rates), flush=True)
+            print('rtc ' + json.dumps({'receiver': metrics, 'sender': rates, 'decision': self.rate.decision, 'appliedKbps': self.encoder.get_property('bitrate')}), flush=True)
         samples = sorted(self.encode_ms)
-        return {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': self.encoder.get_property('bitrate'), 'controller': 'receiver-aimd', 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string()}
+        return {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': self.encoder.get_property('bitrate'), 'controller': self.rate.policy, 'rateDecision': {**self.rate.decision, 'appliedKbps': self.encoder.get_property('bitrate')}, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string()}
 
     def close(self):
         if not self.closed:

@@ -1,25 +1,41 @@
 import { RTCPeerConnection, RTCSessionDescription, MediaStream } from '@livekit/react-native-webrtc';
 
-export type VideoSession = (() => void) & { setActive: (active: boolean) => Promise<void> };
+export type VideoSession = (() => void) & { setActive: (active: boolean) => Promise<void>; getDiagnostics: () => Stat | undefined };
 type Stat = Record<string, unknown>;
 const metric = (stat: Stat | undefined, key: string) => {
   const value = stat?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 };
 
-// RTC counters are cumulative. The first sample after a pause establishes a
-// baseline; old loss/jitter must not reduce the resumed stream's quality.
+// Missing stats are unknown, never evidence of a healthy interval.
+const known = (stat: Stat | undefined, key: string): number | null => {
+  const value = stat?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+};
 export function networkSample(current: Stat | undefined, previous?: Stat) {
-  if (!current || !previous || metric(current, 'packetsReceived') < metric(previous, 'packetsReceived')) {
-    return { loss: 0, delay: 0 };
-  }
-  const delta = (key: string) => Math.max(0, metric(current, key) - metric(previous, key));
-  const lost = delta('packetsLost'), received = delta('packetsReceived');
-  const emitted = delta('jitterBufferEmittedCount');
-  return {
-    loss: lost / Math.max(1, lost + received),
-    delay: emitted ? delta('jitterBufferDelay') / emitted : 0,
+  const unknown = { loss: null, delay: null };
+  if (!current || !previous || current.id !== previous.id || current.ssrc !== previous.ssrc) return unknown;
+  const now = known(current, 'timestamp'), before = known(previous, 'timestamp');
+  if (now === null || before === null || now < 0 || before < 0 || now <= before || now - before > 5000) return unknown;
+  const delta = (key: string) => {
+    const a = known(current, key), b = known(previous, key);
+    return a === null || b === null || a < b ? null : a - b;
   };
+  const lost = delta('packetsLost'), received = delta('packetsReceived');
+  const emitted = delta('jitterBufferEmittedCount'), residence = delta('jitterBufferDelay');
+  // Counter resets (including corrected loss counters) invalidate this interval.
+  if (received === null || lost === null) return unknown;
+  return {
+    loss: lost + received > 0 ? lost / (lost + received) : null,
+    delay: emitted !== null && emitted > 0 && residence !== null ? residence / emitted : null,
+  };
+}
+
+export function selectedPair(stats: Stat[]): Stat | undefined {
+  const transport = stats.find(r => r.type === 'transport' && typeof r.selectedCandidatePairId === 'string');
+  if (transport) return stats.find(r => r.type === 'candidate-pair' && r.id === transport.selectedCandidatePairId);
+  const candidates = stats.filter(r => r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded');
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 // Encoded frames stay in native WebRTC/VideoToolbox. JS only signals and samples stats.
@@ -35,6 +51,8 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   let timer: ReturnType<typeof setTimeout> | undefined;
   let watchdog: ReturnType<typeof setInterval> | undefined;
   let previous: Stat | undefined;
+  let previousRoute: string | undefined, sequence = 0;
+  let diagnostics: Stat | undefined;
   let lastFrameAt = Date.now(), hasFrames = false;
 
   // Bound the response body as well as the connection. Parent cancellation also
@@ -145,23 +163,29 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
       try {
         const stats = await peer.getStats();
         if (stopped || suspended || epoch !== feedbackEpoch) return;
-        let inbound: Stat | undefined, pair: Stat | undefined;
-        stats.forEach((r: Stat) => {
-          if (r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video')) inbound = r;
-          if (r.type === 'candidate-pair' && r.nominated && r.state === 'succeeded') pair = r;
-        });
+        const reports: Stat[] = [];
+        stats.forEach((r: Stat) => reports.push(r));
+        const inbound = reports.find(r => r.type === 'inbound-rtp' && (r.kind === 'video' || r.mediaType === 'video'));
+        const pair = selectedPair(reports);
+        const route = pair ? [pair.id, pair.localCandidateId, pair.remoteCandidateId].join(':') : undefined;
+        if (route !== previousRoute) previous = undefined;
         const delta = (key: string) => Math.max(0, metric(inbound, key) - metric(previous, key));
         if (delta('framesDecoded') > 0) { hasFrames = true; lastFrameAt = Date.now(); }
         const sample = networkSample(inbound, previous);
-        await call({
+        const response = await call({
           op: 'feedback', id, ...sample,
-          rtt: metric(pair, 'currentRoundTripTime'),
+          rtt: known(pair, 'currentRoundTripTime'), route, sequence: ++sequence,
           client: 'native', frames: metric(inbound, 'framesDecoded'),
           fps: metric(inbound, 'framesPerSecond'), width: metric(inbound, 'frameWidth'), height: metric(inbound, 'frameHeight'),
           bytes: metric(inbound, 'bytesReceived'), connection: peer.connectionState,
         });
         if (epoch !== feedbackEpoch) return;
-        previous = inbound; misses = 0;
+        diagnostics = response && typeof response === 'object' ? {
+          encodeP95Ms: known(response, 'encodeP95Ms'), bitrateKbps: known(response, 'bitrateKbps'),
+          encodedFps: known(response, 'encodedFps'), sourceFps: known(response, 'sourceFps'), inputFps: known(response, 'inputFps'),
+          rateDecision: response.rateDecision ?? null,
+        } : undefined;
+        previous = inbound; previousRoute = route; misses = 0;
       } catch { if (epoch !== feedbackEpoch) return; if (++misses >= 3) fail(Error('Reconectando la pantalla…')); }
       if (!stopped && !suspended && epoch === feedbackEpoch) timer = setTimeout(feedback, 1000);
     };
@@ -184,7 +208,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
       }).catch(error => { stop(); throw error; });
       return activity;
     };
-    void feedback(); return Object.assign(stop, { setActive }) as VideoSession;
+    void feedback(); return Object.assign(stop, { setActive, getDiagnostics: () => diagnostics }) as VideoSession;
   } catch (error) {
     if (!signal.aborted) {
       const report = new AbortController();

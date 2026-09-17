@@ -82,3 +82,28 @@ func TestRTCSignallingBoundary(t *testing.T) {
 		t.Fatalf("unauthorized requests reached capture: %d", calls)
 	}
 }
+
+func TestRTCFeedbackPreservesUnknownMetricsAndDiagnostics(t *testing.T) {
+	old := previewClient
+	defer func() { previewClient = old }()
+	body := `{"op":"feedback","id":"fixture","loss":null,"delay":null,"rtt":0.2,"route":"pair-b","sequence":3}`
+	reply := `{"encodeP95Ms":3,"rateDecision":{"requestedKbps":12000,"appliedKbps":12000,"loss":null}}`
+	previewClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		got, err := io.ReadAll(r.Body)
+		if err != nil || string(got) != body {
+			t.Fatalf("feedback altered: %s, %v", got, err)
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(reply))}, nil
+	})}
+	s := New(staticAuth("secret"), &fakeInjector{}, nil, "https://phone.example")
+	r := localRequest("POST", "https://phone.example/api/preview/rtc")
+	r.Body = io.NopCloser(strings.NewReader(body))
+	r.Header.Set("Origin", "https://phone.example")
+	r.Header.Set("Content-Type", "application/json")
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "secret"})
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	if w.Code != 200 || w.Body.String() != reply {
+		t.Fatalf("diagnostics altered: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -136,6 +136,7 @@ function video(options = {}) {
     async createAnswer() { if (options.hangNative) return new Promise(() => {}); return { type: 'answer', sdp: 'native-answer' }; }
     async setLocalDescription(answer) { this.localDescription = answer; }
     async getStats() {
+      if (options.stats) return options.stats(time.now);
       const framesDecoded = options.frozen ? 1 : options.empty ? 0 : 1 + Math.floor(time.now / 16);
       return new Map([['video', { type: 'inbound-rtp', kind: 'video', framesDecoded, packetsReceived: framesDecoded * 5, jitterBufferEmittedCount: framesDecoded, jitterBufferDelay: framesDecoded * 0.005 }]]);
     }
@@ -153,7 +154,7 @@ function video(options = {}) {
     if (options.lateOffer && data.op === 'start') {
       controller.abort(); return { ok: true, json: async () => ({ id: 'session', sdp: 'offer' }) };
     }
-    return { ok: true, json: async () => data.op === 'status' ? { state: 'ready' } : data.op === 'start' ? { id: 'session', sdp: 'offer' } : {} };
+    return { ok: true, json: async () => data.op === 'status' ? { state: 'ready' } : data.op === 'start' ? { id: 'session', sdp: 'offer' } : data.op === 'feedback' ? (options.feedbackResponse || {}) : {} };
   };
   const { startVideo } = load('video.ts', {
     ...time.env, fetch,
@@ -287,16 +288,57 @@ test('button release follows the last batched movement without waiting for the t
 
 test('resumed video starts a fresh network baseline instead of replaying past congestion', () => {
   const { networkSample } = load('video.ts', { require: () => ({}) });
-  const old = { packetsReceived: 1000, packetsLost: 100, jitterBufferDelay: 20, jitterBufferEmittedCount: 100 };
-  assert.equal(networkSample(old).loss, 0);
-  assert.equal(networkSample(old).delay, 0);
-  const fresh = { packetsReceived: 1100, packetsLost: 100, jitterBufferDelay: 20.2, jitterBufferEmittedCount: 120 };
+  const old = { timestamp: 1000, packetsReceived: 1000, packetsLost: 100, jitterBufferDelay: 20, jitterBufferEmittedCount: 100 };
+  assert.equal(networkSample(old).loss, null);
+  assert.equal(networkSample(old).delay, null);
+  const fresh = { timestamp: 2000, packetsReceived: 1100, packetsLost: 100, jitterBufferDelay: 20.2, jitterBufferEmittedCount: 120 };
   const sample = networkSample(fresh, old);
   assert.equal(sample.loss, 0);
   assert.ok(Math.abs(sample.delay - .01) < 1e-10);
   const loss = networkSample({ ...fresh, packetsLost: 110 }, old);
   assert.ok(Math.abs(loss.loss - 10 / 110) < 1e-10);
   const reset = networkSample({ packetsReceived: 10, packetsLost: 0, jitterBufferDelay: 0, jitterBufferEmittedCount: 0 }, fresh);
-  assert.equal(reset.loss, 0);
-  assert.equal(reset.delay, 0);
+  assert.equal(reset.loss, null);
+  assert.equal(reset.delay, null);
+});
+
+
+test('RTC unknowns, stale samples, SSRC switches and counter corrections are not healthy feedback', () => {
+  const { networkSample, selectedPair } = load('video.ts', { require: () => ({}) });
+  const old = { id: 'v', ssrc: 1, timestamp: 1000, packetsReceived: 100, packetsLost: 5, jitterBufferDelay: 1, jitterBufferEmittedCount: 100 };
+  const fresh = { ...old, timestamp: 2000, packetsReceived: 200, jitterBufferDelay: 2, jitterBufferEmittedCount: 200 };
+  for (const current of [old, {...fresh, timestamp: -1}, {...fresh, timestamp: 999}, {...fresh, timestamp: 9000}, {...fresh, ssrc: 2}, {...fresh, packetsLost: 4}, {...fresh, packetsLost: undefined}, {...fresh, packetsReceived: NaN}]) {
+    assert.equal(networkSample(current, old).loss, null);
+  }
+  assert.equal(networkSample({...fresh, jitterBufferDelay: undefined}, old).delay, null);
+  const a = { type: 'candidate-pair', id: 'a', nominated: true, state: 'succeeded' };
+  const b = { ...a, id: 'b' };
+  assert.equal(selectedPair([a, b]), undefined);
+  assert.equal(selectedPair([a, b, {type: 'transport', selectedCandidatePairId: 'b'}]).id, 'b');
+});
+
+
+test('feedback integration resets on route switch and consumes encoder diagnostics', async () => {
+  const h = video({
+    stats: now => new Map([
+      ['video', {id: 'v', ssrc: 1, type: 'inbound-rtp', kind: 'video', timestamp: now + 1000,
+        framesDecoded: now + 1, packetsReceived: now + 10, packetsLost: 0}],
+      ['pair', {id: now < 2000 ? 'a' : 'b', type: 'candidate-pair', nominated: true,
+        state: 'succeeded', currentRoundTripTime: now < 2000 ? .02 : .2}],
+    ]),
+    feedbackResponse: {encodeP95Ms: 3, bitrateKbps: 12000, sourceFps: 90},
+  });
+  const session = await h.start(); await drain();
+  assert.equal(h.calls.filter(c => c.op === 'feedback').at(-1).loss, null);
+  await h.time.advance(1000);
+  assert.equal(h.calls.filter(c => c.op === 'feedback').at(-1).loss, 0);
+  await h.time.advance(1000);
+  const switched = h.calls.filter(c => c.op === 'feedback').at(-1);
+  assert.equal(switched.loss, null); assert.equal(switched.rtt, .2);
+  assert.equal(switched.sequence, 3);
+  assert.equal(session.getDiagnostics().encodeP95Ms, 3);
+  assert.equal(session.getDiagnostics().sourceFps, 90);
+  await session.setActive(false); await session.setActive(true); await drain();
+  assert.equal(h.calls.filter(c => c.op === 'feedback').at(-1).loss, null);
+  session();
 });
