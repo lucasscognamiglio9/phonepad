@@ -1,3 +1,4 @@
+import { randomUUID } from 'expo-crypto';
 import * as Documents from 'expo-document-picker';
 import * as Photos from 'expo-image-picker';
 
@@ -85,11 +86,6 @@ function imageAttachment(item: Photos.ImagePickerAsset): Attachment {
   };
 }
 
-function pickerAsset<T extends { uri: string }>(result: { canceled: boolean; assets?: T[] | null }): T | null {
-  if (result.canceled) return null;
-  return result.assets?.[0] || null;
-}
-
 function isCameraUnavailable(error: unknown): boolean {
   const value = typeof error === 'object' && error !== null
     ? `${String((error as { code?: unknown }).code || '')} ${String((error as { message?: unknown }).message || '')}`
@@ -97,11 +93,12 @@ function isCameraUnavailable(error: unknown): boolean {
   return /camera.{0,24}(unavailable|not available|not found|does not exist)|no camera|camera_unavailable|e_camera_unavailable/i.test(value);
 }
 
-export async function chooseAttachment(source: AttachmentSource): Promise<Attachment | null> {
+async function pickAttachments(source: AttachmentSource, multiple: boolean): Promise<Attachment[]> {
   if (source === 'files') {
-    const result = await Documents.getDocumentAsync({ multiple: false, copyToCacheDirectory: true });
-    const item = pickerAsset(result);
-    return item ? documentAttachment(item) : null;
+    const result = await Documents.getDocumentAsync({ multiple, copyToCacheDirectory: true });
+    const items = result.canceled ? [] : result.assets ?? [];
+    if (items.length > 20) throw Error('Elegí hasta 20 archivos por envío.');
+    return items.map(documentAttachment);
   }
 
   if (source === 'camera') {
@@ -114,7 +111,7 @@ export async function chooseAttachment(source: AttachmentSource): Promise<Attach
   // not request microphone permission.
   const options: Photos.ImagePickerOptions = {
     mediaTypes: ['images'], allowsEditing: false, quality: 1,
-    ...(source === 'photos' ? { preferredAssetRepresentationMode: Photos.UIImagePickerPreferredAssetRepresentationMode.Compatible } : {}),
+    ...(source === 'photos' ? { allowsMultipleSelection: multiple, selectionLimit: multiple ? 20 : 1, orderedSelection: multiple, preferredAssetRepresentationMode: Photos.UIImagePickerPreferredAssetRepresentationMode.Compatible } : {}),
   };
   let result: Photos.ImagePickerResult;
   try {
@@ -125,8 +122,9 @@ export async function chooseAttachment(source: AttachmentSource): Promise<Attach
     }
     throw error;
   }
-  const item = pickerAsset(result);
-  return item ? imageAttachment(item) : null;
+  const items = result.canceled ? [] : result.assets ?? [];
+  if (items.length > 20) throw Error('Elegí hasta 20 fotos por envío.');
+  return items.map(imageAttachment);
 }
 
 function uploadReceipt(value: unknown): AttachmentReceipt {
@@ -210,5 +208,80 @@ export function sendAttachment(
     } catch {
       finish(Error('No se pudo iniciar la transferencia. Volvé a seleccionar el archivo.'));
     }
+  });
+}
+
+export async function chooseAttachment(source: AttachmentSource): Promise<Attachment | null> {
+  return (await pickAttachments(source, false))[0] ?? null;
+}
+export function chooseAttachments(source: AttachmentSource): Promise<Attachment[]> {
+  return pickAttachments(source, true);
+}
+export type AttachmentBatch = { id: string; items: Attachment[] };
+export type BatchReceipt = { version: 1; id: string; files: Array<{ name: string; bytes: number; sha256: string }>;
+  folder: string; clipboard: 'ready' | 'unavailable'; replayed?: boolean };
+export function attachmentBatch(items: Attachment[]): AttachmentBatch {
+  if (!items.length || items.length > 20) throw Error('Elegí entre 1 y 20 archivos.');
+  if (items.some(item => typeof item.size === 'number' && (!Number.isSafeInteger(item.size) || item.size < 0))
+    || items.reduce((total, item) => total + (item.size ?? 0), 0) > MAX_UPLOAD_BYTES) {
+    throw Error('El envío admite hasta 100 MB en total.');
+  }
+  return { id: randomUUID(), items: items.map(item => ({ ...item })) };
+}
+function batchReceipt(value: unknown, batch: AttachmentBatch): BatchReceipt {
+  const body = value as BatchReceipt;
+  if (!body || body.version !== 1 || body.id !== batch.id || !Array.isArray(body.files)
+    || body.files.length !== batch.items.length || typeof body.folder !== 'string'
+    || (body.clipboard !== 'ready' && body.clipboard !== 'unavailable')) throw Error('No se pudo verificar el lote. Conservamos la selección.');
+  for (let i = 0; i < body.files.length; i++) {
+    const item = body.files[i];
+    if (!item || typeof item.name !== 'string' || !item.name || !Number.isSafeInteger(item.bytes) || item.bytes < 0
+      || typeof item.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(item.sha256)
+      || (batch.items[i].size !== undefined && item.bytes !== batch.items[i].size)) throw Error('El recibo del lote está incompleto.');
+  }
+  return body;
+}
+export function sendAttachmentBatch(origin: string, batch: AttachmentBatch, signal: AbortSignal,
+  progress: (percent: number) => void): Promise<BatchReceipt> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    let settled = false;
+    const finish = (error?: Error, receipt?: BatchReceipt) => {
+      if (settled) return;
+      settled = true; signal.removeEventListener('abort', abort);
+      request.onload = request.onerror = request.ontimeout = request.onabort = null;
+      request.upload.onprogress = null;
+      if (error) reject(error); else resolve(receipt!);
+    };
+    const abort = () => { if (!settled) { try { request.abort(); } catch {} finish(Error('Transferencia cancelada. La selección sigue disponible.')); } };
+    request.open('POST', origin + '/api/file-batches');
+    request.setRequestHeader('Origin', origin); request.timeout = UPLOAD_TIMEOUT_MS;
+    request.upload.onprogress = event => {
+      if (!settled && event.lengthComputable && event.total > 0) {
+        try { progress(Math.max(0, Math.min(100, Math.round(event.loaded / event.total * 100)))); } catch { abort(); }
+      }
+    };
+    request.onload = () => {
+      if (request.status !== 200 && request.status !== 201) {
+        finish(Error(request.status === 413 ? 'El lote supera los 100 MB.'
+          : request.status === 404 ? 'Actualizá PhonePad en la computadora para enviar varias fotos juntas.'
+          : request.status === 401 || request.status === 403 ? 'Este dispositivo no está autorizado.'
+          : 'No se pudo confirmar el lote. Podés reintentar sin duplicar un lote ya guardado.'));
+        return;
+      }
+      try { finish(undefined, batchReceipt(responseBody(request), batch)); }
+      catch { finish(Error('No se pudo verificar el lote. Conservamos la selección.')); }
+    };
+    request.onerror = request.ontimeout = () => finish(Error('Se interrumpió la transferencia. Conservamos la selección para reintentar.'));
+    request.onabort = () => finish(Error('Transferencia cancelada. Conservamos la selección.'));
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) { abort(); return; }
+    try {
+      const body = new FormData();
+      body.append('manifest', JSON.stringify({ version: 1, id: batch.id,
+        files: batch.items.map(item => ({ name: item.name, type: item.type, ...(item.size === undefined ? {} : { bytes: item.size }) })) }));
+      batch.items.forEach((item, index) => body.append(`file-${index}`, { uri: item.uri, name: item.name, type: item.type } as unknown as Blob));
+      request.send(body);
+    } catch { finish(Error('No se pudo iniciar el envío. Conservamos la selección.')); }
   });
 }

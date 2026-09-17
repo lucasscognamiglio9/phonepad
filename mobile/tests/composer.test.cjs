@@ -322,3 +322,33 @@ test('literal draft survives close, navigation actions and a lost receipt', asyn
   assert.ok(h.find('GlassButton', 'Consultar envío'));
   assert.equal(h.sent.length, 0);
 });
+
+test('literal mode preserves explicit Ctrl shortcuts as key actions, not typed text', () => {
+  const h=harness();
+  h.props.connection.inputCapabilities={version:1};
+  h.props.connection.literal={draft:'',pending:null,busy:false,reviewed(){}};
+  h.props.active=true;h.render();h.click('Teclas extra');h.click('Ctrl');h.type('c');
+  assert.equal(h.sent.length,1);assert.equal(h.sent[0].a,'combo');assert.equal(h.sent[0].key,'c');
+  assert.equal(h.find('TextInput').props.value,'');
+});
+
+test('a late native append during delivery retains only the unsent suffix', async () => {
+  const h=harness();let finish;
+  h.props.connection.inputCapabilities={version:1};
+  h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
+  h.props.active=true;h.render();h.type('first');h.click('Escribir');
+  assert.equal(h.find('TextInput').props.editable,false);
+  h.type('first next');finish({state:'dispatched'});
+  await new Promise(resolve=>setImmediate(resolve));h.render();
+  assert.equal(h.find('TextInput').props.value,' next');
+  assert.equal(h.props.connection.literal.draft,' next');
+});
+test('a late replacement during delivery requires review before another send',async()=>{
+ const h=harness();let finish;
+ h.props.connection.inputCapabilities={version:1};
+ h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
+ h.props.active=true;h.render();h.type('caza');h.click('Escribir');h.type('casa');finish({state:'dispatched'});
+ await new Promise(resolve=>setImmediate(resolve));h.render();
+ assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Escribir').props.disabled,true);
+ assert.ok(h.find('GlassButton','Continuar sin reenviar'));
+});

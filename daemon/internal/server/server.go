@@ -96,6 +96,7 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 	s.mux.HandleFunc("/api/preview/", s.handlePreview)
 	s.mux.HandleFunc("/api/desktop", s.handleDesktop)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/api/file-batches", s.handleFileBatches)
 	s.mux.HandleFunc("/api/input", s.handleInput)
 	s.mux.HandleFunc(nativeUpdateRoute, s.handleNativeUpdate)
 	s.mux.HandleFunc("/share", s.handleShare(webFS))

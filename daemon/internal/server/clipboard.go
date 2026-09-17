@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -531,7 +532,7 @@ func (c *gtkClipboard) Copy(path string, kind clipboardKind, mediaType string) e
 	}
 	defer cleanup()
 
-	if kind != clipboardImage && kind != clipboardFile {
+	if kind != clipboardImage && kind != clipboardFile && kind != "files" {
 		return os.ErrInvalid
 	}
 	if _, err := os.Stat(preparedPath); kind == clipboardImage && err != nil {
@@ -664,6 +665,7 @@ func (c *gtkClipboard) stop() {
 const gtkClipboardScript = `
 import gi
 import pathlib
+import json
 import sys
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gdk", "4.0")
@@ -680,12 +682,13 @@ providers = []
 if kind == "image":
     data = pathlib.Path(source).read_bytes()
     providers.append(Gdk.ContentProvider.new_for_bytes("image/png", GLib.Bytes.new(data)))
-elif kind == "file":
-    uri = pathlib.Path(source).resolve().as_uri()
+elif kind in ("file", "files"):
+    sources = json.loads(source) if kind == "files" else [source]
+    uris = [pathlib.Path(item).resolve().as_uri() for item in sources]
     for mime, value in (
-		("text/uri-list", uri + "\r\n"),
-		("x-special/gnome-copied-files", "copy\n" + uri + "\n"),
-		("application/x-kde4-urilist", uri + "\n"),
+		("text/uri-list", "\r\n".join(uris) + "\r\n"),
+		("x-special/gnome-copied-files", "copy\n" + "\n".join(uris) + "\n"),
+		("application/x-kde4-urilist", "\n".join(uris) + "\n"),
     ):
         providers.append(Gdk.ContentProvider.new_for_bytes(mime, GLib.Bytes.new(value.encode("utf-8"))))
 else:
@@ -754,4 +757,41 @@ func gdkPixbufPNG(path string) (string, func(), error) {
 		lastErr = errors.New("GdkPixbuf unavailable")
 	}
 	return "", func() {}, lastErr
+}
+
+// CopyFiles advertises one ordered URI list. Images remain separate files;
+// multiple images are never collapsed into a synthetic bitmap.
+func (c *desktopClipboard) CopyFiles(paths []string) error {
+	if len(paths) == 0 || len(paths) > maxBatchFiles {
+		return os.ErrInvalid
+	}
+	if c.gtk != nil {
+		data, err := json.Marshal(paths)
+		if err == nil {
+			if err = c.gtk.Copy(string(data), "files", "text/uri-list"); err == nil {
+				return nil
+			}
+		}
+	}
+	if native, ok := c.native.(interface{ CopyFiles([]string) error }); ok {
+		return native.CopyFiles(paths)
+	}
+	return errors.New("file list clipboard unavailable")
+}
+func (c wlClipboard) CopyFiles(paths []string) error {
+	if c.copy == nil || len(paths) == 0 || len(paths) > maxBatchFiles {
+		return os.ErrInvalid
+	}
+	uris := make([]string, 0, len(paths))
+	for _, path := range paths {
+		uri, err := fileURI(path)
+		if err != nil {
+			return err
+		}
+		uris = append(uris, uri)
+	}
+	return c.copy("text/uri-list", strings.NewReader(strings.Join(uris, "\r\n")+"\r\n"))
+}
+func (c xClipboard) CopyFiles(paths []string) error {
+	return wlClipboard{copy: c.copy}.CopyFiles(paths)
 }

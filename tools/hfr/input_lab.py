@@ -14,6 +14,7 @@ repo = Path(__file__).resolve().parents[2]
 corpus = json.loads((repo/'tests/fixtures/input-integrity.json').read_text())['textCases']
 corpus += [{'name':'100-KiB','value':'x'*102400}]
 results = []
+clipboard_ok = None
 app = Gtk.Application(application_id='app.phonepad.InputLab')
 
 def activate(app):
@@ -24,7 +25,16 @@ def activate(app):
         index = len(results)
         if index == len(corpus):
             (root/'input-result.json').write_text(json.dumps({'scope':'private GTK editor via AT-SPI, not phone/browser/terminal', 'cases':results},indent=2))
-            app.quit(); return False
+            if os.environ.get('PHONEPAD_LAB_CLIPBOARD') == '1':
+                from clipboard_lab import verify
+                def finished(ok):
+                    global clipboard_ok
+                    clipboard_ok = ok
+                    app.quit()
+                verify(root, repo, finished)
+            else:
+                app.quit()
+            return False
         sample = corpus[index]
         view.get_buffer().set_text(''); view.grab_focus()
         def work():
@@ -77,5 +87,7 @@ def activate(app):
     GLib.timeout_add(1500, focus_fixture)
 app.connect('activate', activate)
 app.run([])
+if clipboard_ok is False:
+    raise SystemExit(1)
 if not results or not all(case['exact'] and case['receipt']['state']=='dispatched' for case in results):
     raise SystemExit(1)

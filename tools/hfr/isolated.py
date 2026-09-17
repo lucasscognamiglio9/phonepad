@@ -64,6 +64,8 @@ try:
     start(['wireplumber', '--profile=policy'], 'wireplumber')
     shell_args = ['gnome-shell', '--headless', '--no-x11', '--wayland-display=phonepad-lab',
                   '--virtual-monitor=1920x1080@' + os.environ.get('PHONEPAD_LAB_HZ', '120')]
+    if os.environ.get('PHONEPAD_LAB_CLIPBOARD') == '1':
+        shell_args.remove('--no-x11')
     if os.environ.get('PHONEPAD_LAB_DEBUG') == '1':
         shell_args = ['gdb', '--batch', '-ex', 'run', '-ex', 'bt 20', '--args'] + shell_args
     shell = start(shell_args, 'shell')

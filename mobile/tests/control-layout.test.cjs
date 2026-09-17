@@ -173,8 +173,9 @@ function harness(options = {}) {
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
     '../components/native-keyboard': { NativeKeyboard: 'NativeKeyboard' },
     '../lib/attachments': {
-      chooseAttachment: () => Promise.resolve(options.attachment ?? null),
-      sendAttachment: (...args) => { uploads.push(args); return Promise.resolve(options.receipt); },
+      chooseAttachments: () => Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
+      attachmentBatch: items => ({ id: 'fixture-batch', items }),
+      sendAttachmentBatch: (...args) => { uploads.push(args); return options.uploadError ? Promise.reject(Error('transfer failed')) : Promise.resolve({ files: args[1].items.map(item => ({name:item.name,bytes:item.size})), ...options.receipt }); },
     },
     '../lib/connection': { COMPUTER: 'https://computer.test/', Connection: FakeConnection },
     '../lib/video': { startVideo },
@@ -458,4 +459,19 @@ test('a failed paste command tells the user to reconnect and does not send Enter
   assert.equal(h.alerts[1][0], 'Reconectá la laptop');
   assert.equal(h.commands.length, 1);
   assert.equal(h.commands[0].command.key, 'v');
+});
+
+test('multiple selected files form one batch and one explicit paste action',async()=>{
+ const h=harness({attachments:[photo,{...photo,name:'second.jpg'}],receipt:delivered});
+ h.reportConnection('connected');h.find('NativeKeyboard').props.choose('photos');await settle();h.render();
+ assert.equal(h.uploads.length,1);assert.equal(h.uploads[0][1].items.length,2);assert.equal(h.commands.length,0);
+ assert.equal(h.alerts[0][0],'Listo para pegar');
+});
+test('lost batch response retains a retry with the same batch identity',async()=>{
+ const h=harness({attachments:[photo],uploadError:true});
+ h.find('NativeKeyboard').props.choose('photos');await settle();h.render();
+ const first=h.uploads[0][1];
+ const retry=h.all('GlassButton').find(n=>n.props.label==='Reintentar lote');
+ assert.ok(retry);retry.props.onPress();await settle();h.render();
+ assert.equal(h.uploads[1][1],first);assert.equal(h.commands.length,0);
 });

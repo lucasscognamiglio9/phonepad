@@ -145,10 +145,19 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   const applyReceipt = (state: string, sentText: string) => {
     if (state === 'dispatched') {
-      // Edits made while a transfer is running remain a separate local draft.
-      if (draft.current === sentText) { resetContext(); literal.draft = ''; }
-      literal.reviewed(); interrupted.current = false; setDeliveryIssue(false);
-      setTextStatus('Texto enviado. Revisá el resultado en la computadora.');
+      literal.reviewed();
+      if (draft.current.startsWith(sentText)) {
+        // A late native event may append text while editable=false is taking
+        // effect. Keep only the unsent suffix, never resend the delivered block.
+        const remaining = draft.current.slice(sentText.length);
+        draft.current = remaining; literal.draft = remaining; previous.current = '';
+        setValue(remaining); setContentHeight(24);
+        interrupted.current = false; setDeliveryIssue(false);
+        setTextStatus('Texto enviado. Revisá el resultado en la computadora.');
+      } else {
+        preserveDraft();
+        setTextStatus('Se escribió el bloque enviado, pero el borrador cambió durante el envío. Revisalo y quitá lo ya enviado antes de continuar.');
+      }
     } else {
       preserveDraft();
       setTextStatus(state === 'rejected' || state === 'cancelled'
@@ -233,7 +242,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
           {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: 44, alignItems: 'center' }}>
-            <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)}
+            <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)} disabled={literalMode && (!!value || sending || deliveryIssue)}
               onPress={() => setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod])} />
           </View>)}
           <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Esc" onPress={() => special('Escape')} /></View>
@@ -257,7 +266,15 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       <GlassSurface style={{ borderRadius: 28, padding: 4 }}>
         <View style={{ position: 'relative', minHeight: 44, paddingBottom: active ? 44 : 0 }}>
           <TextInput ref={input} value={value} onChangeText={text => {
-              if (literalMode) { draft.current = text; literal.draft = text; setValue(text); return; }
+              if (literalMode) {
+                if (mods.length && !draft.current && Array.from(text).length === 1 && !/[\r\n]/.test(text) && canSendKey()) {
+                  if (connection.send({ t: 'k', a: 'combo', mods, key: text })) {
+                    setMods([]); resetContext(); return;
+                  }
+                  preserveDraft(text);
+                }
+                draft.current = text; literal.draft = text; setValue(text); return;
+              }
               if (!canSend()) { preserveDraft(text); return; }
               const extra = text.startsWith(previous.current) ? Array.from(text.slice(previous.current.length)) : [];
               if (mods.length && extra.length === 1 && !/[\r\n]/.test(extra[0])) {
@@ -270,7 +287,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                 if (mods.length) setMods([]);
                 previous.current = text; draft.current = text; setValue(text);
               }
-            }} editable={!disabled} multiline
+            }} editable={!disabled && !sending} multiline
             maxLength={literalMode ? undefined : 2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
             placeholder="Escribir…" placeholderTextColor="#b7bbc4" accessibilityLabel="Escribir en la computadora"
             onFocus={() => { if (visible && !menuInteraction.current) open(); }}

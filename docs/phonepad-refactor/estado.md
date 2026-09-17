@@ -1,5 +1,17 @@
 # Estado de ejecución — 17/09/2026
 
+## Checkpoint de cierre por cuota: P01A-03
+
+El usuario pidió detener y dejar todo al día. Bloque de texto literal P01A-02 en `38f3f6a`; bloque de lotes P01A-03 terminado como entrega parcial, documentado en `p01a-03.md`. Once suites móviles, TypeScript, Python, Go race, vet y build aprobados. Evidencia de GTK real aislado para texto y portapapeles en `outputs/p01a-02` y `outputs/p01a-03`, ignorada por Git pero conservada.
+
+**P01A completa no está cerrada.** Próximo bloque: reanudación por archivo/parte y checksum de origen del lote, negociación/revisión de límites y selección; después recibos de acciones/atajos y alternativa para apps sin EditableText. Mantener aceptación física iOS/Android, clipboard sin XWayland, compatibilidad/build nativo y P00.6/P01.6 pendientes. No desplegado ni publicado OTA. No iniciar otra fase hasta que el usuario reanude.
+
+El estado siguiente es histórico y no reemplaza esta pausa.
+
+## Estado vigente: P01A, bloque 3
+
+Selección múltiple conectada a lotes atómicos e idempotentes, con proveedor de lista de archivos validado en GTK/XWayland privado. Ver `p01a-03.md`. Reanudar partes individuales, checksum de origen, acciones/atajos y aceptación física siguen pendientes. El bloque 2 de texto literal queda en commit `38f3f6a`. No desplegado. Continuar sin pausas rutinarias.
+
 ## Estado vigente: P01A, bloque 2
 
 Texto literal conectado desde el compositor al endpoint autenticado y al adaptador AT-SPI. Ver `p01a-02.md`. GTK aislado verifica corpus y 100 KiB exactos; pruebas de cliente/servidor pasan. Fase parcial: faltan clipboard alternativo, acciones, lotes y aceptación física. Expo Crypto exige nuevo build nativo. No desplegado.

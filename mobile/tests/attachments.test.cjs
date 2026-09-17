@@ -39,7 +39,7 @@ function load({ documents = {}, photos = {}, sendError = false } = {}) {
   }).outputText;
   vm.runInNewContext(code, {
     exports,
-    require: name => name === 'expo-document-picker' ? documents : photoModule,
+    require: name => name === 'expo-crypto' ? { randomUUID: () => '01234567-0123-4567-8901-012345678901' } : name === 'expo-document-picker' ? documents : photoModule,
     XMLHttpRequest: Request,
     FormData: FormDataMock,
     AbortController,
@@ -242,4 +242,45 @@ test('oversized files fail before opening any request and non-success statuses r
   }, new AbortController().signal, () => {});
   failed.requests[0].load(401, 'unauthorized');
   await assert.rejects(pending, /autorizado/);
+});
+
+test('multiple photos preserve order, names and full list with the native picker', async () => {
+  let options;
+  const h=load({photos:{launchImageLibraryAsync:async value=>{options=value;return {canceled:false,assets:[
+    {uri:'file://b',fileName:'b.HEIC',mimeType:'image/heic',fileSize:2},
+    {uri:'file://a',fileName:'a.PNG',mimeType:'image/png',fileSize:3},
+  ]};}}});
+  const items=await h.chooseAttachments('photos');
+  assert.deepEqual(Array.from(items,item=>item.name),['b.HEIC','a.PNG']);
+  assert.equal(options.allowsMultipleSelection,true);assert.equal(options.orderedSelection,true);assert.equal(options.selectionLimit,20);
+});
+test('multiple documents keep every selection; exceeding the limit is explicit',async()=>{
+  const h=load({documents:{getDocumentAsync:async options=>{assert.equal(options.multiple,true);return {canceled:false,assets:[
+    {uri:'file://one',name:'one.txt'},{uri:'file://two',name:'two.txt'},
+  ]};}}});
+  assert.equal((await h.chooseAttachments('files')).length,2);
+  const many=load({documents:{getDocumentAsync:async()=>({canceled:false,assets:Array.from({length:21},()=>({uri:'file://a',name:'a.txt'}))})}});
+  await assert.rejects(many.chooseAttachments('files'),/20 archivos/);
+});
+test('batch upload sends manifest before all files and checks count and identity in receipt',async()=>{
+ const h=load();const items=[{uri:'file://a',name:'a.png',type:'image/png',size:3},{uri:'file://b',name:'b.png',type:'image/png',size:4}];
+ const batch=h.attachmentBatch(items);
+ const pending=h.sendAttachmentBatch('https://host',batch,new AbortController().signal,()=>{});
+ const request=h.requests[0];assert.equal(request.opened[1],'https://host/api/file-batches');
+ assert.deepEqual(request.body.entries.map(entry=>entry[0]),['manifest','file-0','file-1']);
+ assert.equal(JSON.parse(request.body.entries[0][1]).files.length,2);
+ request.load(201,{version:1,id:batch.id,folder:'Downloads/Phonepad',clipboard:'ready',files:items.map(item=>({name:item.name,bytes:item.size,sha256:'a'.repeat(64)}))});
+ assert.equal((await pending).files.length,2);
+ const invalid=h.sendAttachmentBatch('https://host',batch,new AbortController().signal,()=>{});
+ h.requests[1].load(201,{version:1,id:'wrong',files:[],folder:'x',clipboard:'ready'});
+ await assert.rejects(invalid,/verificar el lote/);
+});
+test('batch retry preserves operation identity after a missing response',async()=>{
+ const h=load();const batch=h.attachmentBatch([{uri:'file://a',name:'a.txt',type:'text/plain',size:3}]);
+ const first=h.sendAttachmentBatch('https://host',batch,new AbortController().signal,()=>{});
+ h.requests[0].onerror();await assert.rejects(first,/selección/);
+ const second=h.sendAttachmentBatch('https://host',batch,new AbortController().signal,()=>{});
+ assert.equal(h.requests[0].body.entries[0][1],h.requests[1].body.entries[0][1]);
+ h.requests[1].load(200,{version:1,id:batch.id,folder:'Downloads/Phonepad',clipboard:'ready',replayed:true,files:[{name:'a.txt',bytes:3,sha256:'a'.repeat(64)}]});
+ assert.equal((await second).replayed,true);
 });

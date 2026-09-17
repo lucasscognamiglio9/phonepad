@@ -7,7 +7,7 @@ import { RTCView, type MediaStream } from '@livekit/react-native-webrtc';
 import { GlassButton } from '../components/glass-button';
 import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
-import { chooseAttachment, sendAttachment, type AttachmentSource } from '../lib/attachments';
+import { chooseAttachments, attachmentBatch, sendAttachmentBatch, type AttachmentBatch, type AttachmentSource } from '../lib/attachments';
 import { NativeKeyboard } from '../components/native-keyboard';
 import { COMPUTER, Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
@@ -22,8 +22,10 @@ export function Control() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const [transfer, setTransfer] = useState<string>('');
+  const [pendingFiles, setPendingFiles] = useState(0);
   const [choosing, setChoosing] = useState(false);
   const upload = useRef<AbortController | null>(null);
+  const pendingBatch = useRef<AttachmentBatch | null>(null);
   useEffect(() => () => upload.current?.abort(), []);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
@@ -64,30 +66,40 @@ export function Control() {
   // The RTC view and stream stay mounted throughout the transition.
   useEffect(() => { hideLandscapeControls(); }, [landscape, preview, hideLandscapeControls]);
   const togglePreview = () => { setPreview(p => !p); closeKeyboard(); };
-  const choose = async (action: AttachmentSource) => {
+  const choose = async (action: AttachmentSource, retry = false) => {
     if (upload.current) return;
     const request = new AbortController(); upload.current = request; setChoosing(true);
     try {
-      const item = await chooseAttachment(action);
-      if (!item || request.signal.aborted) return;
+      if (!retry) {
+        const items = await chooseAttachments(action);
+        if (!items.length || request.signal.aborted) return;
+        pendingBatch.current = attachmentBatch(items);
+        setPendingFiles(items.length);
+      }
+      const batch = pendingBatch.current;
+      if (!batch || request.signal.aborted) return;
       setTransfer('Enviando…');
-      const receipt = await sendAttachment(COMPUTER, item, request.signal, percent => setTransfer(percent === 100 ? 'Preparando para pegar…' : `Enviando ${percent}%`));
+      const receipt = await sendAttachmentBatch(COMPUTER, batch, request.signal, percent => setTransfer(percent === 100 ? 'Preparando para pegar…' : `Enviando ${percent}%`));
       if (request.signal.aborted) return;
-      if (receipt.clipboard === 'ready') {
-        Alert.alert('Listo para pegar', 'El archivo está en el portapapeles de la laptop. Pegalo en el campo que tengas seleccionado y que admita adjuntos.', [
+      pendingBatch.current = null; setPendingFiles(0);
+      if (receipt.clipboard === 'ready' && !receipt.replayed) {
+        Alert.alert('Listo para pegar', `${receipt.files.length} archivo(s) listos. Pegalos en un campo de la computadora que admita archivos adjuntos.`, [
           { text: 'Cerrar', style: 'cancel' },
           { text: 'Pegar ahora', onPress: () => {
             // Pasting is an explicit user action; uploading never submits a prompt.
             if (!connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'v' })) {
-              Alert.alert('Reconectá la laptop', 'El archivo ya está guardado. Cuando se reconecte, podés usar Pegar en las teclas extra.');
+              Alert.alert('Reconectá la laptop', 'Los archivos ya están guardados. Revisá el portapapeles antes de pegarlos al reconectar.');
             }
           } },
         ]);
       } else {
-        Alert.alert('Guardado en la laptop', 'El archivo llegó a Downloads → Phonepad, pero no se pudo preparar el portapapeles. Podés adjuntarlo desde esa carpeta.');
+        Alert.alert('Guardado en la laptop', receipt.replayed ? 'Este lote ya estaba guardado. No lo duplicamos ni reemplazamos tu portapapeles. Podés adjuntar los archivos desde Downloads → Phonepad.' : 'Los archivos llegaron a Downloads → Phonepad. Podés adjuntarlos desde esa carpeta; no se pudo preparar el portapapeles.');
       }
     } catch (error) {
-      if (!request.signal.aborted) Alert.alert('No se pudo enviar', error instanceof Error ? error.message : 'Intentá nuevamente.');
+      if (!request.signal.aborted) Alert.alert('No se pudo confirmar el envío', error instanceof Error ? error.message : 'La selección sigue disponible.', [
+        { text: 'Cerrar', style: 'cancel' },
+        ...(pendingBatch.current ? [{ text: 'Reintentar mismo lote', onPress: () => { void choose(action, true); } }] : []),
+      ]);
     } finally { if (upload.current === request) { upload.current = null; setTransfer(''); setChoosing(false); } }
   };
   const status = <View accessibilityLabel={state === 'connected' ? 'Conectado' : messages[state]} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: state === 'connected' ? '#70dbab' : '#b7bbc4' }} />;
@@ -113,6 +125,13 @@ export function Control() {
     </View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
       <Text selectable style={{ color: '#b7bbc4', fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>
+    </View>}
+    {!choosing && pendingFiles > 0 && <View style={{ position: 'absolute', bottom: insets.bottom + 72, alignSelf: 'center', alignItems: 'center', gap: 8 }}>
+      <Text style={{ color: '#f4f5f7' }}>{pendingFiles} archivo(s) pendientes de confirmar</Text>
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <GlassButton label="Reintentar lote" onPress={() => { void choose('files', true); }} />
+        <GlassButton label="Descartar selección" onPress={() => { pendingBatch.current = null; setPendingFiles(0); }} />
+      </View>
     </View>}
     {!!transfer && <View style={{ position: 'absolute', bottom: insets.bottom + 72, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 12 }}>
       <Text style={{ color: '#f4f5f7' }}>{transfer}</Text><GlassButton label="Cancelar envío" symbol="xmark" onPress={() => upload.current?.abort()} />
