@@ -1,5 +1,13 @@
 # Estado de ejecución — 17/09/2026
 
+## Estado vigente: P01A, bloque 2
+
+Texto literal conectado desde el compositor al endpoint autenticado y al adaptador AT-SPI. Ver `p01a-02.md`. GTK aislado verifica corpus y 100 KiB exactos; pruebas de cliente/servidor pasan. Fase parcial: faltan clipboard alternativo, acciones, lotes y aceptación física. Expo Crypto exige nuevo build nativo. No desplegado.
+
+Autorización vigente: continuar sin pausas rutinarias; el usuario avisa cuándo detener. Conservar checkpoints sin terminar el turno por revisión de cuota. Próximo trabajo: lotes de adjuntos.
+
+## Historial de checkpoints
+
 ## Checkpoint vigente: P01A, bloque 1
 
 Borradores protegidos ante rechazo/desconexión y núcleo de transferencia literal hasta 128 KiB probado. Ver `p01a-01.md` y `input-operation-contract.md`. El núcleo todavía no se conecta al transporte ni inyector; no declarar resueltos símbolos, dictado, pegado largo o adjuntos. P01A sigue en curso; los pendientes físicos P00.6/P01.6 también.

@@ -292,3 +292,33 @@ test('failed delivery retains every Unicode and newline fixture without automati
     assert.equal(h.sent.length, attempts);
   }
 });
+
+test('literal composer keeps dictation edits local and writes the final block without Enter', async () => {
+  const h = harness(), blocks = [];
+  h.props.connection.inputCapabilities = { version: 1 };
+  h.props.connection.literal = { draft: '', pending: null, busy: false,
+    send: async text => { blocks.push(text); return { state: 'dispatched' }; }, reviewed() { this.pending = null; } };
+  h.props.active = true; h.render();
+  h.type('quiero una caza'); h.type('quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea');
+  assert.equal(h.sent.length, 0);
+  assert.equal(h.find('TextInput').props.maxLength, undefined);
+  h.click('Escribir'); await new Promise(resolve => setImmediate(resolve)); h.render();
+  assert.deepEqual(blocks, ['quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea']);
+  assert.equal(h.sent.length, 0); assert.equal(h.find('TextInput').props.value, '');
+});
+test('literal draft survives close, navigation actions and a lost receipt', async () => {
+  const h = harness();
+  h.props.connection.inputCapabilities = { version: 1 };
+  h.props.connection.literal = { draft: '', pending: null, busy: false,
+    send: async text => { h.props.connection.literal.pending = { text }; throw Error('offline'); }, reviewed() { this.pending = null; } };
+  h.props.active = true; h.render(); h.type('borrador de dictado');
+  h.click('Teclas extra'); h.click('Derecha'); h.click('Enter');
+  assert.equal(h.sent.length, 0); assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
+  h.props.active = false; h.render(); h.render();
+  assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
+  h.props.active = true; h.render(); h.click('Escribir');
+  await new Promise(resolve => setImmediate(resolve)); h.render();
+  assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
+  assert.ok(h.find('GlassButton', 'Consultar envío'));
+  assert.equal(h.sent.length, 0);
+});

@@ -1,9 +1,12 @@
+import { LiteralTransfer, inputCapabilities, type InputCapabilities } from './literal-transfer';
 import type { Command, TouchContact } from './protocol';
 export type ConnectionState = 'connecting' | 'connected' | 'offline' | 'unauthorized' | 'paused';
 export const COMPUTER = 'https://luque-thinkpad-t490.tail27a66d.ts.net';
 
 export class Connection {
   private socket: WebSocket | null = null;
+  inputCapabilities: InputCapabilities | null = null;
+  readonly literal: LiteralTransfer;
   private retry?: ReturnType<typeof setTimeout>;
   private heartbeat?: ReturnType<typeof setInterval>;
   private handshake?: ReturnType<typeof setTimeout>;
@@ -19,12 +22,13 @@ export class Connection {
   private inputGeneration = 0;
   get inputEpoch() { return this.inputGeneration; }
   constructor(readonly origin: string, private report: (state: ConnectionState) => void) {
+    this.literal = new LiteralTransfer(origin, () => this.inputCapabilities);
     const url = new URL(origin);
     if (url.protocol !== 'https:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) throw Error('Se requiere una dirección HTTPS segura.');
   }
   start = () => { this.stop(); this.active = true; this.attempts = 0; void this.connect(); };
   stop = () => {
-    this.active = false; this.ready = false; this.generation++; this.inputGeneration++;
+    this.active = false; this.ready = false; this.inputCapabilities = null; this.generation++; this.inputGeneration++;
     clearTimeout(this.retry); this.clearSocketTimers();
     this.request?.abort(); this.dx = this.dy = 0;
     const old = this.socket; this.socket = null; old?.close();
@@ -35,7 +39,7 @@ export class Connection {
   }
   private disconnect(socket: WebSocket, takenOver = false) {
     if (this.socket !== socket) return;
-    this.socket = null; this.ready = false; this.dx = this.dy = 0; this.inputGeneration++;
+    this.socket = null; this.ready = false; this.inputCapabilities = null; this.dx = this.dy = 0; this.inputGeneration++;
     this.clearSocketTimers();
     // Recovery must not depend on a broken transport delivering onclose.
     socket.close();
@@ -66,6 +70,7 @@ export class Connection {
         if (!message || typeof message !== 'object') return;
         if (message.t === 'ok' && !this.ready) {
           clearTimeout(this.handshake);
+          this.inputCapabilities = inputCapabilities(message.input);
           this.ready = true; this.attempts = 0; this.pong = Date.now(); this.report('connected');
           clearInterval(this.heartbeat);
           this.heartbeat = setInterval(() => {

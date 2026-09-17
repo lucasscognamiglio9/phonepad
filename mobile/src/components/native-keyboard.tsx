@@ -31,9 +31,13 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const { width, height } = useWindowDimensions();
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const input = useRef<TextInput>(null);
-  const [value, setValue] = useState('');
+  const literal = connection.literal;
+  const literalMode = !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft;
+  const [value, setValue] = useState(literal?.draft ?? '');
+  const [sending, setSending] = useState(false);
+  const [textStatus, setTextStatus] = useState('');
   const previous = useRef('');
-  const draft = useRef('');
+  const draft = useRef(literal?.draft ?? '');
   const interrupted = useRef(false);
   const [deliveryIssue, setDeliveryIssue] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
@@ -87,9 +91,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       // A disconnect can happen after only part of a correction was queued.
       // Keep the draft and require review; reconnect must never replay it.
       if (disabled && draft.current) { interrupted.current = true; setDeliveryIssue(true); }
-      if (!interrupted.current) { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); }
+      if (!interrupted.current && !literalMode) { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); }
     }
-  }, [active, visible, disabled]);
+  }, [active, visible, disabled, literalMode]);
   useEffect(() => {
     // A keyboard frame change can move the composer without changing its
     // React layout. Re-measure while the popup is open so its window anchor
@@ -113,28 +117,60 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     draft.current = text; setValue(text);
     interrupted.current = true; setDeliveryIssue(true);
   };
-  const canSend = () => !disabled && visible && !interrupted.current;
+  const canSend = () => !disabled && visible && !interrupted.current && !sending && !literal?.busy;
+  const canSendKey = () => canSend() && !(literalMode && (draft.current || literal?.pending));
   const reviewed = () => {
     if (disabled || !visible) return;
     // This does not assert that the host applied anything and sends no input.
     // The user has reviewed the remote field; only later edits may be sent.
     previous.current = draft.current;
+    literal?.reviewed();
+    setTextStatus('');
     interrupted.current = false; setDeliveryIssue(false); setMods([]);
   };
   const special = (key: string) => {
-    if (!canSend()) return;
+    if (!canSendKey()) return;
     if (!connection.send(mods.length ? { t: 'k', a: 'combo', mods, key } : { t: 'k', a: 'special', key })) { preserveDraft(); return; }
     setMods([]); resetContext();
   };
   const clipboard = (key: string) => {
-    if (!canSend()) return;
+    if (!canSendKey()) return;
     if (!connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key })) { preserveDraft(); return; }
     setMods([]); resetContext();
   };
   const submit = () => {
-    if (!canSend()) return;
+    if (!canSendKey()) return;
     if (!connection.send({ t: 'k', a: 'special', key: 'Enter' })) { preserveDraft(); return; }
     setMods([]); resetContext();
+  };
+  const applyReceipt = (state: string, sentText: string) => {
+    if (state === 'dispatched') {
+      // Edits made while a transfer is running remain a separate local draft.
+      if (draft.current === sentText) { resetContext(); literal.draft = ''; }
+      literal.reviewed(); interrupted.current = false; setDeliveryIssue(false);
+      setTextStatus('Texto enviado. Revisá el resultado en la computadora.');
+    } else {
+      preserveDraft();
+      setTextStatus(state === 'rejected' || state === 'cancelled'
+        ? 'No se escribió el texto. Seleccioná un campo editable en la computadora y revisá el envío.'
+        : 'No se pudo confirmar el resultado. Revisá la computadora antes de volver a escribir.');
+    }
+  };
+  const writeText = async () => {
+    if (!canSend() || !literal || !draft.current) return;
+    const text = draft.current;
+    setSending(true); setTextStatus('Enviando texto…');
+    try { const receipt = await literal.send(text); applyReceipt(receipt.state, text); }
+    catch (error) { preserveDraft(); setTextStatus(error instanceof Error ? error.message : 'No se pudo confirmar el envío.'); }
+    finally { setSending(false); }
+  };
+  const checkText = async () => {
+    if (!literal?.pending || sending || literal.busy || disabled) return;
+    const text = literal.pending.text;
+    setSending(true);
+    try { const receipt = await literal.status(); applyReceipt(receipt.state, text); }
+    catch { setTextStatus('El resultado sigue sin confirmarse. Revisá la computadora; tu borrador sigue acá.'); }
+    finally { setSending(false); }
   };
   const finishMenu = (action: MenuAction | null) => {
     const wasActive = menuWasActive.current;
@@ -187,7 +223,11 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
           Envío interrumpido. Tu texto sigue acá. Revisá la computadora antes de continuar; podés seleccionar y copiar este borrador.
         </Text>
-        <GlassButton label="Continuar sin reenviar" disabled={disabled} onPress={reviewed} />
+        <GlassButton label="Continuar sin reenviar" disabled={disabled || sending} onPress={reviewed} />
+      </GlassSurface>}
+      {literalMode && (textStatus || active) && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
+        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{textStatus || 'Escribí o dictá acá. Tocá Escribir para pasarlo a la computadora.'}</Text>
+        {literal?.pending && <GlassButton label="Consultar envío" disabled={disabled || sending} onPress={() => { void checkText(); }} />}
       </GlassSurface>}
       {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
@@ -217,6 +257,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       <GlassSurface style={{ borderRadius: 28, padding: 4 }}>
         <View style={{ position: 'relative', minHeight: 44, paddingBottom: active ? 44 : 0 }}>
           <TextInput ref={input} value={value} onChangeText={text => {
+              if (literalMode) { draft.current = text; literal.draft = text; setValue(text); return; }
               if (!canSend()) { preserveDraft(text); return; }
               const extra = text.startsWith(previous.current) ? Array.from(text.slice(previous.current.length)) : [];
               if (mods.length && extra.length === 1 && !/[\r\n]/.test(extra[0])) {
@@ -230,12 +271,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                 previous.current = text; draft.current = text; setValue(text);
               }
             }} editable={!disabled} multiline
-            maxLength={2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
+            maxLength={literalMode ? undefined : 2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
             placeholder="Escribir…" placeholderTextColor="#b7bbc4" accessibilityLabel="Escribir en la computadora"
             onFocus={() => { if (visible && !menuInteraction.current) open(); }}
             onBlur={() => { if (!menuInteraction.current) close(); }}
             submitBehavior="newline" returnKeyType="default"
-            onKeyPress={event => { if (event.nativeEvent.key === 'Backspace' && !previous.current) special('Backspace'); }}
+            onKeyPress={event => { if (!literalMode && event.nativeEvent.key === 'Backspace' && !previous.current) special('Backspace'); }}
             onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
             scrollEnabled={active && contentHeight > maxTextHeight}
             style={{ color: '#f4f5f7', fontSize: 16, lineHeight: 22, paddingHorizontal: active ? 12 : 44,
@@ -255,8 +296,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" symbol="keyboard.badge.ellipsis" selected={shortcuts || mods.length > 0}
                 onPress={() => setShortcuts(current => !current)} /></View>
               <View style={{ flex: 1 }} />
+              {literalMode && <GlassButton label="Escribir" disabled={disabled || sending || deliveryIssue || !value || !!literal?.pending}
+                onPress={() => { void writeText(); }} />}
             </>}
-            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" symbol="return" disabled={disabled} onPress={submit} /></View>
+            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" symbol="return" disabled={disabled || sending || (literalMode && (!!value || !!literal?.pending))} onPress={submit} /></View>
           </View>
         </View>
       </GlassSurface>

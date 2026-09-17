@@ -90,18 +90,21 @@ type AbsInjector interface {
 // mientras se escribe/dicta. Un ÚNICO worker procesa una FIFO de todas las
 // acciones, preservando la secuencia entre texto, teclas y contactos MT.
 type asyncOp struct {
-	kind  byte
-	text  string
-	btn   string
-	down  bool
-	dx    int
-	dy    int
-	key   string
-	mods  []string
-	name  string
-	touch []Contact
-	epoch uint64
-	done  chan struct{}
+	kind    byte
+	text    string
+	btn     string
+	down    bool
+	dx      int
+	dy      int
+	key     string
+	mods    []string
+	name    string
+	touch   []Contact
+	epoch   uint64
+	done    chan struct{}
+	ctx     context.Context
+	literal chan LiteralResult
+	target  string
 }
 
 const (
@@ -116,6 +119,8 @@ const (
 	opTouchCancel
 	opReset
 	opClose
+	opLiteral
+	opLiteralFocus
 )
 
 // asyncText es un serializador de todas las operaciones del Injector. El nombre
@@ -153,6 +158,9 @@ func (a *asyncText) loop() {
 		// que ya había empezado antes del reset termina y luego el barrier reset
 		// deja el device en estado neutro.
 		if op.epoch != current && op.kind != opReset && op.kind != opClose {
+			if op.literal != nil {
+				op.literal <- LiteralResult{State: "rejected", Detail: "input_context_cancelled"}
+			}
 			if op.done != nil {
 				close(op.done)
 			}
@@ -165,6 +173,18 @@ func (a *asyncText) loop() {
 			a.inner.Button(op.btn, op.down)
 		case opScroll:
 			a.inner.Scroll(op.dx, op.dy)
+		case opLiteral, opLiteralFocus:
+			result := LiteralResult{State: "rejected", Detail: "literal_adapter_unavailable"}
+			if op.ctx.Err() != nil {
+				result = LiteralResult{State: "rejected", Detail: "cancelled_before_dispatch"}
+			} else if adapter, ok := a.inner.(LiteralInjector); ok {
+				if op.kind == opLiteralFocus {
+					result = adapter.LiteralFocus(op.ctx)
+				} else {
+					result = adapter.LiteralText(op.ctx, op.text, op.target)
+				}
+			}
+			op.literal <- result
 		case opText:
 			a.inner.Text(op.text)
 		case opSpecial:
@@ -196,17 +216,27 @@ func (a *asyncText) loop() {
 	}
 }
 
-func (a *asyncText) submit(op asyncOp) {
+func (a *asyncText) submit(op asyncOp) bool {
 	a.mu.Lock()
 	if a.closed {
 		a.mu.Unlock()
-		return
+		return false
 	}
 	op.epoch = a.epoch.Load()
 	// Serializar el envío bajo el mismo lock que Reset/Close garantiza que una
 	// operación que ve la sesión vieja no pueda colarse detrás del barrier.
-	a.ch <- op
+	if op.ctx != nil {
+		select {
+		case a.ch <- op:
+		case <-op.ctx.Done():
+			a.mu.Unlock()
+			return false
+		}
+	} else {
+		a.ch <- op
+	}
 	a.mu.Unlock()
+	return true
 }
 
 func (a *asyncText) Move(dx, dy int) { a.submit(asyncOp{kind: opMove, dx: dx, dy: dy}) }
@@ -862,5 +892,33 @@ func (d *uinputDevice) resetLocked() {
 	}
 	for code := range d.held {
 		d.keyUp(code)
+	}
+}
+
+// LiteralText uses the same FIFO as key actions and pointer edges. A caller
+// timing out cannot assume that an already started adapter had no effect.
+func (a *asyncText) LiteralText(ctx context.Context, text, target string) LiteralResult {
+	result := make(chan LiteralResult, 1)
+	if !a.submit(asyncOp{kind: opLiteral, text: text, target: target, ctx: ctx, literal: result}) {
+		return LiteralResult{State: "rejected", Detail: "injector_closed"}
+	}
+	select {
+	case receipt := <-result:
+		return receipt
+	case <-ctx.Done():
+		return LiteralResult{State: "uncertain", Detail: "dispatch_wait_interrupted"}
+	}
+}
+
+func (a *asyncText) LiteralFocus(ctx context.Context) LiteralResult {
+	result := make(chan LiteralResult, 1)
+	if !a.submit(asyncOp{kind: opLiteralFocus, ctx: ctx, literal: result}) {
+		return LiteralResult{State: "rejected", Detail: "injector_closed"}
+	}
+	select {
+	case receipt := <-result:
+		return receipt
+	case <-ctx.Done():
+		return LiteralResult{State: "rejected", Detail: "focus_probe_interrupted"}
 	}
 }

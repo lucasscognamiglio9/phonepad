@@ -30,6 +30,8 @@ type Authenticator interface {
 // token, rutea mensajes al Injector y maneja ping/pong. Asume 1 cliente (SPEC
 // §1 no-goals): una conexión nueva con token válido reemplaza a la anterior.
 type Server struct {
+	inputSession     string
+	inputLeases      map[string]inputLease
 	nativeUpdatePath string
 	uploadMu         sync.Mutex
 	uploadDir        string
@@ -94,6 +96,7 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 	s.mux.HandleFunc("/api/preview/", s.handlePreview)
 	s.mux.HandleFunc("/api/desktop", s.handleDesktop)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
+	s.mux.HandleFunc("/api/input", s.handleInput)
 	s.mux.HandleFunc(nativeUpdateRoute, s.handleNativeUpdate)
 	s.mux.HandleFunc("/share", s.handleShare(webFS))
 	// Vista de pairing (SPEC §12): página + QR + canal SSE + metadata.
@@ -202,7 +205,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Confirmar handshake (SPEC §3: {"t":"ok"}).
-	if err := c.Write(ctx, websocket.MessageText, respOK); err != nil {
+	hello := s.inputHello(gen)
+	if len(hello) == 0 {
+		return
+	}
+	if err := c.Write(ctx, websocket.MessageText, hello); err != nil {
 		return
 	}
 
@@ -230,6 +237,7 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string) uint64 {
 	old := s.current
 	s.current = c
 	s.gen++
+	s.newInputLease()
 	gen := s.gen
 	// El reset ocurre dentro de la misma sección crítica que cambia la
 	// generación: ningún frame viejo ni nuevo puede tocar el Injector durante la
@@ -252,6 +260,11 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 	disconnected := false
 	if s.current == c && s.gen == gen {
 		s.current = nil
+		if lease, ok := s.inputLeases[s.inputSession]; ok {
+			lease.registry.Retire()
+			lease.retired = time.Now()
+			s.inputLeases[s.inputSession] = lease
+		}
 		s.gen++
 		resetInjector(s.inj)
 		disconnected = true

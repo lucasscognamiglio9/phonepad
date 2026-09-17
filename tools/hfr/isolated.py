@@ -17,6 +17,9 @@ for name, folder in [('HOME', 'home'), ('XDG_RUNTIME_DIR', 'run'), ('XDG_CONFIG_
 env.update(GSETTINGS_BACKEND='memory', GTK_A11Y='none', NO_AT_BRIDGE='1',
            PHONEPAD_HFR_ROOT=str(root), WAYLAND_DISPLAY='phonepad-lab')
 env['DEBUGINFOD_URLS'] = ''
+if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
+    env['GTK_A11Y'] = 'atspi'
+    env.pop('NO_AT_BRIDGE', None)
 if os.environ.get('PHONEPAD_LAB_SCALE', '1') != '1':
     schemas = root / 'schemas'; schemas.mkdir()
     for schema in pathlib.Path('/usr/share/glib-2.0/schemas').glob('*.xml'):
@@ -55,6 +58,8 @@ try:
     env['DBUS_SESSION_BUS_ADDRESS'] = bus.stdout.readline().decode().strip()
     if not env['DBUS_SESSION_BUS_ADDRESS'].startswith('unix:path=' + str(root)):
         raise RuntimeError('Private bus verification failed')
+    if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
+        start(['/usr/libexec/at-spi-bus-launcher', '--launch-immediately'], 'accessibility')
     start(['pipewire'], 'pipewire')
     start(['wireplumber', '--profile=policy'], 'wireplumber')
     shell_args = ['gnome-shell', '--headless', '--no-x11', '--wayland-display=phonepad-lab',
@@ -71,6 +76,11 @@ try:
     if os.environ.get('PHONEPAD_LAB_SCALE', '1') != '1':
         configure = start(['/usr/bin/python3', str(here / 'initial_layout.py')], 'initial-layout')
         if configure.wait(timeout=10): raise RuntimeError('Lab scale configuration failed')
+    if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
+        editor = start(['/usr/bin/python3', str(here / 'input_lab.py')], 'input')
+        if editor.wait(timeout=35): raise RuntimeError('Input fixture failed; inspect input-result.json')
+        print((root / 'input-result.json').read_text(), flush=True)
+        raise SystemExit(0)
     start(['/usr/bin/python3', str(here / 'scene.py')], 'scene')
     time.sleep(3)
     print('Lab started: ' + str(root), flush=True)

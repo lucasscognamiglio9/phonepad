@@ -216,7 +216,7 @@ func (t *TextTransfer) Claim() (string, error) {
 func (t *TextTransfer) Finish(state State) (Receipt, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.state != Dispatching || state != Dispatched && state != Uncertain {
+	if t.state != Dispatching || state != Dispatched && state != Uncertain && state != Rejected {
 		return t.receipt(), ErrState
 	}
 	t.state = state
@@ -232,4 +232,22 @@ func (t *TextTransfer) Cancel() (Receipt, error) {
 	t.state = Cancelled
 	t.payload = nil
 	return t.receipt(), nil
+}
+
+// Retire stops a replaced/closed control lease. Keep tombstones queryable;
+// dropping them would make lost receipts indistinguishable from new work.
+func (r *Registry) Retire() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, t := range r.operations {
+		t.mu.Lock()
+		if t.state == Receiving || t.state == Ready {
+			t.state = Cancelled
+			t.payload = nil
+		}
+		if t.state == Dispatching {
+			t.state = Uncertain
+		}
+		t.mu.Unlock()
+	}
 }
