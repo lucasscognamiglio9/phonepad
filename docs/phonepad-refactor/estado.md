@@ -1,0 +1,36 @@
+# Estado de ejecución — 17/09/2026
+
+## Checkpoint P00: laboratorio y referencia preservados
+
+Autorizado ejecutar por fases y detenerse entre entregas para revisar cuota. Rama `refactor/p00-baseline`, copia aislada; origen congelado en `adab7c77bc74f0e6e6d9e48bc55d330d7e15e77e`. No se desplegó ni reinició PhonePad. El plan maestro sigue en `../../outputs/PHONEPAD-PLAN-MAESTRO.md` respecto de la raíz de este checkout.
+
+- P00.1 listo: bundle completo, servidor estable, IPA y configuración de servicio con SHA256 en `outputs/p00/baseline`. Copia privada, ignorada por Git.
+- P00.2 listo para bitrate: seis escenarios versionados; extracción de RateController sin cambios de comportamiento; comparación contra 2.000 muestras de la clase original. Las reproducciones de entrada permanecen en la auditoría y se convierten en regresiones al ejecutar P01A.
+- P00.3 listo: escena determinista con barcode, texto fino, movimiento y modo quality con pausa real; laboratorio GNOME/PipeWire aislado verificado y video preservado.
+- P00.4 listo: ocho perfiles en namespaces privados. Se corrigió la contaminación entre perfiles causada por `netem replace`: ahora elimina y crea la disciplina en cada etapa. Es prueba UDP del laboratorio, todavía no sesión WebRTC bajo esos perfiles.
+- P00.5 listo para comparación de política y referencia de host: recolector JSON, A/B con igualdad de fixture, recursos inventariados. Las métricas físicas quedan explícitamente pendientes.
+- P00.6 parcial: daemon compilado, servidor empaquetado y hashes verificados; tipos y pruebas pasan. No hay nuevo build iOS/Android instalado ni aceptación física de arranque/reconexión. **P00 completa todavía no está cerrada.**
+
+## Evidencia
+
+25 pruebas Python y 6 del laboratorio visual pasan. Pasaron las 10 suites de archivos móviles, las 2 web, TypeScript sin emisión y Go con detector de carreras; daemon compilado con Go 1.26.0. Logs y artefactos en `outputs/p00`.
+
+Captura sintética de host durante 10 segundos: 908 cuadros decodificados, 904 identificadores únicos, 4 repetidos, 0 barcodes inválidos; 90,23 cuadros distintos/s. No representa FPS presentados en el teléfono ni latencia extremo a extremo. Memoria máxima del laboratorio: 761,1 MB. Evidencia en `outputs/p00/hfr-reference`.
+
+Los escenarios de política siguen reproduciendo los problemas auditados (incluidos RTT estable y buffer fijo que llevan a 350 kbps). Esto es una referencia anterior al arreglo, no una mejora de rendimiento ya entregada.
+
+Fingerprint del checkout y origen: `6171551c95c6c2fe265aaf80c66eeba6657799a7`. IPA estable: `e08438daeafaecc3eeddd87e38c6004b670a3d9c`. La copia inicial de dependencias por symlink alteraba las rutas del fingerprint; se sustituyó por una copia local y se verificó igualdad con el origen. Sigue pendiente explicar la diferencia histórica con la IPA o generar/instalar una nueva pareja compatible. No publicar OTA basándose en igualdad supuesta. No se cambió código móvil ni dependencias declaradas.
+
+Recursos: Go, Node, Python, GStreamer y VA disponibles y probados; IPA estable preservada, firma/instalación actual sin revalidar; Xcode ausente en Linux; Android SDK/JDK no disponibles en PATH; dispositivo físico y credenciales de firma sin comprobar.
+
+## Reanudación exacta
+
+1. Consultar este estado y el plan maestro; trabajar en este checkout y conservar el origen estable.
+2. Ejecutar P01 para corregir política adaptativa, usando `rate_baseline.py --compare` y los criterios del maestro. Cambiar las pruebas que caracterizan fallos por regresiones corregidas; conservar fixture/reporte anterior para A/B. El test de equivalencia con la clase original corresponde únicamente a la extracción P00 y debe retirarse al cambiar intencionalmente la política.
+3. P01A sigue como bloque independiente prioritario para Unicode, pegado, dictado, atajos y adjuntos. No están corregidos por P00.
+4. Antes de promocionar cambios nativos, resolver P00.6 con build compatible y prueba física de arranque/reconexión. No marcarla aprobada por pruebas de host.
+5. Al terminar cada bloque: pruebas pertinentes, commit, actualizar este archivo y continuidad externa; entregar un checkpoint para revisar cuota.
+
+## Rollback
+
+Durante P00 no cambió el servicio activo: basta volver al checkout original. Para una futura promoción, verificar primero todos los SHA256 del manifiesto, restaurar paquete y unidades respaldadas a sus rutas registradas, recargar systemd y reiniciar solo los servicios PhonePad afectados, seguido de reconexión física. No ejecutar este rollback ahora. El bundle permite recuperar el código original incluso si desaparece el checkout de referencia.

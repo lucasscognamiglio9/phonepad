@@ -1,6 +1,6 @@
 """Optional VA runtime for the isolated worker; independent of /tmp scripts."""
 import os, pathlib, sys
-runtime = pathlib.Path(__file__).resolve().parents[3] / 'runtime'
+runtime = pathlib.Path(os.environ.get('PHONEPAD_LAB_RUNTIME', pathlib.Path(__file__).resolve().parents[3] / 'runtime')).resolve()
 base = runtime / 'video-packages/extracted/usr/lib/x86_64-linux-gnu'
 env = os.environ.copy()
 for path in [base, runtime / 'video-modern/plugins', runtime / 'video-modern/lib']:

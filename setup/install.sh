@@ -41,7 +41,7 @@ fi
 if [[ -f "$config_dir/video.env" ]]; then
  mkdir -p "$HOME/.local/lib/phonepad"
  install -m 644 "$script_dir/preview/rtc.py" "$HOME/.local/lib/phonepad/rtc.py"
- for module in virtual_source process_backend hfr_worker hfr_runtime power_lease cursor_capture; do
+ for module in rate_control virtual_source process_backend hfr_worker hfr_runtime power_lease cursor_capture; do
   install -m 644 "$script_dir/preview/$module.py" "$HOME/.local/lib/phonepad/$module.py"
  done
  install -m 755 "$script_dir/preview/capture.py" "$HOME/.local/lib/phonepad/capture.py"
