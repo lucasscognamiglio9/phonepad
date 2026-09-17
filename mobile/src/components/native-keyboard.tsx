@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Platform, ScrollView, TextInput, View, useWindowDimensions } from 'react-native';
+import { Keyboard, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +33,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const input = useRef<TextInput>(null);
   const [value, setValue] = useState('');
   const previous = useRef('');
+  const draft = useRef('');
+  const interrupted = useRef(false);
+  const [deliveryIssue, setDeliveryIssue] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [mods, setMods] = useState<string[]>([]);
@@ -81,7 +84,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       input.current?.blur(); setShortcuts(false); setMods([]); menuAnchorRef.current = null; setMenuAnchor(null);
       menuRequest.current += 1;
       menuInteraction.current = false; menuWasActive.current = false;
-      previous.current = ''; setValue(''); setContentHeight(24);
+      // A disconnect can happen after only part of a correction was queued.
+      // Keep the draft and require review; reconnect must never replay it.
+      if (disabled && draft.current) { interrupted.current = true; setDeliveryIssue(true); }
+      if (!interrupted.current) { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); }
     }
   }, [active, visible, disabled]);
   useEffect(() => {
@@ -102,19 +108,33 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     // button's onLayout below covers ordinary composer relayouts.
     if (menuInteraction.current) measureAnchorRef.current();
   }, [width, height, insets.top, insets.right, insets.bottom, insets.left]);
-  const resetContext = () => { previous.current = ''; setValue(''); setContentHeight(24); };
+  const resetContext = () => { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); };
+  const preserveDraft = (text = draft.current) => {
+    draft.current = text; setValue(text);
+    interrupted.current = true; setDeliveryIssue(true);
+  };
+  const canSend = () => !disabled && visible && !interrupted.current;
+  const reviewed = () => {
+    if (disabled || !visible) return;
+    // This does not assert that the host applied anything and sends no input.
+    // The user has reviewed the remote field; only later edits may be sent.
+    previous.current = draft.current;
+    interrupted.current = false; setDeliveryIssue(false); setMods([]);
+  };
   const special = (key: string) => {
-    if (disabled) return;
-    connection.send(mods.length ? { t: 'k', a: 'combo', mods, key } : { t: 'k', a: 'special', key });
+    if (!canSend()) return;
+    if (!connection.send(mods.length ? { t: 'k', a: 'combo', mods, key } : { t: 'k', a: 'special', key })) { preserveDraft(); return; }
     setMods([]); resetContext();
   };
   const clipboard = (key: string) => {
-    if (disabled) return;
-    connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key }); setMods([]); resetContext();
+    if (!canSend()) return;
+    if (!connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key })) { preserveDraft(); return; }
+    setMods([]); resetContext();
   };
   const submit = () => {
-    if (disabled) return;
-    connection.send({ t: 'k', a: 'special', key: 'Enter' }); setMods([]); resetContext();
+    if (!canSend()) return;
+    if (!connection.send({ t: 'k', a: 'special', key: 'Enter' })) { preserveDraft(); return; }
+    setMods([]); resetContext();
   };
   const finishMenu = (action: MenuAction | null) => {
     const wasActive = menuWasActive.current;
@@ -163,6 +183,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
     <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss} />
     <Animated.View pointerEvents="box-none" style={[{ position: 'absolute', bottom, alignSelf: 'center', gap: 8 }, style]}>
+      {deliveryIssue && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
+        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
+          Envío interrumpido. Tu texto sigue acá. Revisá la computadora antes de continuar; podés seleccionar y copiar este borrador.
+        </Text>
+        <GlassButton label="Continuar sin reenviar" disabled={disabled} onPress={reviewed} />
+      </GlassSurface>}
       {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
@@ -191,15 +217,17 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       <GlassSurface style={{ borderRadius: 28, padding: 4 }}>
         <View style={{ position: 'relative', minHeight: 44, paddingBottom: active ? 44 : 0 }}>
           <TextInput ref={input} value={value} onChangeText={text => {
+              if (!canSend()) { preserveDraft(text); return; }
               const extra = text.startsWith(previous.current) ? Array.from(text.slice(previous.current.length)) : [];
               if (mods.length && extra.length === 1 && !/[\r\n]/.test(extra[0])) {
-                connection.send({ t: 'k', a: 'combo', mods, key: extra[0] }); setMods([]); resetContext();
+                if (!connection.send({ t: 'k', a: 'combo', mods, key: extra[0] })) { preserveDraft(text); return; }
+                setMods([]); resetContext();
               } else {
                 for (const command of textCommands(previous.current, text)) {
-                  if (!connection.send(command)) { resetContext(); return; }
+                  if (!connection.send(command)) { preserveDraft(text); return; }
                 }
                 if (mods.length) setMods([]);
-                previous.current = text; setValue(text);
+                previous.current = text; draft.current = text; setValue(text);
               }
             }} editable={!disabled} multiline
             maxLength={2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}

@@ -1,5 +1,13 @@
 # Estado de ejecución — 17/09/2026
 
+## Checkpoint vigente: P01A, bloque 1
+
+Borradores protegidos ante rechazo/desconexión y núcleo de transferencia literal hasta 128 KiB probado. Ver `p01a-01.md` y `input-operation-contract.md`. El núcleo todavía no se conecta al transporte ni inyector; no declarar resueltos símbolos, dictado, pegado largo o adjuntos. P01A sigue en curso; los pendientes físicos P00.6/P01.6 también.
+
+Próximo bloque P01A-02: adaptador Linux de texto literal y proveedor de clipboard con resultados explícitos y consumidores lentos, seguido de integración de transporte/recibos. No levantar `maxLength` aisladamente. Conservar `outputs/p01a-01` y los checkpoints anteriores. No se desplegó.
+
+## Historial P01
+
 ## Checkpoint vigente: P01 implementada, aceptación física pendiente
 
 P01.1–P01.5 entregadas con pruebas y comparación contra P00. P01.6 cuenta con A/B de encoder real aislado; faltan detalle visual y tráfico/colas extremo a extremo en dispositivo. Ver `p01.md` para resultados, límites y rollback. P00.6 sigue pendiente; no hubo despliegue ni publicación OTA.

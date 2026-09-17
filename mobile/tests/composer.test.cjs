@@ -8,7 +8,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(path.join(__dirname, 
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 function harness() {
-  const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true;
+  const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
   const dimensions = { width: 390, height: 844 };
   const keyboardHeight = { value: 0 };
   const measurement = { x: 24, y: 720, width: 44, height: 44 };
@@ -38,7 +38,7 @@ function harness() {
         return { remove: () => { keyboardListeners[event] = (keyboardListeners[event] ?? []).filter(item => item !== callback); } };
       } },
       Platform: { OS: 'ios' },
-      TextInput: 'TextInput', ScrollView: 'ScrollView',
+      Text: 'Text', TextInput: 'TextInput', ScrollView: 'ScrollView',
       View: 'View',
       useWindowDimensions: () => dimensions,
     },
@@ -50,7 +50,7 @@ function harness() {
     './action-menu': { ActionMenu: 'ActionMenu' }, '../lib/protocol': protocol,
   };
   const exports = {}; vm.runInNewContext(compile('components/native-keyboard.tsx'), { exports, require: name => modules[name] });
-  const props = { connection: { send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted; } },
+  const props = { connection: { send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted && sent.length <= rejectAfter; } },
     active: false, disabled: false, choosing: false, open: () => { props.active = true; }, close: () => { props.active = false; }, choose: action => chosen.push(action) };
   function render() { index = 0; tree = exports.NativeKeyboard(props); while (effects.length) effects.shift()(); }
   function nodes(node) { if (!node || typeof node !== 'object') return [];
@@ -65,6 +65,8 @@ function harness() {
     measure: next => Object.assign(measurement, next),
     resize: next => Object.assign(dimensions, next),
     reject: () => { accepted = false; },
+    accept: () => { accepted = true; rejectAfter = Infinity; },
+    rejectAfter: count => { rejectAfter = count; },
   };
 }
 test('compact field expands on focus without swapping the native input; arrows stay inside extras', () => {
@@ -231,5 +233,62 @@ test('every displayed shortcut sends the intended command and clears one-shot mo
   for (const [label,key] of [['Copiar','c'],['Pegar','v']]) {
     assert.equal(h.find('GlassButton', label).props.symbol, undefined, 'clipboard actions have visible text');
     h.click(label); assert.deepEqual(h.sent.at(-1), { t:'k', a:'combo', mods:['ctrl'], key });
+  }
+});
+
+
+test('rejected navigation, clipboard and Enter preserve the draft without retry on reconnect', () => {
+  for (const action of ['Arriba', 'Copiar', 'Pegar', 'Enter']) {
+    const h = harness(); h.props.active = true; h.render(); h.type('borrador');
+    h.click('Teclas extra'); h.reject(); h.click(action);
+    assert.equal(h.find('TextInput').props.value, 'borrador', action);
+    assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+    const sent = h.sent.length;
+    h.props.disabled = true; h.render(); h.render();
+    h.props.active = false; h.render(); h.render();
+    assert.equal(h.find('TextInput').props.value, 'borrador');
+    h.accept(); h.props.disabled = false; h.props.active = true; h.render(); h.render();
+    assert.equal(h.sent.length, sent);
+    h.click('Enter'); assert.equal(h.sent.length, sent, 'review is required before another action');
+    h.click('Continuar sin reenviar'); assert.equal(h.sent.length, sent);
+    h.type('borrador!'); assert.deepEqual(h.sent.at(-1), {t:'k', a:'text', text:'!'});
+  }
+});
+
+test('partial correction failure keeps the complete desired draft and stops remote edits', () => {
+  const h = harness(); h.props.active = true; h.render(); h.type('abc');
+  h.rejectAfter(2); h.type('xyz');
+  assert.equal(h.sent.length, 3); // text, one accepted Backspace, one rejected.
+  assert.equal(h.find('TextInput').props.value, 'xyz');
+  h.type('xyz guardado');
+  assert.equal(h.sent.length, 3);
+  assert.equal(h.find('TextInput').props.value, 'xyz guardado');
+});
+
+test('typed modifier shortcut rejection preserves its draft and requires review', () => {
+  const h = harness(); h.props.active = true; h.render(); h.click('Teclas extra'); h.click('Ctrl');
+  h.reject(); h.type('c');
+  assert.equal(h.find('TextInput').props.value, 'c');
+  assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+});
+
+test('disconnect preserves a nonempty draft even without a synchronous send failure', () => {
+  const h = harness(); h.props.active = true; h.render(); h.type('texto');
+  h.props.disabled = true; h.render(); h.render();
+  assert.equal(h.find('TextInput').props.value, 'texto');
+  assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+});
+
+
+test('failed delivery retains every Unicode and newline fixture without automatic replay', () => {
+  const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../../tests/fixtures/input-integrity.json'), 'utf8'));
+  for (const sample of fixture.textCases) {
+    const h = harness(); h.props.active = true; h.render(); h.reject(); h.type(sample.value);
+    assert.equal(h.find('TextInput').props.value, sample.value, sample.name);
+    const attempts = h.sent.length;
+    h.props.disabled = true; h.render(); h.render();
+    h.props.disabled = false; h.accept(); h.render(); h.render();
+    assert.equal(h.find('TextInput').props.value, sample.value, sample.name);
+    assert.equal(h.sent.length, attempts);
   }
 });

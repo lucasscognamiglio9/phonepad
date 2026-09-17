@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "scope": "Synthetic content only. Device composition, target-editor output and clipboard ownership require integration acceptance.",
+  "textCases": [
+    {"name": "symbols", "value": "¿? _ - / \\ @ # $ % & * () [] {} < > = + : ; \" ' ! | ~ ^ `"},
+    {"name": "spanish", "value": "áéíóú ÁÉÍÓÚ ñ Ñ ü Ü €"},
+    {"name": "normalization", "value": "é é Å Å"},
+    {"name": "graphemes", "value": "OK👨‍👩‍👧‍👦 👍🏽 🇺🇾"},
+    {"name": "multiline", "value": "a\r\nb\nc\rd\tfin"},
+    {"name": "ime", "value": "日本語 한국어 العربية עברית"}
+  ],
+  "byteBoundaries": [2047, 2048, 2049, 8191, 8192, 8193, 102400, 131072],
+  "findings": [
+    {"id": "I01", "scenario": "question/underscore and full symbols under us, latam, es", "acceptance": "literal text preserved independent of layout", "physical": true},
+    {"id": "I02", "scenario": "2047/2048/2049 characters and 100 KiB paste", "acceptance": "no native truncation and negotiated byte limit visible", "physical": true},
+    {"id": "I03", "scenario": "replace first letter of 2000 characters", "acceptance": "no thousands-of-Backspace replacement", "physical": false},
+    {"id": "I04", "scenario": "disconnect midway through correction/transfer", "acceptance": "preserve draft, query receipt, no uncertain replay", "physical": false},
+    {"id": "I05", "scenario": "remove family emoji following OK", "acceptance": "do not delete OK in a grapheme-aware editor", "physical": true},
+    {"id": "I06", "scenario": "send false for arrows/clipboard/Enter/modifier", "acceptance": "draft preserved; no simulated success", "physical": false},
+    {"id": "I07", "scenario": "dictation interim/final/correction and focus change", "acceptance": "only confirmed text applied to correct context", "physical": true},
+    {"id": "I08", "scenario": "picker returns three assets including cloud asset", "acceptance": "all selected items retained and published together", "physical": true},
+    {"id": "I09", "scenario": "target consumes paste after more than 40 ms", "acceptance": "literal data still available without fragment races", "physical": true},
+    {"id": "I10", "scenario": "multi-format clipboard and external ownership change", "acceptance": "formats and subsequent external copy preserved", "physical": true},
+    {"id": "I11", "scenario": "newlines, terminal paste, shortcut symbol needing Shift", "acceptance": "literal newlines preserved and key action chosen by context/layout", "physical": true},
+    {"id": "I12", "scenario": "injection error, lost response, disable/close after failure", "acceptance": "receipt states distinguish dispatch from app observation; draft retained", "physical": true}
+  ]
+}
