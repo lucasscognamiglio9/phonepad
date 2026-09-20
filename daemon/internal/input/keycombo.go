@@ -4,10 +4,10 @@ import "strings"
 
 // ParseKeyCombo traduce un atajo como lo nombra un agente externo (computer use)
 // — "ctrl+s", "Return", "alt+Tab", "super+a" — a (mods, key) listo para Combo.
-// Los mods quedan en el vocabulario de modKeys y key en el de specialKeys o un
-// carácter resoluble por runeToKey. ok=false si algún modificador o la tecla no
-// se reconoce. Vive acá, junto al mapeo canónico de teclas (keymap.go), para que
-// la nomenclatura del agente y los keycodes sean una única fuente de verdad.
+// Los mods y nombres especiales usan el vocabulario canónico del protocolo; una
+// tecla de un solo carácter se valida contra el layout ASCII US portable. La
+// conversión final a scancode pertenece al proveedor Linux y no forma parte de
+// este parser.
 func ParseKeyCombo(combo string) (mods []string, key string, ok bool) {
 	parts := strings.Split(combo, "+")
 	for _, m := range parts[:len(parts)-1] {
@@ -25,7 +25,7 @@ func ParseKeyCombo(combo string) (mods []string, key string, ok bool) {
 }
 
 // canonMod normaliza el nombre de un modificador (con los alias que puede usar un
-// agente) a su clave en modKeys. "" si no se reconoce.
+// agente) a su clave canónica. "" si no se reconoce.
 func canonMod(m string) string {
 	switch strings.ToLower(m) {
 	case "ctrl", "control":
@@ -40,9 +40,10 @@ func canonMod(m string) string {
 	return ""
 }
 
-// canonKey normaliza el nombre de una tecla a una clave de specialKeys o, si es un
-// único carácter, lo deja pasar sólo si runeToKey lo resuelve. "" si no se reconoce
-// — así ParseKeyCombo nunca produce una key que Combo no sepa ejecutar.
+// canonKey normaliza el nombre de una tecla a una clave especial o, si es un
+// único carácter, lo deja pasar sólo si pertenece al layout ASCII US. "" si no
+// se reconoce — así ParseKeyCombo conserva el límite de teclas que Combo puede
+// ejecutar.
 func canonKey(k string) string {
 	switch strings.ToLower(k) {
 	case "return", "enter":
@@ -77,7 +78,7 @@ func canonKey(k string) string {
 		return " "
 	}
 	if r := []rune(k); len(r) == 1 {
-		if _, _, ok := runeToKey(r[0]); ok {
+		if isUSKeyRune(r[0]) {
 			return k // char suelto resoluble en layout US
 		}
 	}

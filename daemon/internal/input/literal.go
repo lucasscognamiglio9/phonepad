@@ -1,3 +1,5 @@
+//go:build linux
+
 package input
 
 import (
@@ -9,18 +11,6 @@ import (
 	"time"
 	"unicode/utf8"
 )
-
-// LiteralResult never claims to observe the destination application. Rejected
-// means no edit was attempted; an interrupted/failed edit is uncertain.
-type LiteralResult struct {
-	State  string `json:"state"`
-	Detail string `json:"detail"`
-	Target string `json:"target,omitempty"`
-}
-type LiteralInjector interface {
-	LiteralText(context.Context, string, string) LiteralResult
-	LiteralFocus(context.Context) LiteralResult
-}
 
 //go:embed literal_text.py
 var literalTextScript string

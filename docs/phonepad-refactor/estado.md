@@ -6,7 +6,7 @@ La ejecución sigue autorizada. Base de esta entrega: `1a43331` en `refactor/p00
 
 Verificación de P01A-04: pruebas de cliente y almacenamiento, gateway real a través de RemoteHandler, Go completo con detector de carreras y bundle iOS/Hermes. Los logs se guardan en `outputs/p01a-04`; el cierre de validación se registra en el documento del bloque. Un bundle Hermes no es un IPA ni aceptación física.
 
-P02-01 prepara selección/configuración de equipos sin dirección fija. P02-02 separa contratos/FIFO portables del proveedor Linux. Todavía no se marcan verificados ni cerrados mientras sus cambios están en progreso.
+P02-01 integra selección/configuración de equipos sin dirección fija. P02-02 ya separó contratos/FIFO portables del proveedor Linux y pasó pruebas Go completas con detector de carreras, vet y build Linux. Los tests del paquete de entrada compilan para Darwin/Windows; no se ejecutaron ni representan proveedores nuevos. P02-03 prepara negociación y modo de visualización.
 
 P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperando candidato y receptor físico. P01A completa continúa abierta: acciones/atajos con recibos, alternativas a EditableText, matriz de dictado y consumidores reales. No hubo despliegue, OTA ni reinicio de servicios personales.
 

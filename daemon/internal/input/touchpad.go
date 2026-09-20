@@ -1,15 +1,5 @@
 package input
 
-// Contact es un dedo en contacto con el pad, en coordenadas normalizadas 0..1
-// (SPEC §3, ADR 0005). El cliente reenvía contactos crudos por frame; el daemon
-// los mapea a slots del protocolo multitouch Type B y deja que libinput
-// clasifique los gestos nativamente.
-type Contact struct {
-	ID int     `json:"id"`
-	X  float64 `json:"x"`
-	Y  float64 `json:"y"`
-}
-
 // evt es un evento evdev sin timestamp (el kernel lo sella al write, por eso no
 // lo llevamos). La capa de IO (touchpad_linux.go) lo serializa a la struct
 // input_event de 24 bytes. Separar el mapeo puro de la escritura permite testear

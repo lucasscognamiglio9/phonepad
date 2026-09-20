@@ -1,3 +1,5 @@
+//go:build linux
+
 package input
 
 import "github.com/bendahl/uinput"
