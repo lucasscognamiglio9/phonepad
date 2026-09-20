@@ -1,5 +1,6 @@
 """Bounded local RPC to an encoder worker; no frames cross Python IPC."""
 import json, os, pathlib, select, subprocess, sys, threading, time
+from media_contract import MediaContractError, requested_codecs, unknown_media, validate_media
 class ProcessBackend:
     def __init__(self, command=None, cursor_grant=None):
         self.command=command or [sys.executable,str(pathlib.Path(__file__).with_name('hfr_runtime.py'))]
@@ -8,9 +9,21 @@ class ProcessBackend:
         self.id=None
         self.lock=threading.RLock()
         self.pending=b''
+        self._closing_event=threading.Event()
+        self._shutdown_lock=threading.Lock()
+        self._shutdown_started=False
+        self._shutdown_done=threading.Event()
+        self._shutdown_error=None
+        # The parent cannot infer the HFR worker's factories or source
+        # generation. It remains unknown until a worker response proves it.
+        self.media=unknown_media(source_reason='worker_not_started', geometry_reason='worker_not_started', video_reason='worker_not_started')
     @property
     def session(self):
         return self if self.process and self.process.poll() is None else None
+    def media_snapshot(self):
+        if not self.process or self.process.poll() is not None:
+            return unknown_media(source_reason='worker_not_started', geometry_reason='worker_not_started', video_reason='worker_not_started')
+        return validate_media(self.media)
     def dispatch(self,action):return action()
     def _exchange(self,data,timeout):
         payload=json.dumps(data,separators=(',',':'),allow_nan=False).encode()+b'\n'
@@ -38,6 +51,15 @@ class ProcessBackend:
         value=json.loads(line)
         if 'error' in value:
             raise (ValueError if value.get('invalid') else RuntimeError)(value['error'])
+        if isinstance(value.get('result'),dict) and 'media' in value['result']:
+            try:
+                media=validate_media(value['result']['media'])
+                if media['source']['state']=='available' and media['source'].get('kind')!='hfr-worker':
+                    raise MediaContractError('worker source kind mismatch')
+                self.media=media
+            except MediaContractError as error:
+                self.media=unknown_media(source_reason='worker_metadata_invalid', geometry_reason='worker_metadata_invalid', video_reason='worker_metadata_invalid')
+                raise ValueError('invalid worker media') from error
         return value['result']
     def handle(self,data):
         if not isinstance(data,dict):raise ValueError('Invalid request')
@@ -46,13 +68,24 @@ class ProcessBackend:
             raise ValueError('Invalid operation')
         # Reject malformed input before replacing a currently working session.
         if len(json.dumps(data,allow_nan=False).encode())>65535:raise ValueError('Request too large')
+        if self._closing_event.is_set() and op!='stop':
+            raise ValueError('backend closing')
         if op=='start':
-            if data.get('codec','H264')!='H264':raise ValueError('HFR requires H264')
+            preferences=requested_codecs(data)
+            if any(codec!='H264' for codec in preferences):raise ValueError('HFR requires H264')
             width=data.get('width',1920)
             if type(width) is not int or not 320<=width<=1920:raise ValueError('Invalid width')
         with self.lock:
+            # Recheck after validation and immediately before replacing or
+            # using the child. Shutdown may have set the event while this
+            # request was waiting between the two critical sections.
+            if self._closing_event.is_set() and op!='stop':
+                raise ValueError('backend closing')
             if op=='start':
                 self.close()
+                if self._closing_event.is_set():
+                    raise ValueError('backend closing')
+                self.media=unknown_media(source_reason='worker_starting', geometry_reason='worker_starting', video_reason='worker_starting')
                 fd=None
                 env=os.environ.copy()
                 env.pop('PHONEPAD_CURSOR_FD',None)
@@ -83,6 +116,7 @@ class ProcessBackend:
     def _reap(self):
         proc,self.process=self.process,None
         self.id=None;self.pending=b''
+        self.media=unknown_media(source_reason='worker_not_started', geometry_reason='worker_not_started', video_reason='worker_not_started')
         if not proc:return
         proc.stdin.close()
         try:proc.wait(timeout=2)
@@ -99,3 +133,36 @@ class ProcessBackend:
                 except Exception:pass
             self._reap()
         return False
+
+    def shutdown(self, timeout=5):
+        """Stop the worker with bounded waits and reject future sessions."""
+        # Admission closes before taking the RPC lock. A request already
+        # inside a bounded exchange may finish in the cleanup thread, but no
+        # new start can pass the second check in handle().
+        self._closing_event.set()
+        with self._shutdown_lock:
+            start = not self._shutdown_started
+            self._shutdown_started=True
+            done=self._shutdown_done
+        if start:
+            threading.Thread(target=self._shutdown_worker, name='phonepad-hfr-shutdown', daemon=True).start()
+        if not done.wait(timeout):
+            raise TimeoutError('HFR shutdown timed out')
+        if self._shutdown_error is not None:
+            raise self._shutdown_error
+        return True
+
+    def _shutdown_worker(self):
+        error=None
+        try:
+            with self.lock:
+                if self.process and self.id and self.process.poll() is None:
+                    try:self._exchange({'op':'stop','id':self.id},3)
+                    except Exception:pass
+                self._reap()
+        except Exception as shutdown_error:
+            error=shutdown_error
+        finally:
+            with self._shutdown_lock:
+                self._shutdown_error=error
+                self._shutdown_done.set()

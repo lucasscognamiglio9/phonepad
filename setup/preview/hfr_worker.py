@@ -6,6 +6,7 @@ import rtc
 from virtual_source import Mirror
 from power_lease import PowerLease
 from cursor_capture import EmbeddedCursor
+from media_contract import MediaTracker
 rtc.Gst.init(None)
 if os.environ.get('PHONEPAD_ENCODER')!='va' or rtc.Gst.ElementFactory.find('vah264enc') is None:
     raise RuntimeError('HFR requires the modern VA hardware encoder runtime')
@@ -15,6 +16,7 @@ mirror=None
 cursor=None
 source=None
 stopping=False
+media=MediaTracker('hfr-worker',source_state='unknown',source_reason='worker_not_started')
 class Session(rtc.Session):
     def close(self):
         # Stop the producer while the PipeWire consumer is still alive. Mutter
@@ -23,10 +25,20 @@ class Session(rtc.Session):
             mirror.close()
         return super().close()
 rtc.Session=Session
-manager=rtc.Manager(lambda:(source,1920,1080))
+manager=rtc.Manager(lambda:(source,1920,1080),media_tracker=media,
+                    codec_probe=lambda:[codec for codec in rtc.available_codecs() if codec=='H264'],
+                    # Mirror validates native 1920x1080 before creating its
+                    # virtual stream. These are physical, not Portal sizes.
+                    source_dimensions=lambda:(1920,1080))
 def terminate(*_):
     global stopping
     stopping=True
+    # The worker's GLib context owns the GStreamer objects.  Queue closure
+    # there instead of tearing down a pipeline from the Python signal path.
+    try:
+        rtc.GLib.idle_add(manager.shutdown_on_loop)
+    except Exception:
+        pass
 signal.signal(signal.SIGTERM,terminate)
 signal.signal(signal.SIGINT,terminate)
 started=False
@@ -35,7 +47,11 @@ exit_status=0
 try:
     while not stopping:
         if started and (manager.session is None or manager.session.closed):break
-        if not select.select([sys.stdin],[],[],.2)[0]:continue
+        try:
+            ready=select.select([sys.stdin],[],[],.2)[0]
+        except InterruptedError:
+            continue
+        if not ready:continue
         line=sys.stdin.buffer.readline(65538)
         if not line:break
         try:
@@ -46,7 +62,7 @@ try:
                 if started:raise ValueError('Only one session per worker')
                 if data.get('codec','H264')!='H264':raise ValueError('HFR requires H264')
                 if not os.environ.get('PHONEPAD_HFR_ROOT'):power.set_active(True)
-                mirror=Mirror();source=mirror.prepare()
+                mirror=Mirror();source=mirror.prepare();media.begin_source()
             result=manager.handle(data)
             if data.get('op')=='resume':
                 if not os.environ.get('PHONEPAD_HFR_ROOT'):power.set_active(True)
@@ -73,10 +89,18 @@ except BaseException:
     exit_status=1
     traceback.print_exc()
 finally:
-    if manager.session and not manager.session.closed:
-        try:manager.dispatch(manager.session.close)
-        except Exception as error:
-            exit_status=1;print('HFR shutdown:',str(error),flush=True)
+    try:
+        manager.shutdown(timeout=5)
+    except Exception as error:
+        exit_status=1;print('HFR shutdown:',str(error),flush=True)
+    # If the GLib owner is still in an in-flight GStreamer call, do not run a
+    # native destructor from this input thread. The process exits with the
+    # recorded timeout and the supervisor/OS reclaims its handles.
+    # Manager detaches its session reference before running Session.close on
+    # the GLib owner, so consult the lifecycle barrier rather than the pointer
+    # alone; otherwise mirror.close could race an in-flight GStreamer close.
+    if not manager.closed:
+        exit_status=1;print('HFR session shutdown deferred to GLib owner',flush=True)
     elif mirror and not mirror.closed:
         try:mirror.close()
         except Exception as error:

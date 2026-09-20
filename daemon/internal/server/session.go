@@ -120,6 +120,9 @@ func (s *Server) RemoteHandler(publicOrigin string) http.Handler {
 			http.Error(w, "gateway only", 403)
 			return
 		}
+		if s.rejectIfClosing(w) {
+			return
+		}
 		p := r.URL.Path
 		allowed := p == "/" || p == "/index.html" || p == "/app.js" || p == "/preview.js" || p == "/rtc.js" || p == "/desktop.js" || p == "/style.css" || p == "/sw.js" || p == "/manifest.webmanifest" || p == "/icon-180.png" || p == "/icon-192.png" || p == "/icon-512.png" || (strings.HasPrefix(p, "/fonts/") && strings.HasSuffix(p, ".woff2")) || (p == "/api/preview/status" || p == "/api/preview/video" || p == "/api/preview/rtc") || p == "/api/files" || p == "/api/file-batches" || p == "/api/file-transfers" || p == "/api/input" || p == nativeUpdateRoute || p == "/api/auth" || p == "/api/claim" || p == "/api/mode" || p == "/ws" || (p == "/api/desktop" && r.URL.Query().Get("role") == "viewer")
 		if !allowed {
@@ -140,6 +143,8 @@ func (s *Server) RemoteHandler(publicOrigin string) http.Handler {
 				}
 			}
 		}
-		s.mux.ServeHTTP(w, r)
+		ctx, cancel := s.contextWithLifecycle(r.Context())
+		defer cancel()
+		s.mux.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

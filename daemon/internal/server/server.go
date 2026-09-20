@@ -58,17 +58,30 @@ type Server struct {
 	gen     uint64          // generación monotónica; invalida frames de sesiones viejas
 	// sessionEpoch is the random identity of the control connection. It is
 	// separate from inputSession, which may rotate on a text quota renewal.
-	sessionEpoch       string
-	currentProtocol    int
-	capabilityRevision uint64
-	permissions        Permissions
-	readTimeout        time.Duration // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
+	sessionEpoch         string
+	currentProtocol      int
+	capabilityRevision   uint64
+	permissionRevision   uint64
+	inputResetIncomplete bool
+	media                mediaObservation
+	permissions          Permissions
+	readTimeout          time.Duration // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
 
 	// mutationGate is held only while a bounded side effect is committed. It is
 	// never held while an HTTP upload body is read.
 	mutationGate           sync.Mutex
 	capabilitySendMu       sync.Mutex
 	capabilitySentRevision uint64
+
+	// lifecycleMu guards the process-wide admission barrier. It is separate
+	// from mu/mutationGate so HTTP shutdown never waits on a provider while
+	// holding session state.
+	lifecycleMu      sync.Mutex
+	lifecycleCtx     context.Context
+	lifecycleCancel  context.CancelFunc
+	lifecycleDone    chan struct{}
+	lifecycleClosing bool
+	lifecycleErr     error
 
 	demo      bool
 	devInject bool // dev: inyectar el flag dev en index.html y no cachear
@@ -97,13 +110,17 @@ func WithDevInject() Option {
 // pairURL es la URL de pairing que también imprime la terminal (SPEC §12):
 // el QR de /qr.svg codifica exactamente esa URL para evitar drift.
 func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, opts ...Option) *Server {
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	s := &Server{
-		auth:        auth,
-		inj:         inj,
-		mux:         http.NewServeMux(),
-		pairURL:     pairURL,
-		hub:         newHub(),
-		readTimeout: defaultWSReadTimeout,
+		auth:            auth,
+		inj:             inj,
+		mux:             http.NewServeMux(),
+		pairURL:         pairURL,
+		hub:             newHub(),
+		readTimeout:     defaultWSReadTimeout,
+		lifecycleCtx:    lifecycleCtx,
+		lifecycleCancel: lifecycleCancel,
+		lifecycleDone:   make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(s)
@@ -170,6 +187,9 @@ func (s *Server) staticHandler(webFS fs.FS) http.Handler {
 // conexión bajo el lock y escribe afuera, para no serializar el I/O (igual que
 // setCurrent).
 func (s *Server) PushReload() {
+	if s.isClosing() {
+		return
+	}
 	s.mu.Lock()
 	c := s.current
 	s.mu.Unlock()
@@ -194,11 +214,19 @@ func (s *Server) Handler() http.Handler {
 			http.Error(w, "Phonepad solo admite clientes de LAN o loopback", http.StatusForbidden)
 			return
 		}
-		s.mux.ServeHTTP(w, r)
+		if s.rejectIfClosing(w) {
+			return
+		}
+		ctx, cancel := s.contextWithLifecycle(r.Context())
+		defer cancel()
+		s.mux.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	if s.rejectIfClosing(w) {
+		return
+	}
 	// Validar token ANTES de hacer el upgrade (SPEC §3: "valida antes de
 	// procesar nada"). El token viaja en la query, no en un mensaje.
 	if !trustedNode(r) && !s.auth.Valid(sessionToken(r)) {
@@ -226,7 +254,11 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		// failure local to this connection; the previous session (if any) was
 		// not replaced because epoch allocation failed before taking the lock.
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		_ = c.Write(ctx, websocket.MessageText, rejectedMessage("session", "session_unavailable", 0, ""))
+		code := "session_unavailable"
+		if errors.Is(err, ErrServerClosing) {
+			code = "server_closing"
+		}
+		_ = c.Write(ctx, websocket.MessageText, rejectedMessage("session", code, 0, ""))
 		cancel()
 		c.CloseNow()
 		return
@@ -238,7 +270,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	// el ServeMux da por cerrado el request, lo que mataría el read loop al
 	// instante y dispararía un bucle de reconexión. Derivamos de Background con
 	// un cancel propio atado al cierre del handler.
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := s.contextWithLifecycle(context.Background())
 	defer cancel()
 
 	// Capability updates use the same writer lock. Take it before building the
@@ -275,8 +307,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64, error) {
 	// Unlock explícito (no defer) a propósito: no sostener el mutex durante el
-	// I/O de red de abajo (old.Close / hub). El reset físico sí queda dentro de
-	// la sección crítica para que ningún frame atraviese la transición.
+	// I/O de red de abajo (old.Close / hub). mutationGate ordena el reset físico
+	// sin retener el mutex usado por status y la coordinación de cierre.
 	epoch, epochErr := newSessionEpoch()
 	if epochErr != nil && protocol == protocolVersion {
 		return 0, epochErr
@@ -286,6 +318,13 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64,
 		epoch = ""
 	}
 	s.mutationGate.Lock()
+	s.lifecycleMu.Lock()
+	if s.lifecycleClosing {
+		s.lifecycleMu.Unlock()
+		s.mutationGate.Unlock()
+		return 0, ErrServerClosing
+	}
+	s.lifecycleMu.Unlock()
 	s.mu.Lock()
 	old := s.current
 	s.current = c
@@ -299,8 +338,10 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64,
 	// generación: ningún frame viejo ni nuevo puede tocar el Injector durante la
 	// transición. Si había teclas/botones/contactos activos, quedan liberados
 	// antes de aceptar el primer frame de la sesión nueva.
-	resetInjector(s.inj)
 	s.mu.Unlock()
+	if err := s.resetForTransition(); err != nil {
+		log.Printf("input reset before connection: %v", err)
+	}
 	s.mutationGate.Unlock()
 	if old != nil {
 		// Tell the replaced peer why control moved, but never make the new
@@ -338,10 +379,14 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 			s.inputLeases[s.inputSession] = lease
 		}
 		s.gen++
-		resetInjector(s.inj)
 		disconnected = true
 	}
 	s.mu.Unlock()
+	if disconnected {
+		if err := s.resetForTransition(); err != nil {
+			log.Printf("input reset after disconnect: %v", err)
+		}
+	}
 	s.mutationGate.Unlock()
 	c.CloseNow()
 	if disconnected {
@@ -415,6 +460,9 @@ func (s *Server) route(ctx context.Context, c *websocket.Conn, m Msg) {
 }
 
 func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uint64, m Msg) {
+	if s.isClosing() {
+		return
+	}
 	// Las pruebas unitarias llaman route con c=nil para ejercitar el ruteo puro.
 	// Las conexiones reales pasan por el mutex + generación: si fueron
 	// reemplazadas, sus frames se descartan aunque el read loop aún no haya
@@ -446,6 +494,15 @@ func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uin
 				s.rejectInput(c, code)
 				return
 			}
+			permit := mutationPermit{scope: mutationScopeInput, revision: s.permissionRevision, generation: s.gen, sessionEpoch: s.sessionEpoch}
+			s.mu.Unlock()
+			if err := s.runLifecycleMutation(permit, func() error {
+				s.routeInjector(m)
+				return nil
+			}); err != nil && !errors.Is(err, ErrServerClosing) {
+				s.rejectInput(c, "input_unavailable")
+			}
+			return
 		}
 		s.routeInjector(m)
 		s.mu.Unlock()

@@ -1,7 +1,10 @@
 package input
 
 import (
+	"context"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -162,6 +165,146 @@ func TestAsyncText_ResetDropsQueuedFrames(t *testing.T) {
 			t.Fatalf("frame viejo sobrevivió Reset: %+v", g.calls)
 		}
 	}
+}
+
+type blockedTextInjector struct {
+	*fakeInjector
+	started chan struct{}
+	release chan struct{}
+	resets  atomic.Int32
+}
+
+func (b *blockedTextInjector) Text(text string) {
+	if text == "bloqueado" {
+		select {
+		case <-b.started:
+		default:
+			close(b.started)
+		}
+		<-b.release
+	}
+	b.fakeInjector.Text(text)
+}
+
+func (b *blockedTextInjector) Reset() { b.resets.Add(1) }
+
+func TestAsyncText_CloseContextDoesNotWaitForFullQueue(t *testing.T) {
+	b := &blockedTextInjector{fakeInjector: &fakeInjector{}, started: make(chan struct{}), release: make(chan struct{})}
+	a := NewAsyncText(b, 1)
+	a.Text("bloqueado")
+	<-b.started
+	a.Text("pendiente") // fills the FIFO while the provider is blocked
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	err := a.(inputContextCloser).CloseContext(ctx)
+	cancel()
+	if err == nil {
+		t.Fatal("CloseContext returned success while the worker was blocked")
+	}
+
+	close(b.release)
+	if err := a.(inputContextCloser).CloseContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range b.calls {
+		if call.method == "Text" && call.args[0].(string) == "pendiente" {
+			t.Fatalf("shutdown replayed queued input: %+v", b.calls)
+		}
+	}
+}
+
+func TestAsyncText_ResetContextEventuallyAppliesAfterCallerTimeout(t *testing.T) {
+	b := &blockedTextInjector{fakeInjector: &fakeInjector{}, started: make(chan struct{}), release: make(chan struct{})}
+	a := NewAsyncText(b, 1)
+	a.Text("bloqueado")
+	<-b.started
+	a.Text("pendiente")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	err := a.(inputContextResetter).ResetContext(ctx)
+	cancel()
+	if err == nil {
+		t.Fatal("ResetContext returned success while the worker was blocked")
+	}
+	newInputDone := make(chan struct{})
+	go func() {
+		// A new-epoch action must wait behind the reset barrier even though the
+		// caller of ResetContext already timed out.
+		a.Special("nuevo")
+		close(newInputDone)
+	}()
+	close(b.release)
+	// The timed-out reset remains queued and is applied by the worker.
+	deadline := time.Now().Add(time.Second)
+	for b.resets.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if b.resets.Load() == 0 {
+		t.Fatal("timed-out reset was dropped")
+	}
+	select {
+	case <-newInputDone:
+	case <-time.After(time.Second):
+		t.Fatal("new input did not pass the reset barrier")
+	}
+	a.Close()
+	for _, call := range b.calls {
+		if call.method == "Text" && call.args[0].(string) == "pendiente" {
+			t.Fatalf("queued old input survived reset: %+v", b.calls)
+		}
+	}
+}
+
+type inputContextCloser interface {
+	CloseContext(context.Context) error
+}
+
+func TestAsyncText_ResetDeadlineIncludesBlockedSender(t *testing.T) {
+	b := &blockedTextInjector{fakeInjector: &fakeInjector{}, started: make(chan struct{}), release: make(chan struct{})}
+	a := NewAsyncText(b, 1).(*asyncText)
+	var release sync.Once
+	defer func() { release.Do(func() { close(b.release) }); a.Close() }()
+	a.Text("bloqueado")
+	<-b.started
+	a.Text("pendiente")
+	senderDone := make(chan struct{})
+	go func() { a.Text("esperando sitio"); close(senderDone) }()
+	deadline := time.Now().Add(time.Second)
+	for a.enqueueMu.TryLock() {
+		a.enqueueMu.Unlock()
+		if time.Now().After(deadline) {
+			t.Fatal("sender did not fill the admission queue")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	resetDone := make(chan error, 1)
+	go func() { resetDone <- a.ResetContext(ctx) }()
+	select {
+	case err := <-resetDone:
+		if err != context.DeadlineExceeded {
+			t.Fatal("reset did not preserve the deadline", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("reset waited for a full FIFO before observing its deadline")
+	}
+	release.Do(func() { close(b.release) })
+	<-senderDone
+	a.Special("nuevo")
+	if b.resets.Load() != 1 {
+		t.Fatal("new input overtook the physical reset")
+	}
+	a.Close()
+	for _, call := range b.calls {
+		if call.method == "Text" && call.args[0].(string) != "bloqueado" {
+			t.Fatal("old queued input survived reset", call)
+		}
+	}
+}
+
+type inputContextResetter interface {
+	ResetContext(context.Context) error
 }
 
 func TestFakeInjectorRecordsCalls(t *testing.T) {

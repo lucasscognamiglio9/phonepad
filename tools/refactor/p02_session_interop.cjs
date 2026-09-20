@@ -55,6 +55,14 @@ const connection = new Connection(origin, state => states.push(state));
     assert.equal(connection.capabilities.protocolVersion, 2);
     assert.equal(connection.canInput, true);
     const epoch = connection.capabilities.sessionEpoch;
+    const inputEpoch = connection.inputEpoch;
+    const preview = await request(origin + '/api/preview/status');
+    assert.equal(preview.status, 200);
+    await until(() => connection.capabilities.media?.source.id === 'interop-source');
+    assert.equal(connection.capabilities.media.geometry.width, 2731);
+    assert.equal(connection.capabilities.media.geometry.encodedWidth, 1920);
+    assert.equal(connection.capabilities.sessionEpoch, epoch);
+    assert.equal(connection.inputEpoch, inputEpoch);
     const receipt = await connection.literal.send('¿Pregunta_? 👨‍👩‍👧‍👦 e\u0301\r\n'.repeat(900));
     assert.equal(receipt.state, 'dispatched');
     assert.ok(requests.every(request => request.sessionEpoch === epoch));
@@ -77,7 +85,7 @@ const connection = new Connection(origin, state => states.push(state));
     assert.equal(requests.at(-1).session, lease);
     assert.equal(requests.at(-1).sessionEpoch, connection.capabilities.sessionEpoch);
     assert.equal(requests.filter(request => request.op === 'commit').length, 2);
-    console.log('PASS: real TLS/WS hello, Unicode chunks, revocation, receipt recovery and reconnect without replay');
+    console.log('PASS: Python media → Go → TypeScript, real TLS/WS hello, Unicode chunks, revocation, receipt recovery and reconnect without replay');
   } finally {
     connection.stop();
   }

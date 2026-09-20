@@ -2,6 +2,7 @@ package pairing
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,11 +15,12 @@ func TestOpen_RejectsMalformedShortToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	s, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
+	if !errors.Is(err, ErrInvalidState) || s != nil {
+		t.Fatalf("invalid existing credential should require recovery: %v", err)
 	}
-	if s.Token() == "short" || s.Paired() {
-		t.Fatalf("reutilizó estado inválido: token=%q paired=%v", s.Token(), s.Paired())
+	kept, readErr := os.ReadFile(filepath.Join(dir, fileName))
+	if readErr != nil || string(kept) != string(b) {
+		t.Fatal("opening invalid config destroyed the existing file")
 	}
 	st, err := os.Stat(filepath.Join(dir, fileName))
 	if err != nil {

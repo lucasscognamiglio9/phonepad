@@ -1,10 +1,11 @@
 #!/usr/bin/python3
 """On-demand PipeWire preview. Unix socket only; Phonepad handles authorization."""
-import gi,os,json,time,threading,socketserver,http.server,queue
+import gi,os,json,time,threading,socketserver,http.server,queue,signal
 from pathlib import Path
 gi.require_version('Gst','1.0')
 from gi.repository import Gio,GLib,Gst
 Gst.init(None)
+from media_contract import MediaTracker
 ROOT=Path(os.environ.get('XDG_RUNTIME_DIR','/tmp'))/'phonepad-preview'
 ROOT.mkdir(mode=0o700,exist_ok=True)
 SOCKET=ROOT/'capture.sock'
@@ -12,6 +13,8 @@ CONFIG=Path(os.environ.get('XDG_CONFIG_HOME',str(Path.home()/'.config')))/'phone
 CONFIG.mkdir(mode=0o700,parents=True,exist_ok=True)
 TOKEN=CONFIG/'capture-restore.json'
 lock=threading.Lock();frame=None;stamp=0;last_request=0;state='idle';pipeline=None;session=None;remote_fd=None;stream_info=None;active_stream=None
+shutdown_lock=threading.RLock();closing=False;shutdown_started=False;shutdown_done=False;main_loop=None;server=None
+portal_media=MediaTracker('portal',source_state='unavailable',source_reason='capture_not_started')
 bus=Gio.bus_get_sync(Gio.BusType.SESSION,None)
 DEST='org.freedesktop.portal.Desktop';PATH='/org/freedesktop/portal/desktop';IFACE='org.freedesktop.portal.ScreenCast'
 def status(value):
@@ -19,6 +22,7 @@ def status(value):
  with lock:state=value
  print(value,flush=True)
 def request(method,args,callback):
+ if closing:return
  # Subscribe before invoking: a restored request can respond immediately.
  token='pp'+str(time.monotonic_ns())
  options=args[-1];options['handle_token']=GLib.Variant('s',token)
@@ -26,6 +30,7 @@ def request(method,args,callback):
  path='/org/freedesktop/portal/desktop/request/'+sender+'/'+token
  def result(conn,sender,path,iface,signal,params):
   bus.signal_unsubscribe(sub)
+  if closing:return
   code,values=params.unpack()
   if code:status('permission-required');return
   callback(values)
@@ -34,11 +39,13 @@ def request(method,args,callback):
  try:bus.call_sync(DEST,PATH,IFACE,method,GLib.Variant(signatures[method],tuple(args)),None,Gio.DBusCallFlags.NONE,10000,None)
  except Exception as e:bus.signal_unsubscribe(sub);status('capture-error');print(str(e),flush=True)
 def begin():
+ if closing:return False
  status('selecting-screen')
  request('CreateSession',[{'session_handle_token':GLib.Variant('s','pps'+str(time.monotonic_ns()))}],created)
  return False
 def created(values):
  global session
+ if closing:return
  session=values['session_handle']
  opts={'types':GLib.Variant('u',1),'multiple':GLib.Variant('b',False),'cursor_mode':GLib.Variant('u',2),'persist_mode':GLib.Variant('u',2)}
  try:opts['restore_token']=GLib.Variant('s',json.loads(TOKEN.read_text())['token'])
@@ -46,6 +53,7 @@ def created(values):
  request('SelectSources',[session,opts],lambda _:request('Start',[session,'',{}],started))
 def started(values):
  global remote_fd,stream_info
+ if closing:return
  try:
   node,props=values['streams'][0]
   if 'restore_token' in values:
@@ -54,12 +62,20 @@ def started(values):
   remote_fd=fds.get(reply.unpack()[0])
   w,h=props.get('size',(1920,1080));scale=min(1,1920/w,1080/h)
   width=max(2,int(w*scale)//2*2);height=max(2,int(h*scale)//2*2)
-  stream_info=(node,width,height);status('ready')
- except Exception as e:status('capture-error');print(str(e),flush=True)
+  stream_info=(node,width,height)
+  # props.size is portal/logical metadata on fractional-scale GNOME. It is
+  # retained only as an encoder bound; geometry metadata comes from current
+  # GStreamer caps after a pipeline has negotiated.
+  portal_media.begin_source();status('ready')
+ except Exception as e:
+  portal_media.set_source_unavailable('capture_error');status('capture-error');print(str(e),flush=True)
 class Stream:
  def __init__(self):self.q=queue.Queue(maxsize=12);self.done=threading.Event()
 def encode(s):
  global pipeline,active_stream
+ if closing:
+  s.done.set()
+  return False
  if rtc_manager and rtc_manager.session:rtc_manager.session.close()
  if active_stream:active_stream.done.set()
  if pipeline:pipeline.set_state(Gst.State.NULL)
@@ -88,7 +104,7 @@ def stop_stream(s):
   if state!='capture-error':status('ready')
  return False
 def rtc_source():
- if not stream_info:raise RuntimeError('screen unavailable')
+ if closing or not stream_info:raise RuntimeError('screen unavailable')
  if active_stream:
   active_stream.done.set();stop_stream(active_stream)
  node,w,h=stream_info
@@ -96,7 +112,7 @@ def rtc_source():
 def rtc_cursor_grant():
  # A new portal-authorized connection for each worker, restricted to the
  # already selected screen. The worker never reads portal credentials.
- if not stream_info or not session:raise RuntimeError('screen unavailable')
+ if closing or not stream_info or not session:raise RuntimeError('screen unavailable')
  reply,fds=bus.call_with_unix_fd_list_sync(DEST,PATH,IFACE,'OpenPipeWireRemote',GLib.Variant('(oa{sv})',(session,{})),None,Gio.DBusCallFlags.NONE,10000,None,None)
  return fds.get(reply.unpack()[0]),stream_info[0]
 try:
@@ -104,29 +120,38 @@ try:
  if os.environ.get('PHONEPAD_VIDEO_MODE')=='hfr':
   from process_backend import ProcessBackend
   rtc_manager=ProcessBackend(cursor_grant=rtc_cursor_grant)
- else:rtc_manager=Manager(rtc_source)
+ else:rtc_manager=Manager(rtc_source,media_tracker=portal_media)
 except (ImportError,ValueError):rtc_manager=None
+
+def current_media():
+ if rtc_manager is not None and hasattr(rtc_manager,'media_snapshot'):
+  return rtc_manager.media_snapshot()
+ return portal_media.snapshot()
+
 class Handler(http.server.BaseHTTPRequestHandler):
  def do_POST(self):
-  if self.path!='/rtc' or rtc_manager is None:self.send_error(503);return
+  if closing or self.path!='/rtc' or rtc_manager is None:self.send_error(503);return
   try:
    size=int(self.headers.get('Content-Length','0'))
    if not 0<size<=65536:raise ValueError('invalid body')
    data=json.loads(self.rfile.read(size))
    if not isinstance(data,dict):raise ValueError('invalid body')
    result=rtc_manager.handle(data);code=200
-  except (ValueError,TypeError):result={'error':'invalid request'};code=400
+  except (ValueError,TypeError) as e:
+   if str(e)=='media_stale':result={'error':'media_stale'};code=409
+   else:result={'error':'invalid request'};code=400
   except Exception as e:print(str(e),flush=True);result={'error':'WebRTC unavailable'};code=503
   body=json.dumps(result).encode()
   self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
 
  def do_GET(self):
   global state
+  if closing:self.send_error(503);return
   if self.path=='/status':
    with lock:
     current=state
     if current=='idle':state='selecting-screen';GLib.idle_add(begin)
-   body=json.dumps({'state':current,'webrtc':rtc_manager is not None,'codec':'h264-vaapi','maxResolution':'1920x1080','bitrateKbps':6000}).encode()
+   body=json.dumps({'state':current,'webrtc':rtc_manager is not None,'codec':'h264-vaapi','maxResolution':'1920x1080','bitrateKbps':6000,'media':current_media()}).encode()
    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if self.path!='/video':self.send_error(404);return
   if not stream_info:self.send_error(503);return
@@ -146,8 +171,60 @@ try:SOCKET.unlink()
 except FileNotFoundError:pass
 server=Server(str(SOCKET),Handler);SOCKET.chmod(0o600)
 threading.Thread(target=server.serve_forever,daemon=True).start()
-try:GLib.MainLoop().run()
-finally:
- if rtc_manager and rtc_manager.session:rtc_manager.dispatch(rtc_manager.session.close)
- if pipeline:pipeline.set_state(Gst.State.NULL)
- server.server_close();SOCKET.unlink(missing_ok=True)
+
+def shutdown_on_loop():
+ """Run once on the GLib owner thread and release all active resources."""
+ global closing,shutdown_started,shutdown_done,pipeline,active_stream,remote_fd,server,state
+ with shutdown_lock:
+  if shutdown_done or shutdown_started:return False
+  shutdown_started=True
+  closing=True
+ with lock:state='stopping'
+ manager_error=None
+ try:
+  if rtc_manager is not None:
+   if hasattr(rtc_manager,'shutdown_on_loop'):
+    rtc_manager.shutdown_on_loop()
+   elif hasattr(rtc_manager,'shutdown'):
+    rtc_manager.shutdown(timeout=5)
+   elif getattr(rtc_manager,'session',None):
+    rtc_manager.session.close()
+ except Exception as error:
+  manager_error=error
+ if active_stream is not None:active_stream.done.set()
+ if pipeline is not None:
+  try:pipeline.set_state(Gst.State.NULL)
+  except Exception as error:print(str(error),flush=True)
+  pipeline=None
+ active_stream=None
+ fd,remote_fd=remote_fd,None
+ if fd is not None:
+  try:os.close(fd)
+  except OSError:pass
+ current_server,server=server,None
+ if current_server is not None:
+  try:current_server.shutdown()
+  except Exception as error:print(str(error),flush=True)
+  try:current_server.server_close()
+  except Exception as error:print(str(error),flush=True)
+ try:SOCKET.unlink(missing_ok=True)
+ except OSError:pass
+ with shutdown_lock:shutdown_done=True
+ if manager_error is not None:print(str(manager_error),flush=True)
+ if main_loop is not None:main_loop.quit()
+ return False
+
+def request_shutdown(*_):
+ global closing
+ with shutdown_lock:
+  if shutdown_done:return
+  closing=True
+ if main_loop is not None:
+  try:GLib.idle_add(shutdown_on_loop)
+  except Exception:pass
+
+signal.signal(signal.SIGTERM,request_shutdown)
+signal.signal(signal.SIGINT,request_shutdown)
+main_loop=GLib.MainLoop()
+try:main_loop.run()
+finally:shutdown_on_loop()

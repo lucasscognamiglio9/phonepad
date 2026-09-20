@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/coder/websocket"
 	"phonepad/daemon/internal/input"
@@ -23,6 +25,66 @@ type literalProbe struct {
 	target   string
 	outcome  string
 	literals []string
+}
+
+type blockingLiteralProbe struct {
+	literalProbe
+	started chan struct{}
+	release chan struct{}
+}
+
+type concurrentFocusProbe struct {
+	literalProbe
+	started chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+}
+
+func (p *concurrentFocusProbe) LiteralFocus(context.Context) input.LiteralResult {
+	if p.calls.Add(1) == 1 {
+		close(p.started)
+		<-p.release
+		return input.LiteralResult{State: "ready", Target: strings.Repeat("a", 64)}
+	}
+	return input.LiteralResult{State: "ready", Target: strings.Repeat("b", 64)}
+}
+
+func TestConcurrentBeginKeepsTheFirstFocusBinding(t *testing.T) {
+	p := &concurrentFocusProbe{started: make(chan struct{}), release: make(chan struct{})}
+	s := New(staticAuth("tok"), p, nil, "")
+	s.current = &websocket.Conn{}
+	s.newInputLease()
+	m := manifestFor(s, "keep the original destination")
+	request := inputRequest{Op: "begin", Session: m.Session, Manifest: m}
+	responses := make(chan *httptest.ResponseRecorder, 9)
+	go func() { responses <- inputCall(s, request) }()
+	<-p.started
+	for range 8 {
+		go func() { responses <- inputCall(s, request) }()
+	}
+	// Keep the first provider call pending while retries can read the same
+	// receiving transfer. A retry must recheck its binding at dispatch time.
+	time.Sleep(30 * time.Millisecond)
+	close(p.release)
+	for range 9 {
+		select {
+		case response := <-responses:
+			if response.Code != http.StatusOK {
+				t.Fatal(response.Code, response.Body.String())
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent begin did not complete")
+		}
+	}
+	if p.calls.Load() != 1 || s.inputLeases[m.Session].targets[m.OperationID] != strings.Repeat("a", 64) {
+		t.Fatal("a retry rebound the operation to a newly focused app")
+	}
+}
+
+func (p *blockingLiteralProbe) LiteralText(_ context.Context, text, target string) input.LiteralResult {
+	close(p.started)
+	<-p.release
+	return p.literalProbe.LiteralText(context.Background(), text, target)
 }
 
 func (p *literalProbe) LiteralFocus(context.Context) input.LiteralResult {
@@ -141,6 +203,49 @@ func TestLiteralHTTPFocusChangedAndUncertainNeverReplay(t *testing.T) {
 				t.Fatal("unsafe replay", len(p.literals))
 			}
 		})
+	}
+}
+
+func TestLiteralHTTPCancelledProviderReturnsUncertain(t *testing.T) {
+	p := &blockingLiteralProbe{
+		literalProbe: literalProbe{target: strings.Repeat("a", 64), outcome: "dispatched"},
+		started:      make(chan struct{}),
+		release:      make(chan struct{}),
+	}
+	s := New(staticAuth("tok"), p, nil, "")
+	s.current = &websocket.Conn{}
+	s.newInputLease()
+	m := stageText(t, s, "provider ignores context")
+
+	b, _ := json.Marshal(inputRequest{Op: "commit", Session: m.Session, OperationID: m.OperationID})
+	r := httptest.NewRequest("POST", "https://phonepad/api/input", bytes.NewReader(b))
+	r = r.WithContext(func() context.Context {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-p.started
+			cancel()
+		}()
+		return ctx
+	}())
+	r.AddCookie(&httpCookie)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://phonepad")
+	w := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		s.handleInput(w, r)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		close(p.release)
+		t.Fatal("cancelled provider kept HTTP request blocked")
+	}
+	close(p.release)
+	got := operationReceipt(t, w)
+	if got.State != inputops.Uncertain {
+		t.Fatalf("receipt = %+v, want uncertain", got)
 	}
 }
 func TestLiteralHTTPIncompleteCorruptAndRetired(t *testing.T) {

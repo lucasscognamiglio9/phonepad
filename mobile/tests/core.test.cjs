@@ -1,7 +1,8 @@
 const test=require('node:test'),assert=require('node:assert/strict'),ts=require('typescript'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
 function load(file,extra={}) {
  const exports={}; const source=ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/lib',file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
- vm.runInNewContext(source,{exports,require: name => name === "./session-capabilities" ? load("session-capabilities.ts",extra) : name === "./literal-transfer" ? load("literal-transfer.ts",extra) : name === "buffer" ? require("buffer") : {},URL,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,...extra});return exports;
+ vm.runInNewContext(source,{exports,URL,AbortController,setTimeout,clearTimeout,setInterval,clearInterval,...extra,
+  require: name => name.startsWith('./') ? load(name.slice(2)+'.ts',extra) : extra.require ? extra.require(name) : name === 'buffer' ? require('buffer') : {}});return exports;
 }
 test('native keyboard reconciles dictation, correction and Unicode without splitting surrogate pairs',()=>{
  const {textCommands}=load('protocol.ts');

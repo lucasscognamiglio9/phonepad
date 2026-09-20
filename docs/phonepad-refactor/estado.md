@@ -1,6 +1,6 @@
 # Estado de ejecución: 20/09/2026
 
-## P01A-04 y P02-01/P02-02/P02-03 implementados; P02 sigue abierto
+## P02 implementado y verificado en Linux; matriz física pendiente
 
 La ejecución sigue autorizada. Base de esta entrega: `1a43331` en `refactor/p00-baseline`. P01A-04 incorpora lotes reanudables, checksum de origen, selección revisable, limpieza y cancelación durable. También corrige las rutas del gateway y eventos tardíos del teclado. Ver `p01a-04.md` y `file-transfer-contract.md`.
 
@@ -10,7 +10,11 @@ P02-01 integró selección/configuración de equipos sin dirección fija y prote
 
 P02-03 integró negociación v1/v2, identidad de conexión, permisos independientes, revocación de entrada y protección de mutaciones de archivos. El host puede iniciar sin inyector; la app conserva preview y contenido pendiente. Pasaron 169 pruebas móviles, TypeScript, Go completo con detector de carreras, vet, build Linux y bundles Hermes iOS/Android. La prueba de cliente TypeScript contra Go real por TLS/WS detectó y cubre discrepancias de saludo y época de texto. Ver `p02-03.md`, `p02-03-files.md` y `session-contract.md`. Los exports no son binarios nativos.
 
-P02.3/P02.4 todavía necesitan fuente/geometría y codecs reales; P02.6 necesita el cierre coordinado completo. P03.1 identificó el hook oficial GCC/TWCC y prepara un plugin de laboratorio privado. Todavía no reemplaza el controlador actual ni demuestra una mejora de FPS o latencia.
+P02-04/P02-05/P02-07 completan el contrato base sobre `e3e7fff`: media observada de Python a Go y TypeScript, cierre coordinado, cancelación acotada y migración de pairing sin perder la credencial. La prueba cruzada ejecuta el cliente estable `adab7c77` contra Go actual y el cliente actual contra Go estable, por TLS/WS real. Ambas direcciones conservan input común y no repiten comandos al reconectar.
+
+La verificación actual comprende 174 pruebas móviles, 49 Python, Go completo con detector de carreras y ambas integraciones, vet, build Linux, typecheck y exports Hermes iOS/Android. GNOME/VA privado confirmó captura 1920x1080, codificación 1920x1080 y 1280x720, identidad de fuente y dos workers terminados sin pipes pendientes. El laboratorio corrigió el codec anunciado por HFR y una deformación al escalar. Ver `p02-04-media.md`, `p02-05-lifecycle.md`, `p02-05-provider-lifecycle.md`, `p02-07-migration.md` y `p02-07-compatibility.md`.
+
+P02 cierra su implementación y verificación de contratos/Linux. La aceptación entre dispositivos, el Portal genérico y los proveedores futuros conservan sus pruebas pendientes. P03.1 dispone de un plugin GCC/TWCC compilado en un SDK privado y continúa con una prueba de feedback real. Todavía no reemplaza el controlador de PhonePad ni demuestra una mejora de FPS o latencia. P04 tiene un diseño de geometría a contrastar con libinput antes de modificar el trackpad.
 
 P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperando candidato y receptor físico. P01A completa continúa abierta: acciones/atajos con recibos, alternativas a EditableText, matriz de dictado y consumidores reales. No hubo despliegue, OTA ni reinicio de servicios personales.
 
@@ -19,7 +23,7 @@ La pareja principal es Ubuntu+iPhone. El usuario tiene acceso a un Mac de un ami
 ### Continuación
 
 1. P02-01/P02-02 integrados. Conservar los logs en `outputs/p02` y comprobar selector/persistencia en el candidato físico.
-2. P02-04: fuente/geometría y codec confirmado por el proveedor. P02.6: cierre coordinado y timeout. Mantener migración/compatibilidad P02.7 y P01A con acciones y proveedores sin pérdida de contenido.
+2. P02-04/05/07 verificados en Linux. Conservar la aceptación física pendiente y continuar P01A con acciones y proveedores sin pérdida de contenido.
 3. P01.6/P03.1–P03.4 para medición y camino principal Linux; después P04/P05.
 4. P06/P07/P08 por tareas independientes; P09/P10 con herramientas y equipos disponibles.
 5. P11 bootstrap/instalación y distribución; P12 cierre de matriz y rollback.

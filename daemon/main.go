@@ -3,8 +3,10 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -15,8 +17,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -97,7 +101,6 @@ func main() {
 	// para no latir el cursor mientras se escribe/dicta (SPEC §4).
 	if inj != nil {
 		inj = input.NewAsyncText(inj, 256)
-		defer inj.Close()
 	}
 
 	// Modo dev: si PHONEPAD_DEV_SRC apunta al repo, servimos web/ DESDE DISCO y
@@ -145,13 +148,10 @@ func main() {
 	srvOpts = append(srvOpts, server.WithTrustedTailscaleNode(os.Getenv("PHONEPAD_TRUSTED_NODE")))
 	srvOpts = append(srvOpts, server.WithNativeUpdate(os.Getenv("PHONEPAD_NATIVE_UPDATE")))
 	srv := server.New(pair, inj, webFS, pairURL, srvOpts...)
+	var httpServers []*http.Server
 	if *gatewayPort != 0 {
 		gateway := &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*gatewayPort)), Handler: srv.RemoteHandler(*publicURL), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
-		go func() {
-			if err := gateway.ListenAndServe(); err != nil {
-				log.Fatalf("gateway: %v", err)
-			}
-		}()
+		httpServers = append(httpServers, gateway)
 	}
 
 	var cert tls.Certificate
@@ -181,8 +181,9 @@ func main() {
 		fmt.Println("Solo localhost. Para el teléfono, reiniciar con --bind IP_PRIVADA_DE_LA_LAPTOP.")
 	}
 
+	stopWatchers := func() {}
 	if devSrc != "" {
-		startDevWatchers(devSrc, srv)
+		stopWatchers = startDevWatchers(devSrc, srv)
 	}
 
 	addr := net.JoinHostPort(ip, fmt.Sprint(*port))
@@ -197,18 +198,104 @@ func main() {
 		IdleTimeout:       60 * time.Second,
 		TLSConfig:         &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12},
 	}
+	httpServers = append(httpServers, httpSrv)
 	// Keep operator endpoints available on loopback when explicitly binding LAN.
 	if !parsedIP.IsLoopback() && !bindLAN {
 		localSrv := &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*port)), Handler: srv.Handler(), TLSConfig: httpSrv.TLSConfig, ReadHeaderTimeout: 5 * time.Second}
-		go func() {
-			if err := localSrv.ListenAndServeTLS("", ""); err != nil {
-				log.Fatalf("local server: %v", err)
-			}
-		}()
+		httpServers = append(httpServers, localSrv)
 	}
-	// Cert y key vacíos: el certificado ya está en TLSConfig.
-	if err := httpSrv.ListenAndServeTLS("", ""); err != nil {
-		log.Fatalf("server: %v", err)
+
+	// All listeners share one admission barrier and one shutdown deadline. The
+	// Server owns hijacked WebSockets; net/http owns the listener goroutines.
+	serveErr := make(chan error, len(httpServers))
+	for i, listener := range httpServers {
+		go serveHTTP(listener, i == 0 && *gatewayPort != 0, serveErr)
+	}
+	signalCtx, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignal()
+	var runErr error
+	select {
+	case <-signalCtx.Done():
+		log.Printf("señal recibida; cerrando phonepad")
+	case runErr = <-serveErr:
+		if runErr != nil {
+			log.Printf("listener: %v", runErr)
+		}
+	}
+	stopWatchers()
+	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	// HTTP handlers and hijacked resources can unwind in parallel. The input
+	// owner closes after Server.Shutdown has completed its reset barrier.
+	httpDone := make(chan error, 1)
+	go func() { httpDone <- shutdownHTTPServers(shutdownCtx, httpServers) }()
+	serverErr := srv.Shutdown(shutdownCtx)
+	httpErr := <-httpDone
+	inputErr := closeInput(shutdownCtx, inj)
+	for _, shutdownErr := range []error{serverErr, httpErr, inputErr} {
+		if shutdownErr != nil && !errors.Is(shutdownErr, context.Canceled) {
+			log.Printf("shutdown: %v", shutdownErr)
+		}
+	}
+	if runErr != nil {
+		os.Exit(1)
+	}
+}
+
+func serveHTTP(srv *http.Server, gateway bool, errorsCh chan<- error) {
+	var err error
+	if gateway {
+		err = srv.ListenAndServe()
+	} else {
+		// Cert y key vacíos: el certificado ya está en TLSConfig.
+		err = srv.ListenAndServeTLS("", "")
+	}
+	if errors.Is(err, http.ErrServerClosed) {
+		err = nil
+	}
+	errorsCh <- err
+}
+
+func shutdownHTTPServers(ctx context.Context, servers []*http.Server) error {
+	var wg sync.WaitGroup
+	errs := make(chan error, len(servers))
+	for _, srv := range servers {
+		if srv == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(srv *http.Server) {
+			defer wg.Done()
+			if err := srv.Shutdown(ctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errs <- err
+			}
+		}(srv)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		return err
+	}
+	return nil
+}
+
+func closeInput(ctx context.Context, inj input.Injector) error {
+	if inj == nil {
+		return nil
+	}
+	if closer, ok := inj.(input.ContextCloser); ok {
+		return closer.CloseContext(ctx)
+	}
+	done := make(chan struct{})
+	go func() {
+		inj.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -216,25 +303,48 @@ func main() {
 // al proceso del daemon (que el toggle de GNOME prende/apaga): uno por web/ que
 // recarga el cel, otro por *.go que recompila y re-ejecuta el daemon. Apagar el
 // toggle frena el servicio y mata ambos — no queda nada corriendo por fuera.
-func startDevWatchers(src string, srv *server.Server) {
+func startDevWatchers(src string, srv *server.Server) func() {
 	webW := devreload.NewWatcher([]string{filepath.Join(src, "web")}, func(string) bool { return true })
 	goW := devreload.NewWatcher([]string{src}, func(p string) bool { return strings.HasSuffix(p, ".go") })
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	var stopOnce sync.Once
 
 	go func() {
-		for range time.Tick(400 * time.Millisecond) {
-			if webW.Changed() {
-				log.Printf("dev: cambió web/ → reload al cel")
-				srv.PushReload()
+		ticker := time.NewTicker(400 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if webW.Changed() {
+					log.Printf("dev: cambió web/ → reload al cel")
+					srv.PushReload()
+				}
 			}
 		}
 	}()
 	go func() {
-		for range time.Tick(400 * time.Millisecond) {
-			if goW.Changed() {
-				rebuildAndReexec(src)
+		ticker := time.NewTicker(400 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				if goW.Changed() {
+					rebuildAndReexecContext(watchCtx, src)
+				}
 			}
 		}
 	}()
+	return func() {
+		stopOnce.Do(func() {
+			cancelWatch()
+			close(done)
+		})
+	}
 }
 
 // rebuildAndReexec recompila el daemon (go build -o <binario-actual>) y se
@@ -242,16 +352,30 @@ func startDevWatchers(src string, srv *server.Server) {
 // como caída. Si el build falla, lo loguea y sigue con el binario viejo. La env
 // (incluida PHONEPAD_DEV_SRC) se preserva, así el proceso nuevo sigue en dev.
 func rebuildAndReexec(src string) {
+	rebuildAndReexecContext(context.Background(), src)
+}
+
+func rebuildAndReexecContext(ctx context.Context, src string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ctx.Err() != nil {
+		return
+	}
 	self, err := os.Executable()
 	if err != nil {
 		log.Printf("dev: os.Executable: %v", err)
 		return
 	}
 	log.Printf("dev: cambió .go → recompilando…")
-	build := exec.Command(goBinPath(), "build", "-o", self, ".")
+	build := exec.CommandContext(ctx, goBinPath(), "build", "-o", self, ".")
 	build.Dir = src
 	if out, err := build.CombinedOutput(); err != nil {
 		log.Printf("dev: build FALLÓ (sigo con el binario viejo):\n%s", out)
+		return
+	}
+	if ctx.Err() != nil {
+		log.Printf("dev: reexec cancelado durante shutdown")
 		return
 	}
 	log.Printf("dev: recompilado OK → re-ejecutando")

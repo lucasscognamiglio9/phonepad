@@ -1,3 +1,5 @@
+import { parseMediaCapabilities, type MediaCapabilities } from './media-capabilities';
+
 export type PermissionState = 'granted' | 'revoked' | 'unavailable';
 export type PermissionScope = 'view' | 'input' | 'files' | 'clipboard';
 export type Permission = { state: PermissionState; reason?: string };
@@ -13,6 +15,7 @@ export type SessionCapabilities = {
   input: { state: CapabilityState; actions: InputAction[]; effective: boolean };
   literal: CapabilityState;
   video: CapabilityState;
+  media: MediaCapabilities | null;
 };
 
 const actions: InputAction[] = ['m', 'b', 's', 'k', 'g', 't'];
@@ -32,7 +35,7 @@ export function parseSessionCapabilities(message: unknown): SessionCapabilities 
       roles: ['viewer', 'controller'],
       permissions: { view: {state: 'granted'}, input: {state: 'granted'}, files: {state: 'granted'}, clipboard: {state: 'granted'} },
       input: {state: 'available', actions: [...actions], effective: true},
-      literal: message.input === undefined ? 'unsupported' : 'available', video: 'unknown',
+      literal: message.input === undefined ? 'unsupported' : 'available', video: 'unknown', media: null,
     };
   }
   if (message.protocolVersion !== 2 || !Array.isArray(message.compatibleVersions)
@@ -63,6 +66,7 @@ export function parseSessionCapabilities(message: unknown): SessionCapabilities 
     capabilityRevision: Number(message.capabilityRevision), roles: [...message.roles] as string[], permissions,
     input: {state: input.state as CapabilityState, actions: [...input.actions] as InputAction[], effective: input.effective},
     literal: literal.state as CapabilityState, video: video.state as CapabilityState,
+    media: parseMediaCapabilities(message.media),
   };
 }
 

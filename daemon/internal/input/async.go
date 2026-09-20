@@ -51,12 +51,16 @@ const (
 // FIFO única, de modo que un paste lento no puede ser adelantado por una tecla
 // especial ni por un frame MT posterior.
 type asyncText struct {
-	inner  Injector
-	ch     chan asyncOp
-	done   chan struct{}
-	mu     sync.Mutex
-	epoch  atomic.Uint64
-	closed bool
+	inner        Injector
+	ch           chan asyncOp
+	done         chan struct{}
+	mu           sync.Mutex
+	enqueueMu    sync.Mutex
+	senders      sync.WaitGroup
+	epoch        atomic.Uint64
+	closed       bool
+	closeDone    chan struct{}
+	resetBarrier chan struct{}
 }
 
 // NewAsyncText envuelve inner en una FIFO. buf es el tamaño de la cola
@@ -135,30 +139,64 @@ func (a *asyncText) loop() {
 		if op.done != nil {
 			close(op.done)
 		}
+		if op.kind == opReset && op.done != nil {
+			// Keep the barrier visible until after done is closed. A submitter
+			// from the new epoch may wake here, but it must observe the cleared
+			// barrier only after Reset has run on the worker.
+			a.mu.Lock()
+			if a.resetBarrier == op.done {
+				a.resetBarrier = nil
+			}
+			a.mu.Unlock()
+		}
 	}
 }
 
 func (a *asyncText) submit(op asyncOp) bool {
-	a.mu.Lock()
-	if a.closed {
-		a.mu.Unlock()
-		return false
-	}
-	op.epoch = a.epoch.Load()
-	// Serializar el envío bajo el mismo lock que Reset/Close garantiza que una
-	// operación que ve la sesión vieja no pueda colarse detrás del barrier.
-	if op.ctx != nil {
-		select {
-		case a.ch <- op:
-		case <-op.ctx.Done():
+	for {
+		a.enqueueMu.Lock()
+		a.mu.Lock()
+		if a.closed {
 			a.mu.Unlock()
+			a.enqueueMu.Unlock()
 			return false
 		}
-	} else {
-		a.ch <- op
+		if barrier := a.resetBarrier; barrier != nil {
+			a.mu.Unlock()
+			a.enqueueMu.Unlock()
+			if op.ctx != nil {
+				select {
+				case <-barrier:
+				case <-op.ctx.Done():
+					return false
+				}
+			} else {
+				<-barrier
+			}
+			continue
+		}
+		op.epoch = a.epoch.Load()
+		// Do not hold a.mu while waiting for a full FIFO. CloseContext must be
+		// able to mark the queue closed even when the worker is stuck in a
+		// provider. The sender count keeps the channel alive until this send has
+		// completed.
+		a.senders.Add(1)
+		a.mu.Unlock()
+		defer func() {
+			a.senders.Done()
+			a.enqueueMu.Unlock()
+		}()
+		if op.ctx != nil {
+			select {
+			case a.ch <- op:
+			case <-op.ctx.Done():
+				return false
+			}
+		} else {
+			a.ch <- op
+		}
+		return true
 	}
-	a.mu.Unlock()
-	return true
 }
 
 func (a *asyncText) Move(dx, dy int) { a.submit(asyncOp{kind: opMove, dx: dx, dy: dy}) }
@@ -184,38 +222,140 @@ func (a *asyncText) CancelTouch() { a.submit(asyncOp{kind: opTouchCancel}) }
 // reset físico. El barrier queda en la FIFO luego de todas las operaciones que
 // ya estaban en curso; las pendientes se descartan por epoch.
 func (a *asyncText) Reset() {
-	a.mu.Lock()
-	if a.closed {
-		a.mu.Unlock()
-		return
-	}
-	epoch := a.epoch.Add(1)
-	done := make(chan struct{})
-	a.ch <- asyncOp{kind: opReset, epoch: epoch, done: done}
-	a.mu.Unlock()
-	<-done
+	_ = a.ResetContext(context.Background())
 }
 
 func (a *asyncText) Close() {
-	a.mu.Lock()
-	if a.closed {
+	a.close(false, context.Background())
+}
+
+// ResetContext is the bounded form used by lifecycle teardown. If the caller
+// times out, the reset barrier remains in the FIFO and the worker will still
+// apply it; the caller must therefore not claim that cleanup finished.
+func (a *asyncText) ResetContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		a.mu.Lock()
+		if a.closed {
+			a.mu.Unlock()
+			return nil
+		}
+		if barrier := a.resetBarrier; barrier != nil {
+			a.mu.Unlock()
+			select {
+			case <-barrier:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+			continue
+		}
+		// Publish the barrier under the short state lock. Do not acquire
+		// enqueueMu here: an older sender may hold it while the FIFO is full.
+		// That sender already has the old epoch and will be discarded; all new
+		// senders wait for this barrier before they can enter the FIFO.
+		epoch := a.epoch.Add(1)
+		done := make(chan struct{})
+		a.resetBarrier = done
+		op := asyncOp{kind: opReset, epoch: epoch, done: done}
+		a.senders.Add(1)
 		a.mu.Unlock()
+		go func() {
+			defer a.senders.Done()
+			a.enqueueMu.Lock()
+			a.ch <- op
+			a.enqueueMu.Unlock()
+		}()
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// CloseContext invalidates queued work and starts a background finalizer. The
+// finalizer is deliberately independent of the caller's deadline: a provider
+// can ignore context, but it must not keep the server mutex or the shutdown
+// coordinator blocked forever. Repeated calls observe the same closeDone.
+func (a *asyncText) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var done chan struct{}
+	a.mu.Lock()
+	if !a.closed {
+		a.closed = true
+		a.epoch.Add(1) // drop all queued pre-shutdown input
+		a.closeDone = make(chan struct{})
+		go a.finishClose(a.closeDone)
+	}
+	done = a.closeDone
+	a.mu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// close keeps the historical drain-before-close behavior for ordinary owner
+// shutdown. CloseContext is the lifecycle path and passes invalidate=true.
+func (a *asyncText) close(invalidate bool, ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var done chan struct{}
+	a.mu.Lock()
+	if !a.closed {
+		a.closed = true
+		if invalidate {
+			a.epoch.Add(1)
+		}
+		a.closeDone = make(chan struct{})
+		done = a.closeDone
+		a.mu.Unlock()
+		go a.finishClose(done)
+	} else {
+		done = a.closeDone
+		a.mu.Unlock()
+		if done == nil {
+			return
+		}
+		<-done
 		return
 	}
-	a.closed = true
-	// Close debe conservar la semántica anterior: drena los textos/acciones que
-	// ya estaban encolados antes de cerrar, por eso no cambia epoch.
-	done := make(chan struct{})
-	a.ch <- asyncOp{kind: opClose, epoch: a.epoch.Load(), done: done}
-	a.mu.Unlock()
 	<-done
+}
+
+func (a *asyncText) finishClose(done chan struct{}) {
+	// No caller can submit after closed=true. Sending outside a.mu avoids
+	// retaining that mutex while a full FIFO waits for the worker/provider.
+	// Existing senders are allowed to finish before the channel is closed.
+	a.senders.Wait()
+	opDone := make(chan struct{})
+	a.ch <- asyncOp{kind: opClose, epoch: a.epoch.Load(), done: opDone}
+	// The op's completion is the only point at which inner.Close has returned.
+	// Keep it separate from closeDone so a caller cannot observe the channel as
+	// closed before the worker has released the underlying resource.
+	<-opDone
 	close(a.ch)
 	<-a.done
+	close(done)
 }
 
 // LiteralText uses the same FIFO as key actions and pointer edges. A caller
 // timing out cannot assume that an already started adapter had no effect.
 func (a *asyncText) LiteralText(ctx context.Context, text, target string) LiteralResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := make(chan LiteralResult, 1)
 	if !a.submit(asyncOp{kind: opLiteral, text: text, target: target, ctx: ctx, literal: result}) {
 		return LiteralResult{State: "rejected", Detail: "injector_closed"}
@@ -229,6 +369,9 @@ func (a *asyncText) LiteralText(ctx context.Context, text, target string) Litera
 }
 
 func (a *asyncText) LiteralFocus(ctx context.Context) LiteralResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := make(chan LiteralResult, 1)
 	if !a.submit(asyncOp{kind: opLiteralFocus, ctx: ctx, literal: result}) {
 		return LiteralResult{State: "rejected", Detail: "injector_closed"}

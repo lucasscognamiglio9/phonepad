@@ -16,6 +16,8 @@ EnvironmentFile=-%h/.config/phonepad/service.env
 ExecStart=%h/.local/bin/phonepad --bind=${PHONEPAD_BIND} --advertise-host=${PHONEPAD_HOST} --tls-cert=${PHONEPAD_TLS_CERT} --tls-key=${PHONEPAD_TLS_KEY} --gateway-port=${PHONEPAD_GATEWAY_PORT} --public-url=${PHONEPAD_PUBLIC_URL}
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=15
+KillMode=control-group
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 [Install]

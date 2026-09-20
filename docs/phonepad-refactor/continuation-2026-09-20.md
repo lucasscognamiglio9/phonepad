@@ -2,7 +2,7 @@
 
 ## Estado de entrada
 
-La reanudación está autorizada. El último checkpoint de código es `ba45a00` en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7` y P02-01 en `ba45a00`. P02-03 integra capacidades y revocación. El trabajo actual conserva el alcance del plan maestro: 14 fases, 115 tareas y 32 requisitos.
+La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. El siguiente checkpoint completa P02-04/05/07 con media observada, cierre coordinado y compatibilidad. La cabecera del plan maestro externo registra el hash de esa entrega. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
 
 La pareja principal para aceptación será Ubuntu+iPhone. También se pueden coordinar pruebas con un Mac de un amigo y un Android de otro amigo, pero aún no están comprobadas las herramientas de compilación, la firma, los builds, los permisos ni la disponibilidad efectiva de cada equipo. No usar esa posibilidad como evidencia anticipada.
 
@@ -28,9 +28,9 @@ Después de fijar ese borde, continuar con recibos de acciones/atajos, repetici�
 
 ### 2. P02 en paralelo controlado
 
-P02.1–P02.6 pueden comenzar con fixtures Linux sin esperar el cierre de P01A: reemplazar `COMPUTER`, extraer interfaces portables, negociar versión/roles/permisos/capacidades, introducir `sessionEpoch`/`geometryEpoch`, permitir solo visualización y hacer idempotentes los cierres. P02.7 espera que el contrato común esté estabilizado.
+P02.1–P02.7 tienen implementación y verificación de contratos en Linux. Se retiró `COMPUTER`, se extrajeron interfaces portables, se negociaron versión/roles/permisos/capacidades y se introdujeron `sessionEpoch` y `geometryEpoch`. El host puede operar sin input; cierres y cancelaciones tienen límites. El pairing se migra sin reemplazar credenciales ante corrupción.
 
-La compatibilidad mínima debe probar cliente viejo con servidor nuevo y cliente nuevo con servidor viejo para capacidades comunes. Una capacidad ausente se rechaza con resultado explícito; nunca se reduce silenciosamente a pérdida de texto, archivos o acciones. La migración de configuración y emparejamientos debe ser versionada y reversible.
+La compatibilidad mínima pasó ejecutando el TypeScript/Go estables `adab7c77` contra sus equivalentes actuales en ambas direcciones. Una capacidad ausente se rechaza explícitamente y no provoca conversión de texto en scancodes. Las pruebas de migración cubren lectura/escritura legacy/v1 y rollback. La instalación nativa, los pares físicos y sus permisos necesitan la matriz posterior; no se deducen de estas pruebas.
 
 ### 3. Calidad y video: P01.6 + P03
 

@@ -74,6 +74,25 @@ try:
         if (root / 'run/phonepad-lab').exists() and (root / 'run/pipewire-0').exists(): break
         time.sleep(.1)
     else: raise RuntimeError('Isolated compositor timeout')
+    # The Wayland socket appears before GNOME finishes its D-Bus startup.
+    # Probe the private display service instead of timing the capture against
+    # an arbitrary sleep while the compositor is still registering itself.
+    ready_begin = time.monotonic()
+    attempts = 0
+    while time.monotonic() - ready_begin < 30:
+        attempts += 1
+        try:
+            ready = subprocess.run(['gdbus', 'call', '--session', '--dest', 'org.gnome.Mutter.DisplayConfig',
+                                    '--object-path', '/org/gnome/Mutter/DisplayConfig', '--method',
+                                    'org.gnome.Mutter.DisplayConfig.GetCurrentState'],
+                                   env=env, capture_output=True, timeout=1)
+            if ready.returncode == 0: break
+        except subprocess.TimeoutExpired:
+            pass
+        if shell.poll() is not None: raise RuntimeError('Isolated compositor exited before readiness')
+        time.sleep(.2)
+    else: raise RuntimeError('Isolated display service timeout')
+    (root / 'readiness.json').write_text(json.dumps({'attempts': attempts, 'seconds': time.monotonic() - ready_begin}))
     here = pathlib.Path(__file__).parent
     if os.environ.get('PHONEPAD_LAB_SCALE', '1') != '1':
         configure = start(['/usr/bin/python3', str(here / 'initial_layout.py')], 'initial-layout')
@@ -94,7 +113,10 @@ try:
     for cycle in range(cycles):
         if os.environ.get('PHONEPAD_LAB_RATE_AB') == '1':
             env['PHONEPAD_RATE_POLICY'] = ('legacy', 'windowed')[cycle]
-        worker = start(['/usr/bin/python3', str(here / 'runtime.py'), str(here / ('webrtc_lab.py' if os.environ.get('PHONEPAD_LAB_WEBRTC') == '1' else 'measure.py'))], 'measure-' + str(cycle))
+        experiment = here / ('webrtc_lab.py' if os.environ.get('PHONEPAD_LAB_WEBRTC') == '1' else 'measure.py')
+        if os.environ.get('PHONEPAD_LAB_MEDIA') == '1':
+            experiment = here.parent / 'refactor/p02_media_lab.py'
+        worker = start(['/usr/bin/python3', str(here / 'runtime.py'), str(experiment)], 'measure-' + str(cycle))
         if os.environ.get('PHONEPAD_LAB_FAULT') == '1':
             time.sleep(8)
             if worker.poll() is not None: raise RuntimeError('Worker exited before fault injection')

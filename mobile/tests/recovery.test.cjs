@@ -38,7 +38,8 @@ function load(file, extra) {
   const source = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/lib', file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  vm.runInNewContext(source, { exports, require: name => name === "./session-capabilities" ? load("session-capabilities.ts",extra) : name === "./literal-transfer" ? load("literal-transfer.ts", extra) : name === "buffer" ? require("buffer") : {}, URL, AbortController, ...extra }); return exports;
+  vm.runInNewContext(source, { exports, URL, AbortController, ...extra,
+    require: name => name.startsWith('./') ? load(name.slice(2)+'.ts',extra) : extra?.require ? extra.require(name) : name === 'buffer' ? require('buffer') : {} }); return exports;
 }
 function control() {
   const time = clock(), sockets = [], states = [];
@@ -154,7 +155,11 @@ function video(options = {}) {
     if (options.lateOffer && data.op === 'start') {
       controller.abort(); return { ok: true, json: async () => ({ id: 'session', sdp: 'offer' }) };
     }
-    return { ok: true, json: async () => data.op === 'status' ? { state: 'ready' } : data.op === 'start' ? { id: 'session', sdp: 'offer' } : data.op === 'feedback' ? (options.feedbackResponse || {}) : {} };
+    return { ok: true, json: async () => {
+      const result = data.op === 'status' ? {state: 'ready'} : data.op === 'start' ? {id: 'session', sdp: 'offer'} : data.op === 'feedback' ? (options.feedbackResponse || {}) : {};
+      const media = typeof options.media === 'function' ? options.media(data, time.now) : options.media;
+      return {...result, ...(media !== undefined ? {media} : {})};
+    }};
   };
   const { startVideo } = load('video.ts', {
     ...time.env, fetch,
@@ -167,6 +172,31 @@ function video(options = {}) {
     start: () => startVideo('https://host.ts.net', controller.signal, stream => shown.push(stream), error => failures.push(error)),
   };
 }
+
+test('preview binds updates to measured source and geometry while stop remains independent', async () => {
+  const fixture = require('./media-fixture.cjs');
+  const h = video({media: (data, now) => fixture(data.op === 'feedback' && now >= 1000 ? 2 : 1)});
+  const stop = await h.start(); await drain();
+  assert.equal(h.calls.find(call => call.op === 'start').codecs[0], 'H264');
+  assert.equal(h.calls.find(call => call.op === 'answer').sourceId, 'source-a');
+  assert.equal(h.calls.find(call => call.op === 'answer').geometryEpoch, 1);
+  await h.time.advance(2100);
+  assert.equal(h.calls.filter(call => call.op === 'feedback').at(-1).geometryEpoch, 2);
+  stop(); await drain();
+  assert.equal(h.calls.at(-1).op, 'stop');
+  assert.equal(h.calls.at(-1).sourceId, undefined);
+});
+
+test('incompatible video formats fail before starting capture and malformed offers still release their session', async () => {
+  const fixture = require('./media-fixture.cjs');
+  const unsupported = fixture(); unsupported.video = {state: 'available', codecs: ['H265']};
+  const a = video({media: unsupported});
+  await assert.rejects(a.start(), /compatible/); await drain();
+  assert.equal(a.calls.some(call => call.op === 'start'), false);
+  const b = video({media: data => data.op === 'start' ? {...fixture(), version: 2} : fixture()});
+  await assert.rejects(b.start(), /incompatibles/); await drain();
+  assert.equal(b.calls.filter(call => call.op === 'stop').length, 1);
+});
 
 test('native preview requests desktop resolution and releases its encoder once on background', async () => {
   const h = video(); const stop = await h.start(); await drain();

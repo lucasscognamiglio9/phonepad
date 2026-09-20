@@ -34,6 +34,19 @@ type Resettable interface {
 	Reset()
 }
 
+// ContextResetter is an optional cancellation-aware reset hook. Implementations
+// may return when ctx expires while finishing their physical cleanup in a
+// worker; callers must then treat any in-flight input as uncertain.
+type ContextResetter interface {
+	ResetContext(context.Context) error
+}
+
+// ContextCloser is the shutdown counterpart of ContextResetter. It lets the
+// daemon bound shutdown without changing the long-standing Injector.Close API.
+type ContextCloser interface {
+	CloseContext(context.Context) error
+}
+
 // TouchCanceler is optional so older Injector implementations remain source
 // compatible. A cancel is distinct from an empty touch snapshot: it tells the
 // MT device to mark every active slot as MT_TOOL_PALM before releasing it,

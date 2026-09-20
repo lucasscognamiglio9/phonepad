@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/pem"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,6 +22,28 @@ func TestMobileSessionInterop(t *testing.T) {
 	if script == "" {
 		t.Skip("set PHONEPAD_MOBILE_INTEROP to tools/refactor/p02_session_interop.cjs")
 	}
+	// Produce metadata with the actual Python provider model, so the Go and
+	// TypeScript parsers cannot silently drift into independent fixture formats.
+	pythonContext, cancelPython := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelPython()
+	python := exec.CommandContext(pythonContext, "python3", "-c", `import json
+from media_contract import MediaTracker
+tracker = MediaTracker('portal')
+tracker.begin_source('interop-source')
+tracker.update_geometry(capture=(2731, 1537), encoded=(1920, 1080))
+tracker.set_codecs(['H264'], selected='H264')
+print(json.dumps({'state': 'ready', 'media': tracker.snapshot()}))`)
+	python.Env = append(os.Environ(), "PYTHONPATH="+filepath.Join(filepath.Dir(script), "../../setup/preview"))
+	metadata, err := python.Output()
+	if err != nil {
+		t.Fatalf("Python media contract: %v", err)
+	}
+	oldPreviewClient := previewClient
+	defer func() { previewClient = oldPreviewClient }()
+	previewClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
+			Body: io.NopCloser(strings.NewReader(string(metadata)))}, nil
+	})}
 	probe := &literalProbe{target: strings.Repeat("a", 64), outcome: "dispatched"}
 	s := New(staticAuth("tok"), probe, nil, "")
 	mux := http.NewServeMux()

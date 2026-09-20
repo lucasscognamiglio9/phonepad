@@ -1,4 +1,5 @@
 import { RTCPeerConnection, RTCSessionDescription, MediaStream } from '@livekit/react-native-webrtc';
+import { MediaBinding, parseMediaCapabilities, selectVideoCodec } from './media-capabilities';
 
 export type VideoSession = (() => void) & { setActive: (active: boolean) => Promise<void>; getDiagnostics: () => Stat | undefined };
 type Stat = Record<string, unknown>;
@@ -54,6 +55,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   let previousRoute: string | undefined, sequence = 0;
   let diagnostics: Stat | undefined;
   let lastFrameAt = Date.now(), hasFrames = false;
+  const media = new MediaBinding();
 
   // Bound the response body as well as the connection. Parent cancellation also
   // cancels in-flight signaling when iOS backgrounds the app or preview closes.
@@ -74,7 +76,9 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
       clearTimeout(timeout); lifetime.signal.removeEventListener('abort', abort);
     }
   };
-  const call = (data: object) => request('/api/preview/rtc', data);
+  const call = (data: {op: string; [key: string]: unknown}) => request('/api/preview/rtc', {
+    ...data, ...(!['start', 'stop', 'diagnostic'].includes(data.op) ? media.coordinates() : {}),
+  });
   const stop = () => {
     if (!stopped) {
       stopped = true;
@@ -119,13 +123,17 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   try {
     const status = await request('/api/preview/status');
     if (!['ready', 'live'].includes(status.state)) throw Error('Preparando la pantalla en la laptop…');
+    const advertised = parseMediaCapabilities(status.media);
     // H264 is the common denominator of this native libwebrtc build. Keep the
     // physical desktop resolution independent of screen orientation and zoom.
     phase = 'offer';
-    const offer = await call({ op: 'start', width: 1920, codec: 'H264' });
+    const codec = selectVideoCodec(advertised);
+    const offer = await call({ op: 'start', width: 1920, codec, ...(advertised ? {codecs: [codec]} : {}) });
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
+    media.accept(offer.media, advertised !== null);
+    if (media.current && media.current.video.selectedCodec !== codec) throw Error('La computadora seleccionó un formato de video incompatible.');
     peer.addEventListener('track', event => {
       if (!stopped && event.track?.kind === 'video') show(event.streams[0] || new MediaStream([event.track]));
     });
@@ -180,10 +188,12 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
           bytes: metric(inbound, 'bytesReceived'), connection: peer.connectionState,
         });
         if (epoch !== feedbackEpoch) return;
+        media.accept(response.media);
         diagnostics = response && typeof response === 'object' ? {
           encodeP95Ms: known(response, 'encodeP95Ms'), bitrateKbps: known(response, 'bitrateKbps'),
           encodedFps: known(response, 'encodedFps'), sourceFps: known(response, 'sourceFps'), inputFps: known(response, 'inputFps'),
           rateDecision: response.rateDecision ?? null,
+          media: media.current,
         } : undefined;
         previous = inbound; previousRoute = route; misses = 0;
       } catch { if (epoch !== feedbackEpoch) return; if (++misses >= 3) fail(Error('Reconectando la pantalla…')); }
@@ -201,7 +211,8 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
           if (Date.now() - suspendedAt >= 300_000 || ['failed', 'closed'].includes(peer.connectionState)) {
             throw Error('Reconectando la pantalla…');
           }
-          await call({ op: 'resume', id });
+          const resumed = await call({ op: 'resume', id });
+          media.accept(resumed.media);
           checkActive(); suspended = false; lastFrameAt = Date.now(); previous = undefined; misses = 0;
           void feedback();
         }

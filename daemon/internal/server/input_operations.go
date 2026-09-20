@@ -86,6 +86,9 @@ func (s *Server) inputHello(gen uint64) []byte {
 
 func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if s.rejectIfClosing(w) {
+		return
+	}
 	if !trustedNode(r) && !s.auth.Valid(sessionToken(r)) {
 		http.Error(w, "unauthorized", 401)
 		return
@@ -120,27 +123,36 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid session epoch", 400)
 		return
 	}
+	respond := func(value any) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(value)
+	}
+
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	var permit mutationPermit
 	if s.currentProtocol == protocolVersion && (s.sessionEpoch == "" || request.SessionEpoch == "" || request.SessionEpoch != s.sessionEpoch) {
+		s.mu.Unlock()
 		http.Error(w, "stale session epoch", 409)
 		return
 	}
 	if request.Op != "status" && request.Op != "cancel" {
 		permission, allowed := s.permissionLocked(mutationScopeInput)
 		if !allowed {
+			s.mu.Unlock()
 			http.Error(w, permissionRejectionCode(permission, "input_unavailable"), http.StatusForbidden)
 			return
 		}
+		permit = mutationPermit{scope: mutationScopeInput, revision: s.permissionRevision, generation: s.gen, sessionEpoch: s.sessionEpoch}
 	}
 	lease, ok := s.inputLeases[request.Session]
 	if !ok || (s.inputSession != request.Session && !lease.retired.IsZero() && time.Since(lease.retired) > 10*time.Minute) {
+		s.mu.Unlock()
 		http.Error(w, "unknown input session; do not replay", 409)
 		return
 	}
-	respond := func(value any) { w.Header().Set("Content-Type", "application/json"); json.NewEncoder(w).Encode(value) }
 	if request.Op == "status" {
 		receipt, found := lease.registry.Lookup(request.OperationID)
+		s.mu.Unlock()
 		if !found {
 			http.Error(w, "unknown operation; do not replay", 404)
 			return
@@ -150,6 +162,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Op == "cancel" {
 		receipt, found := lease.registry.Lookup(request.OperationID)
+		s.mu.Unlock()
 		if !found {
 			http.Error(w, "unknown operation; do not replay", 404)
 			return
@@ -173,6 +186,7 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if s.current == nil || s.inputSession != request.Session {
+		s.mu.Unlock()
 		http.Error(w, "inactive input session", 409)
 		return
 	}
@@ -182,41 +196,88 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		if s.currentProtocol == protocolVersion {
 			response["sessionEpoch"] = s.sessionEpoch
 		}
+		s.mu.Unlock()
 		respond(response)
 		return
 	}
-	var transfer *inputops.TextTransfer
+	// Snapshot the immutable registry/adapter references while holding the
+	// session mutex, then release it before any provider call. The registry and
+	// transfer have their own locks; a slow native provider must not block
+	// status, reconnect, permission revocation, or lifecycle shutdown.
+	adapter, available := s.inj.(input.LiteralInjector)
+	targetID := request.OperationID
+	if request.Op == "begin" {
+		targetID = request.Manifest.OperationID
+	}
+	target := ""
+	if lease.targets != nil {
+		target = lease.targets[targetID]
+	}
+	s.mu.Unlock()
+
 	if request.Op == "begin" {
 		if request.Manifest.Session != request.Session {
 			http.Error(w, "session mismatch", 400)
 			return
 		}
-		var err error
-		transfer, err = lease.registry.Begin(request.Manifest)
+		transfer, err := lease.registry.Begin(request.Manifest)
 		if err != nil {
 			http.Error(w, err.Error(), 409)
 			return
 		}
-		if _, bound := lease.targets[request.Manifest.OperationID]; !bound && transfer.Receipt().State == inputops.Receiving {
-			adapter, available := s.inj.(input.LiteralInjector)
+		receipt := transfer.Receipt()
+		if target == "" && receipt.State == inputops.Receiving {
 			if !available {
-				transfer.Cancel()
+				_, _ = transfer.Cancel()
 				http.Error(w, "literal adapter unavailable", 503)
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			focus := adapter.LiteralFocus(ctx)
+			focus := input.LiteralResult{State: "uncertain", Detail: "focus_probe_interrupted"}
+			runErr := s.runLifecycleMutation(permit, func() error {
+				// A concurrent begin may have captured an empty target before
+				// waiting for this gate. Reuse its first binding, never probe the
+				// newly focused app and overwrite an operation's destination.
+				s.mu.Lock()
+				bound := lease.targets[request.Manifest.OperationID]
+				s.mu.Unlock()
+				if bound != "" {
+					focus = input.LiteralResult{State: "ready", Target: bound}
+					return nil
+				}
+				focus = boundedLiteralFocus(ctx, adapter)
+				if focus.State != "ready" || len(focus.Target) != 64 {
+					return nil
+				}
+				// Publish inside the same mutation gate as the probe. Shutdown
+				// can close admission while the provider is running, so check it
+				// again before binding the target.
+				s.lifecycleMu.Lock()
+				s.mu.Lock()
+				active, sameLease := s.inputLeases[request.Session]
+				if sameLease && active.registry == lease.registry && s.inputSession == request.Session && s.current != nil && !s.lifecycleClosing && active.targets != nil && transfer.Receipt().State == inputops.Receiving {
+					active.targets[request.Manifest.OperationID] = focus.Target
+				}
+				s.mu.Unlock()
+				s.lifecycleMu.Unlock()
+				return nil
+			})
 			cancel()
+			if runErr != nil {
+				_, _ = transfer.Cancel()
+				respond(map[string]any{"receipt": transfer.Receipt(), "detail": "input_permission_changed"})
+				return
+			}
 			if focus.State != "ready" || len(focus.Target) != 64 {
-				transfer.Cancel()
+				_, _ = transfer.Cancel()
 				respond(map[string]any{"receipt": transfer.Receipt(), "detail": focus.Detail})
 				return
 			}
-			lease.targets[request.Manifest.OperationID] = focus.Target
 		}
 		respond(transfer.Receipt())
 		return
 	}
+
 	// Lookup the already validated immutable manifest; Begin only returns the
 	// original transfer, never creates another operation for a retry.
 	receipt, found := lease.registry.Lookup(request.OperationID)
@@ -235,7 +296,6 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	case "commit":
 		receipt, err = transfer.Commit()
 		if err == nil && receipt.State == inputops.Ready {
-			adapter, available := s.inj.(input.LiteralInjector)
 			if !available {
 				http.Error(w, "literal adapter unavailable", 503)
 				return
@@ -245,23 +305,32 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "operation already dispatched", 409)
 				return
 			}
-			// Serialize with all other control input. No HTTP cancellation can turn
-			// an uncertain operation into a retryable one. Adapter timeout is bounded.
+			result := input.LiteralResult{State: "uncertain", Detail: "input_permission_changed"}
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-			result := adapter.LiteralText(ctx, text, lease.targets[request.OperationID])
+			runErr := s.runLifecycleMutation(permit, func() error {
+				result = boundedLiteralText(ctx, adapter, text, target)
+				return nil
+			})
 			cancel()
-			state := inputops.Uncertain
-			if result.State == "dispatched" {
-				state = inputops.Dispatched
+			if runErr != nil {
+				result = input.LiteralResult{State: "uncertain", Detail: "input_permission_changed"}
 			}
-			if result.State == "rejected" {
+			state := inputops.Uncertain
+			switch result.State {
+			case "dispatched":
+				state = inputops.Dispatched
+			case "rejected":
 				state = inputops.Rejected
 			}
-			receipt, err = transfer.Finish(state)
-			if err == nil {
-				respond(map[string]any{"receipt": receipt, "detail": result.Detail})
-				return
+			receipt, finishErr := transfer.Finish(state)
+			if finishErr != nil {
+				// Revocation/shutdown may have retired Dispatching to Uncertain
+				// while the provider was running. Return that tombstone instead of
+				// translating a known outcome into a retryable HTTP error.
+				receipt = transfer.Receipt()
 			}
+			respond(map[string]any{"receipt": receipt, "detail": result.Detail})
+			return
 		}
 	default:
 		http.Error(w, "unsupported operation", 400)
@@ -272,4 +341,26 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(receipt)
+}
+
+func boundedLiteralFocus(ctx context.Context, adapter input.LiteralInjector) input.LiteralResult {
+	done := make(chan input.LiteralResult, 1)
+	go func() { done <- adapter.LiteralFocus(ctx) }()
+	select {
+	case result := <-done:
+		return result
+	case <-ctx.Done():
+		return input.LiteralResult{State: "uncertain", Detail: "focus_probe_interrupted"}
+	}
+}
+
+func boundedLiteralText(ctx context.Context, adapter input.LiteralInjector, text, target string) input.LiteralResult {
+	done := make(chan input.LiteralResult, 1)
+	go func() { done <- adapter.LiteralText(ctx, text, target) }()
+	select {
+	case result := <-done:
+		return result
+	case <-ctx.Done():
+		return input.LiteralResult{State: "uncertain", Detail: "dispatch_wait_interrupted", Target: target}
+	}
 }

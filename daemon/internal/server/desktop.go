@@ -46,6 +46,9 @@ func (s *Server) handleShare(webFS fs.FS) http.HandlerFunc {
 }
 
 func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
+	if s.rejectIfClosing(w) {
+		return
+	}
 	publisher := r.URL.Query().Get("role") == "publisher"
 	if publisher {
 		if !localOnly(w, r) {
@@ -65,6 +68,10 @@ func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c.SetReadLimit(64 * 1024)
+	if s.isClosing() {
+		c.CloseNow()
+		return
+	}
 	relay := &s.desktop
 	relay.mu.Lock()
 	var old, peer *websocket.Conn
@@ -99,7 +106,7 @@ func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
 		c.CloseNow()
 		writeSignal(other, []byte(`{"type":"stop"}`))
 	}()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := s.contextWithLifecycle(context.Background())
 	defer cancel()
 	go s.watchdog(ctx, c, wsHeartbeatInterval, wsHeartbeatTimeout)
 	for {

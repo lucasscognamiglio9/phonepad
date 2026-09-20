@@ -53,8 +53,10 @@ type literalCapability struct {
 }
 
 type videoCapability struct {
-	State  string `json:"state"`
-	Reason string `json:"reason,omitempty"`
+	State         string   `json:"state"`
+	Reason        string   `json:"reason,omitempty"`
+	Codecs        []string `json:"codecs,omitempty"`
+	SelectedCodec string   `json:"selectedCodec,omitempty"`
 }
 
 type capabilitySet struct {
@@ -66,11 +68,18 @@ type capabilitySet struct {
 type sourceCapability struct {
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Kind   string `json:"kind,omitempty"`
 }
 
 type geometryCapability struct {
 	State         string  `json:"state"`
 	GeometryEpoch *uint64 `json:"geometryEpoch"`
+	Width         int     `json:"width,omitempty"`
+	Height        int     `json:"height,omitempty"`
+	EncodedWidth  int     `json:"encodedWidth,omitempty"`
+	EncodedHeight int     `json:"encodedHeight,omitempty"`
+	Reason        string  `json:"reason,omitempty"`
 }
 
 var inputActions = []string{"m", "b", "s", "k", "g", "t"}
@@ -78,6 +87,7 @@ var inputActions = []string{"m", "b", "s", "k", "g", "t"}
 type mutationPermit struct {
 	scope        string
 	revision     uint64
+	generation   uint64
 	sessionEpoch string
 }
 
@@ -146,6 +156,9 @@ func (s *Server) effectivePermissionsLocked() Permissions {
 	if permissions.Input.State == "granted" && s.inj == nil {
 		permissions.Input = Permission{State: "unavailable", Reason: "provider_unavailable"}
 	}
+	if permissions.Input.State == "granted" && s.inputResetIncomplete {
+		permissions.Input = Permission{State: "unavailable", Reason: "input_reset_incomplete"}
+	}
 	return permissions
 }
 
@@ -190,6 +203,13 @@ func (s *Server) literalInputLocked() (map[string]any, bool) {
 
 func (s *Server) capabilitiesPayloadLocked() map[string]any {
 	permissions := s.effectivePermissionsLocked()
+	media := s.mediaSnapshotLocked()
+	geometry := geometryCapability{State: media.Geometry.State, Reason: media.Geometry.Reason}
+	if media.Geometry.State == "available" {
+		geometry.GeometryEpoch = &media.Geometry.Epoch
+		geometry.Width, geometry.Height = media.Geometry.Width, media.Geometry.Height
+		geometry.EncodedWidth, geometry.EncodedHeight = media.Geometry.EncodedWidth, media.Geometry.EncodedHeight
+	}
 	inputState := "unavailable"
 	inputActionsValue := []string{}
 	effective := false
@@ -228,11 +248,12 @@ func (s *Server) capabilitiesPayloadLocked() map[string]any {
 		"capabilities": capabilitySet{
 			Input:   inputCapability{State: inputState, Actions: inputActionsValue, Effective: effective},
 			Literal: literal,
-			Video:   videoCapability{State: "unknown", Reason: "query_preview_status"},
+			Video:   videoCapability{State: media.Video.State, Reason: media.Video.Reason, Codecs: media.Video.Codecs, SelectedCodec: media.Video.SelectedCodec},
 		},
 		"sessionEpoch": s.sessionEpoch,
-		"source":       sourceCapability{State: "unavailable", Reason: "preview_source_not_exposed"},
-		"geometry":     geometryCapability{State: "unavailable", GeometryEpoch: nil},
+		"source":       sourceCapability{State: media.Source.State, Reason: media.Source.Reason, ID: media.Source.ID, Kind: media.Source.Kind},
+		"geometry":     geometry,
+		"media":        media,
 	}
 	if literalInput, ok := s.literalInputLocked(); ok {
 		// Keep the P01A object at the top level so old clients can continue to
@@ -306,16 +327,23 @@ func (s *Server) SetPermissions(value Permissions) error {
 	s.mutationGate.Lock()
 	s.mu.Lock()
 	wasInputAllowed := s.inputAllowedLocked()
+	resetIncomplete := s.inputResetIncomplete
 	s.permissions = value
 	nowInputAllowed := s.inputAllowedLocked()
 	s.capabilityRevision++
+	s.permissionRevision++
 	if wasInputAllowed && !nowInputAllowed {
 		s.retireInputLeasesLocked()
 		if s.current != nil {
 			s.newInputLease()
 		}
-		resetInjector(s.inj)
 	}
+	s.mu.Unlock()
+	var resetErr error
+	if (wasInputAllowed && !nowInputAllowed) || (resetIncomplete && value.Input.State == "granted") {
+		resetErr = s.resetForTransition()
+	}
+	s.mu.Lock()
 	var c *websocket.Conn
 	if s.currentProtocol == protocolVersion {
 		c = s.current
@@ -324,7 +352,7 @@ func (s *Server) SetPermissions(value Permissions) error {
 	s.mu.Unlock()
 	s.mutationGate.Unlock()
 	s.sendCapabilityUpdate(c, data, revision)
-	return nil
+	return resetErr
 }
 
 func (s *Server) retireInputLeasesLocked() {
@@ -350,7 +378,7 @@ func (s *Server) captureMutationPermit(scope string) (mutationPermit, bool) {
 	if _, allowed := s.permissionLocked(scope); !allowed {
 		return mutationPermit{}, false
 	}
-	return mutationPermit{scope: scope, revision: s.capabilityRevision, sessionEpoch: s.sessionEpoch}, true
+	return mutationPermit{scope: scope, revision: s.permissionRevision, generation: s.gen, sessionEpoch: s.sessionEpoch}, true
 }
 
 func (s *Server) runPermittedMutation(permit mutationPermit, effect func() error) error {
@@ -361,7 +389,7 @@ func (s *Server) runPermittedMutation(permit mutationPermit, effect func() error
 	defer s.mutationGate.Unlock()
 	s.mu.Lock()
 	_, allowed := s.permissionLocked(permit.scope)
-	if allowed && permit.revision != s.capabilityRevision {
+	if allowed && (permit.revision != s.permissionRevision || permit.generation != s.gen) {
 		allowed = false
 	}
 	if allowed && permit.sessionEpoch != "" && permit.sessionEpoch != s.sessionEpoch {

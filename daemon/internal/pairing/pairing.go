@@ -6,12 +6,14 @@
 package pairing
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,11 +21,17 @@ import (
 )
 
 const fileName = "pairing.json"
+const stateVersion = 1
+const maxStateBytes = 64 << 10
+
+var ErrInvalidState = errors.New("pairing configuration is invalid; existing file preserved")
+var ErrUnsupportedVersion = errors.New("pairing configuration requires a newer version; existing file preserved")
 
 // state es lo que se persiste en disco.
 type state struct {
-	Token  string `json:"token"`
-	Paired bool   `json:"paired"`
+	Version int    `json:"version,omitempty"`
+	Token   string `json:"token"`
+	Paired  bool   `json:"paired"`
 }
 
 // Store es la credencial viva del daemon. Seguro para el caso de 1 daemon.
@@ -45,33 +53,73 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 
-	// Reusar el estado guardado si existe y es válido (token no vacío).
-	if b, err := os.ReadFile(filepath.Join(dir, fileName)); err == nil {
-		var st state
-		if json.Unmarshal(b, &st) == nil && validToken(st.Token) {
-			// Reparar permisos de una instalación vieja antes de seguir usando la
-			// credencial persistente.
-			if err := os.Chmod(filepath.Join(dir, fileName), 0o600); err != nil {
-				return nil, err
-			}
-			s.st = st
-			return s, nil
+	path := filepath.Join(dir, fileName)
+	if file, err := os.Open(path); err == nil {
+		b, readErr := io.ReadAll(io.LimitReader(file, maxStateBytes+1))
+		closeErr := file.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read pairing: %w", readErr)
 		}
-		// Archivo presente pero corrupto/incompleto: lo regeneramos abajo. Dejamos
-		// rastro porque regenerar invalida el pairing previo (hay que re-escanear
-		// el QR); sin log, el celular dejaría de conectar sin explicación.
-		log.Printf("pairing: %s ilegible o sin token, regenerando (re-emparejar el celular)", fileName)
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		st, err := decodeState(b)
+		if err != nil {
+			return nil, err
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			return nil, err
+		}
+		// Opening a legacy file does not rewrite it or rotate its credential.
+		// The next explicit mutation writes the additive v1 field. The previous
+		// daemon can still read token/paired and safely omit version on a write.
+		st.Version = stateVersion
+		s.st = st
+		return s, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("open pairing: %w", err)
 	}
 
 	tok, err := genToken()
 	if err != nil {
 		return nil, err
 	}
-	s.st = state{Token: tok, Paired: false}
+	s.st = state{Version: stateVersion, Token: tok, Paired: false}
 	if err := s.save(); err != nil {
 		return nil, err
 	}
 	return s, nil
+}
+
+func decodeState(b []byte) (state, error) {
+	var st state
+	if len(b) == 0 || len(b) > maxStateBytes {
+		return st, ErrInvalidState
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(b, &fields) != nil || fields == nil {
+		return st, ErrInvalidState
+	}
+	if raw, present := fields["version"]; present {
+		if bytes.Equal(raw, []byte("null")) || json.Unmarshal(raw, &st.Version) != nil {
+			return st, ErrInvalidState
+		}
+		if st.Version != stateVersion {
+			return st, ErrUnsupportedVersion
+		}
+	}
+	for key := range fields {
+		if key != "version" && key != "token" && key != "paired" {
+			return st, ErrInvalidState
+		}
+	}
+	if raw, ok := fields["paired"]; !ok || bytes.Equal(raw, []byte("null")) {
+		return st, ErrInvalidState
+	}
+	if json.Unmarshal(b, &st) != nil || !validToken(st.Token) {
+		return st, ErrInvalidState
+	}
+	return st, nil
 }
 
 // Token devuelve el token actual (para construir la URL de pairing).
@@ -128,7 +176,7 @@ func (s *Store) Rotate() (string, error) {
 		return "", err
 	}
 	prev := s.st
-	s.st = state{Token: tok, Paired: false}
+	s.st = state{Version: stateVersion, Token: tok, Paired: false}
 	if err := s.saveLocked(); err != nil {
 		s.st = prev
 		return "", err
