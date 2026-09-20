@@ -88,6 +88,18 @@ func ioctl(fd uintptr, req uint, arg uintptr) error {
 
 // newMTTouchpad crea el device. Falla si no hay permiso sobre /dev/uinput.
 func newMTTouchpad() (*mtTouchpad, error) {
+	return newMTTouchpadWithGeometry(devMaxX, devMaxY, devRes)
+}
+
+// newMTTouchpadWithGeometry is the private fixture/provider seam for a
+// device-local physical size. The production constructor above keeps the
+// established 100x70mm, 28 units/mm geometry byte-for-byte equivalent.
+// Geometry must be selected before UI_DEV_CREATE; uinput does not support
+// changing ABS resolution or range after the device exists.
+func newMTTouchpadWithGeometry(maxX, maxY, res int32) (*mtTouchpad, error) {
+	if maxX <= 0 || maxY <= 0 || res <= 0 {
+		return nil, fmt.Errorf("geometría touchpad inválida: max=%dx%d res=%d", maxX, maxY, res)
+	}
 	// O_CLOEXEC: en el hot-reload de dev el daemon hace re-exec; sin esto el fd se
 	// hereda y el device uinput queda colgado (un touchpad zombi por reload). Con
 	// CLOEXEC el kernel cierra el fd en el exec y destruye el device viejo.
@@ -127,10 +139,10 @@ func newMTTouchpad() (*mtTouchpad, error) {
 		code          uint16
 		min, max, res int32
 	}{
-		{absX, 0, devMaxX, devRes},
-		{absY, 0, devMaxY, devRes},
-		{absMTPositionX, 0, devMaxX, devRes},
-		{absMTPositionY, 0, devMaxY, devRes},
+		{absX, 0, maxX, res},
+		{absY, 0, maxY, res},
+		{absMTPositionX, 0, maxX, res},
+		{absMTPositionY, 0, maxY, res},
 		{absMTSlot, 0, maxSlots - 1, 0},
 		{absMTToolType, mtToolFinger, mtToolPalm, 0},
 		{absMTTrackingID, 0, 65535, 0},
@@ -149,7 +161,7 @@ func newMTTouchpad() (*mtTouchpad, error) {
 	if err := ioctl(ufd, uiDevCreate, 0); err != nil {
 		return failClose(fd, "UI_DEV_CREATE", err)
 	}
-	return &mtTouchpad{fd: fd, state: newMTState(devMaxX, devMaxY)}, nil
+	return &mtTouchpad{fd: fd, state: newMTState(maxX, maxY)}, nil
 }
 
 func failClose(fd int, what string, err error) (*mtTouchpad, error) {
