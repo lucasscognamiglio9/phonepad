@@ -31,7 +31,9 @@ export class UpdateLifecycle {
     if (state === 'background') this.backgrounded = true;
     if (!this.active) { this.interactive(false); return; }
     if (this.reloading) return;
-    const canApply = this.backgrounded && this.ready && this.port.enabled;
+    // The caller also marks pending text and attachments as interactive work.
+    // Returning from a picker or dictation must not replace JS and lose it.
+    const canApply = this.backgrounded && this.ready && this.port.enabled && !this.preview;
     this.backgrounded = false;
     if (canApply) {
       this.reloading = true;

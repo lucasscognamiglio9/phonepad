@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AppState, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, AppState, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,7 +9,7 @@ import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
 import { useAttachmentTransfer } from '../components/attachment-transfer';
 import { NativeKeyboard } from '../components/native-keyboard';
-import { COMPUTER, Connection, type ConnectionState } from '../lib/connection';
+import { Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
 import { UpdateLifecycle } from '../lib/updates';
 import { PreviewLifecycle } from '../lib/preview-lifecycle';
@@ -18,19 +18,20 @@ const messages: Record<ConnectionState, string> = {
   connecting: 'Conectando…', connected: '', offline: 'Esperando a tu computadora…',
   unauthorized: 'Este dispositivo todavía no está autorizado en la laptop.', paused: 'Otra sesión tomó el control. Tocá reconectar para recuperarlo.',
 };
-export function Control() {
+export function Control({ origin, onChangeHost }: { origin: string; onChangeHost: () => void }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [preview, setPreview] = useState(false), [keyboard, setKeyboard] = useState(false);
+  const [pendingText, setPendingText] = useState(false);
   const [landscapeControls, setLandscapeControls] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null), [videoError, setVideoError] = useState('');
   const video = useMemo(() => new PreviewLifecycle<MediaStream>(
-    (signal, show, failed) => startVideo(COMPUTER, signal, show, failed), setStream, setVideoError,
-  ), []);
-  const connection = useMemo(() => new Connection(COMPUTER, setState), []);
-  const attachments = useAttachmentTransfer(COMPUTER, state === 'connected', () => connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'v' }));
+    (signal, show, failed) => startVideo(origin, signal, show, failed), setStream, setVideoError,
+  ), [origin]);
+  const connection = useMemo(() => new Connection(origin, setState), [origin]);
+  const attachments = useAttachmentTransfer(origin, state === 'connected', () => connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'v' }));
   const { isUpdatePending } = Updates.useUpdates();
   const updater = useMemo(() => new UpdateLifecycle({
     enabled: Updates.isEnabled,
@@ -50,12 +51,21 @@ export function Control() {
     return () => { listener.remove(); updater.dispose(); connection.stop(); };
   }, [updater, connection]);
   useEffect(() => { if (isUpdatePending) updater.markReady(); }, [isUpdatePending, updater]);
-  useEffect(() => { updater.setPreview(preview || attachments.busy || attachments.pending); }, [preview, attachments.busy, attachments.pending, updater]);
+  useEffect(() => { updater.setPreview(preview || pendingText || attachments.busy || attachments.pending); }, [preview, pendingText, attachments.busy, attachments.pending, updater]);
   useEffect(() => { video.update(preview && state !== 'unauthorized' && state !== 'paused', foreground, state === 'connected'); }, [video, preview, foreground, state]);
   useEffect(() => () => video.dispose(), [video]);
   const reconnect = () => { connection.start(); video.restart(); void updater.check(true); };
   const closeKeyboard = useCallback(() => { Keyboard.dismiss(); setKeyboard(false); }, []);
   const openKeyboard = useCallback(() => setKeyboard(true), []);
+  const changeHost = () => {
+    const literal = connection.literal;
+    if (pendingText || literal.busy || literal.pending || literal.draft || literal.lateDraft || attachments.busy || attachments.pending) {
+      Alert.alert('Hay contenido pendiente', 'Revisá el texto y los adjuntos antes de cambiar de equipo. Se conservan en esta sesión.');
+      return;
+    }
+    closeKeyboard();
+    onChangeHost();
+  };
   const hideLandscapeControls = useCallback(() => { closeKeyboard(); setLandscapeControls(false); }, [closeKeyboard]);
   // Reset on actual orientation changes, including when the preview is off.
   // The RTC view and stream stay mounted throughout the transition.
@@ -78,7 +88,10 @@ export function Control() {
       openKeyboard={() => { setLandscapeControls(false); openKeyboard(); }}
       reconnect={() => { hideLandscapeControls(); reconnect(); }} exitPreview={togglePreview}
       disabled={state !== 'connected'} insets={insets} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 16, right: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <GlassButton label="Reconectar" symbol="arrow.clockwise" onPress={() => { closeKeyboard(); reconnect(); }} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <GlassButton label="Equipos" symbol="desktopcomputer" onPress={changeHost} />
+        <GlassButton label="Reconectar" symbol="arrow.clockwise" onPress={() => { closeKeyboard(); reconnect(); }} />
+      </View>
       {status}
       <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} symbol="desktopcomputer" selected={preview} onPress={togglePreview} />
     </View>}
@@ -87,6 +100,7 @@ export function Control() {
     </View>}
     {attachments.panel}
     <NativeKeyboard connection={connection} active={keyboard} open={openKeyboard} close={closeKeyboard}
+      onPendingChange={setPendingText}
      visible={!landscapePreview || keyboard}
       disabled={state !== 'connected'} choosing={attachments.busy} choose={attachments.choose} />
   </View>;

@@ -81,3 +81,15 @@ test('development builds never query the update service', async () => {
   const h = setup({ enabled: false }); h.app.start('active'); await tick();
   assert.equal(h.calls.check, 0); assert.equal(h.active.at(-1), true);
 });
+
+test('a ready update waits through background while content is pending, then needs a new safe boundary', async () => {
+  const h = setup(); h.app.start('active'); await tick();
+  h.app.setPreview(true);
+  h.app.setAppState('background'); h.app.setAppState('active');
+  assert.equal(h.calls.reload, 0);
+  assert.equal(h.active.at(-1), true);
+  h.app.setPreview(false); await tick();
+  assert.equal(h.calls.reload, 0, 'resolving a draft must not immediately reload the app');
+  h.app.setAppState('background'); h.app.setAppState('active');
+  assert.equal(h.calls.reload, 1);
+});

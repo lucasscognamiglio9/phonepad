@@ -23,10 +23,11 @@ export function composerKeyboardOffset(active: boolean, keyboardHeight: number, 
 }
 
 // Keep text state here: typing must not rerender the video or restart its stream.
-export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true }: {
+export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange }: {
   connection: Connection; active: boolean; open: () => void; close: () => void;
   disabled: boolean; choosing: boolean; choose: (source: AttachmentSource) => void;
   visible?: boolean;
+  onPendingChange?: (pending: boolean) => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -45,6 +46,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [inputGeneration, setInputGeneration] = useState(0);
   const [lateDraft, setLateDraft] = useState<LateDraft | null>(literal?.lateDraft ?? null);
   const [deliveryIssue, setDeliveryIssue] = useState(!!literal?.lateDraft);
+  const hasPendingContent = !!value || sending || deliveryIssue || !!lateDraft || !!literal?.pending;
+  useEffect(() => { onPendingChange?.(hasPendingContent); }, [hasPendingContent, onPendingChange]);
   const [shortcuts, setShortcuts] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [mods, setMods] = useState<string[]>([]);

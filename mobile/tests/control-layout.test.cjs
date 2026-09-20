@@ -30,6 +30,7 @@ function harness(options = {}) {
   let cursor = 0;
   let dirty = false;
   let tree;
+  let hostChanges = 0;
 
   const react = {
     useState(initial) {
@@ -74,6 +75,7 @@ function harness(options = {}) {
   class FakeConnection {
     constructor(origin, report) {
       this.origin = origin;
+      this.literal = { draft: '', lateDraft: null, pending: null, busy: false };
       this.report = report;
       this.startCount = 0;
       this.stopCount = 0;
@@ -126,7 +128,7 @@ function harness(options = {}) {
 
   const stream = { toURL: () => 'stream://test' };
   const startVideo = (_origin, _signal, show) => {
-    videoStarts.push(true);
+    videoStarts.push(_origin);
     show(stream);
     return Promise.resolve(() => {});
   };
@@ -190,7 +192,7 @@ function harness(options = {}) {
       readPreparedChunk: () => new Uint8Array(),
       discardPreparedBatch: () => {},
     },
-    '../lib/connection': { COMPUTER: 'https://computer.test/', Connection: FakeConnection },
+    '../lib/connection': { Connection: FakeConnection },
     '../lib/video': { startVideo },
     '../lib/updates': { UpdateLifecycle: FakeUpdateLifecycle },
     '../lib/preview-lifecycle': { PreviewLifecycle: FakePreviewLifecycle },
@@ -227,7 +229,7 @@ function harness(options = {}) {
     do {
       dirty = false;
       cursor = 0;
-      tree = Control();
+      tree = Control({ origin: options.origin ?? 'https://computer.test', onChangeHost: () => { hostChanges++; } });
       flushEffects();
       if (++passes > 20) throw new Error('Control test harness did not settle');
     } while (dirty);
@@ -274,6 +276,9 @@ function harness(options = {}) {
   render();
   return {
     all,
+    connections,
+    hostChanges: () => hostChanges,
+    unmount: () => slots.forEach(slot => { if (slot?.kind === 'effect') slot.cleanup?.(); }),
     alerts,
     uploads,
     commands,
@@ -478,4 +483,37 @@ test('preview stays mounted while reviewing, uploading and closing the attachmen
  const h=harness({attachment:photo});h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
  const rtc=h.findPath('RTCView');await choose(h);assert.deepEqual(h.findPath('RTCView'),rtc);
  await send(h);assert.deepEqual(h.findPath('RTCView'),rtc);assert.equal(h.startVideoCount(),1);
+});
+
+
+test('input, video and attachments all use the selected host and unmount closes its resources', async () => {
+ for(const origin of ['https://first.example', 'https://second.example:8443']) {
+  const h = harness({origin,attachment:photo});h.reportConnection('connected');
+  h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+  await choose(h);await send(h);
+  assert.equal(h.connections[0].origin,origin);
+  assert.equal(h.videoStarts[0],origin);
+  assert.equal(h.uploads[0][0].origin,origin);
+  h.find('GlassButton','Equipos').props.onPress();
+  assert.equal(h.hostChanges(),1);
+  h.unmount();
+  assert.ok(h.connections[0].stopCount>0);
+  assert.equal(h.previews[0].disposeCount,1);
+  assert.ok(h.updates[0].events.some(event=>event[0]==='dispose'));
+ }
+});
+
+test('changing hosts protects pending text, uncertain operations and selections', async () => {
+ for (const field of ['draft','lateDraft','pending','busy']) {
+  const h=harness();h.connections[0].literal[field]=field==='draft'?'texto':true;
+  h.find('GlassButton','Equipos').props.onPress();
+  assert.equal(h.hostChanges(),0);assert.equal(h.alerts[0][0],'Hay contenido pendiente');
+ }
+ const h=harness({attachment:photo});await choose(h);
+ h.find('GlassButton','Equipos').props.onPress();assert.equal(h.hostChanges(),0);
+ const legacy=harness();legacy.find('NativeKeyboard').props.onPendingChange(true);legacy.render();
+ legacy.find('GlassButton','Equipos').props.onPress();assert.equal(legacy.hostChanges(),0);
+ assert.equal(legacy.updates[0].events.at(-1)[1],true,'pending text blocks update application too');
+ legacy.find('NativeKeyboard').props.onPendingChange(false);legacy.render();
+ legacy.find('GlassButton','Equipos').props.onPress();assert.equal(legacy.hostChanges(),1);
 });

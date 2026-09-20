@@ -299,16 +299,20 @@ test('failed delivery retains every Unicode and newline fixture without automati
 
 test('literal composer keeps dictation edits local and writes the final block without Enter', async () => {
   const h = harness(), blocks = [];
+  const pending = [];
+  h.props.onPendingChange = value => pending.push(value);
   h.props.connection.inputCapabilities = { version: 1 };
   h.props.connection.literal = { draft: '', pending: null, busy: false,
     send: async text => { blocks.push(text); return { state: 'dispatched' }; }, reviewed() { this.pending = null; } };
   h.props.active = true; h.render();
   h.type('quiero una caza'); h.type('quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea');
+  assert.equal(pending.at(-1), true, 'parent protects this draft before changing hosts or applying an update');
   assert.equal(h.sent.length, 0);
   assert.equal(h.find('TextInput').props.maxLength, undefined);
   h.click('Escribir'); await new Promise(resolve => setImmediate(resolve)); h.render();
   assert.deepEqual(blocks, ['quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea']);
   assert.equal(h.sent.length, 0); assert.equal(h.find('TextInput').props.value, '');
+  assert.equal(pending.at(-1), false, 'a confirmed block releases the host-switch guard');
 });
 test('literal draft survives close, navigation actions and a lost receipt', async () => {
   const h = harness();

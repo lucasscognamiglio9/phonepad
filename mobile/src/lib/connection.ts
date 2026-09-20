@@ -1,7 +1,6 @@
 import { LiteralTransfer, inputCapabilities, type InputCapabilities } from './literal-transfer';
 import type { Command, TouchContact } from './protocol';
 export type ConnectionState = 'connecting' | 'connected' | 'offline' | 'unauthorized' | 'paused';
-export const COMPUTER = 'https://luque-thinkpad-t490.tail27a66d.ts.net';
 
 export class Connection {
   private socket: WebSocket | null = null;
