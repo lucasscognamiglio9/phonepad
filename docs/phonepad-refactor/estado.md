@@ -16,6 +16,8 @@ La verificación actual comprende 174 pruebas móviles, 49 Python, Go completo c
 
 P02 cierra su implementación y verificación de contratos/Linux. La aceptación entre dispositivos, el Portal genérico y los proveedores futuros conservan sus pruebas pendientes. P03.1 dispone de un plugin GCC/TWCC compilado en un SDK privado y continúa con una prueba de feedback real. Todavía no reemplaza el controlador de PhonePad ni demuestra una mejora de FPS o latencia. P04 tiene un diseño de geometría a contrastar con libinput antes de modificar el trackpad.
 
+Checkpoints posteriores: `9725f09` conserva el experimento real GCC/TWCC con 23 eventos de feedback y tres ajustes de encoder VP8/software. P03.1 sigue abierto por integración H264/VA y congestión. `4850177` implementa la cápsula vertical con una superficie Liquid Glass y los iconos por plataforma. Pasaron las 174 pruebas móviles, typecheck y ambos exports Hermes. P05 conserva aceptación visual, táctil y de rendimiento pendiente. La siguiente integración GCC permanece experimental y seleccionable; P04 mide antes de elegir una geometría.
+
 P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperando candidato y receptor físico. P01A completa continúa abierta: acciones/atajos con recibos, alternativas a EditableText, matriz de dictado y consumidores reales. No hubo despliegue, OTA ni reinicio de servicios personales.
 
 La pareja principal es Ubuntu+iPhone. El usuario tiene acceso a un Mac de un amigo y un Android de otro. Aún debemos verificar toolchains, firma, permisos y disponibilidad. Expo Crypto y Expo FileSystem requieren un nuevo binario compatible.
