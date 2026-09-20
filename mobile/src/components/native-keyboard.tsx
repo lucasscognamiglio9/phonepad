@@ -133,6 +133,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   const canSend = () => !disabled && visible && !interrupted.current && !sending && !literal?.busy;
   const canSendKey = () => canSend() && !(literalMode && (draft.current || literal?.pending));
+  const keysDisabled = disabled || !visible || deliveryIssue || sending || !!literal?.busy
+    || (literalMode && (!!value || !!literal?.pending));
+  const shortcutHint = shortcuts && literalMode && !sending && !deliveryIssue
+    ? literal?.pending ? 'Consultá o revisá el envío anterior antes de usar las teclas y los atajos.'
+      : value ? 'Tocá Escribir para enviar el borrador antes de usar las teclas y los atajos.' : ''
+    : '';
   const finishReview = () => {
     // This does not assert that the host applied anything and sends no input.
     // The user has reviewed the remote field; only later edits may be sent.
@@ -319,31 +325,31 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         {!!value && !literal?.pending && <GlassButton label="Descartar borrador" disabled={sending} onPress={discardLocalDraft} />}
       </GlassSurface>}
       {literalMode && (textStatus || active) && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
-        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{textStatus || 'Escribí o dictá acá. Tocá Escribir para pasarlo a la computadora.'}</Text>
+        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{shortcutHint || textStatus || 'Escribí o dictá acá. Tocá Escribir para pasarlo a la computadora.'}</Text>
         {literal?.pending && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
       </GlassSurface>}
       {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
           {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: 44, alignItems: 'center' }}>
-            <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)} disabled={literalMode && (!!value || sending || deliveryIssue)}
-              onPress={() => setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod])} />
+            <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)} disabled={keysDisabled}
+              onPress={() => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }} />
           </View>)}
-          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Esc" onPress={() => special('Escape')} /></View>
-          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Tab" onPress={() => special('Tab')} /></View>
+          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Esc" disabled={keysDisabled} onPress={() => special('Escape')} /></View>
+          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Tab" disabled={keysDisabled} onPress={() => special('Tab')} /></View>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', flex: width > height ? 1 : undefined, gap: 8 }}>
-          <View style={{ width: 64 }}><GlassButton compact label="Copiar"
+          <View style={{ width: 64 }}><GlassButton compact label="Copiar" disabled={keysDisabled}
             onPress={() => clipboard('c')} /></View>
           <View style={{ width: 140 }}>
-            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" onPress={() => special('ArrowUp')} /></View>
+            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" disabled={keysDisabled} onPress={() => special('ArrowUp')} /></View>
             <View style={{ flexDirection: 'row', gap: 4 }}>
-              <GlassButton compact label="Izquierda" action="left" onPress={() => special('ArrowLeft')} />
-              <GlassButton compact label="Abajo" action="down" onPress={() => special('ArrowDown')} />
-              <GlassButton compact label="Derecha" action="right" onPress={() => special('ArrowRight')} />
+              <GlassButton compact label="Izquierda" action="left" disabled={keysDisabled} onPress={() => special('ArrowLeft')} />
+              <GlassButton compact label="Abajo" action="down" disabled={keysDisabled} onPress={() => special('ArrowDown')} />
+              <GlassButton compact label="Derecha" action="right" disabled={keysDisabled} onPress={() => special('ArrowRight')} />
             </View>
           </View>
-          <View style={{ width: 64 }}><GlassButton compact label="Pegar"
+          <View style={{ width: 64 }}><GlassButton compact label="Pegar" disabled={keysDisabled}
             onPress={() => clipboard('v')} /></View>
         </View>
       </GlassSurface></ScrollView></Animated.View>}
@@ -411,7 +417,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               {literalMode && <GlassButton label="Escribir" disabled={disabled || sending || deliveryIssue || !value || !!literal?.pending}
                 onPress={() => { void writeText(); }} />}
             </>}
-            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" action="enter" disabled={disabled || sending || (literalMode && (!!value || !!literal?.pending))} onPress={submit} /></View>
+            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" action="enter" disabled={keysDisabled} onPress={submit} /></View>
           </View>
         </View>
       </GlassSurface>
