@@ -2,7 +2,7 @@
 
 ## Estado de entrada
 
-La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. El siguiente checkpoint completa P02-04/05/07 con media observada, cierre coordinado y compatibilidad. La cabecera del plan maestro externo registra el hash de esa entrega. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
+La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. `e8132e8` completó P02-04/05/07 con media observada, cierre coordinado y compatibilidad. `ce3fe20` incorpora GCC opcional con H264/VA real y 56 pruebas Python; `a14291d` registra la medición de libinput. La cápsula vertical y los iconos están en `4850177`. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
 
 La pareja principal para aceptación será Ubuntu+iPhone. También se pueden coordinar pruebas con un Mac de un amigo y un Android de otro amigo, pero aún no están comprobadas las herramientas de compilación, la firma, los builds, los permisos ni la disponibilidad efectiva de cada equipo. No usar esa posibilidad como evidencia anticipada.
 
@@ -34,13 +34,13 @@ La compatibilidad mínima pasó ejecutando el TypeScript/Go estables `adab7c77` 
 
 ### 3. Calidad y video: P01.6 + P03
 
-Preparar primero la prueba A/B y los criterios de presentación, colas, tráfico, color y temperatura. P03.1–P03.4 pueden implementarse y medirse en el laboratorio Linux con una sola política de bitrate activa. P03.5–P03.8 son comparaciones limitadas por hipótesis y no bloquean las fases de UI, sesión o proveedores si no aportan una mejora repetible.
+El camino H264/VA con GCC y feedback TWCC real está verificado en `p03-02-gcc-integration.md`. El controlador conserva activación explícita. Continuar con la prueba A/B y los criterios de presentación, colas, tráfico, color y temperatura. P03.1–P03.4 pueden implementarse y medirse en el laboratorio Linux con una sola política de bitrate activa. P03.5–P03.8 son comparaciones limitadas por hipótesis y no bloquean las fases de UI, sesión o proveedores si no aportan una mejora repetible.
 
 El cierre de P01.6 exige posteriormente receptor físico: cuadros distintos presentados, detalle de texto, colas, tráfico y latencia bajo la misma escena y perfil. La medición de host no sustituye ese paso.
 
 ### 4. P04 y P05
 
-Después de P02, implementar cursor, geometría, sensibilidad estable al giro, FIFO y arbitraje con fixtures. P04.7–P04.9 necesitan recorridos físicos y blancos reales.
+La primera medición real de libinput está en `p04-02-motion-lab.md`. El siguiente candidato es la geometría cuadrada fija por sesión descrita en `p04-01-input-design.md`. Implementar cursor, geometría, sensibilidad estable al giro y arbitraje con fixtures. P04.7–P04.9 necesitan recorridos físicos y blancos reales.
 
 P05 puede avanzar sobre esa geometría: Directo/Trackpad, pinch/pan/scroll, ayuda, transferencia explícita y controles. Integrar P01A antes de cerrar teclado, clipboard y adjuntos. El prototipo Liquid Glass, menú, hojas, catálogo de iconos, `KeyboardStickyView` y pantalla activa pueden prepararse antes del binario nativo; su aceptación visual, accesibilidad y rendimiento sobre Metal esperan el candidato.
 
