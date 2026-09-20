@@ -2,7 +2,7 @@
 
 ## Estado de entrada
 
-La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. `e8132e8` completó P02-04/05/07 con media observada, cierre coordinado y compatibilidad. `ce3fe20` incorpora GCC opcional con H264/VA real y 56 pruebas Python; `a14291d` registra la medición de libinput. La cápsula vertical y los iconos están en `4850177`. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
+La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. `e8132e8` completó P02-04/05/07 con media observada, cierre coordinado y compatibilidad. `ce3fe20` incorpora GCC opcional con H264/VA real y 56 pruebas Python; `a14291d` registra la medición inicial de libinput y `c5624bf` añade el candidato cuadrado. `4639ce0` corrige el estado visible de los atajos bloqueados. La cápsula vertical y los iconos están en `4850177`. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
 
 La pareja principal para aceptación será Ubuntu+iPhone. También se pueden coordinar pruebas con un Mac de un amigo y un Android de otro amigo, pero aún no están comprobadas las herramientas de compilación, la firma, los builds, los permisos ni la disponibilidad efectiva de cada equipo. No usar esa posibilidad como evidencia anticipada.
 
@@ -40,7 +40,7 @@ El cierre de P01.6 exige posteriormente receptor físico: cuadros distintos pres
 
 ### 4. P04 y P05
 
-La primera medición real de libinput está en `p04-02-motion-lab.md`. El siguiente candidato es la geometría cuadrada fija por sesión descrita en `p04-01-input-design.md`. Implementar cursor, geometría, sensibilidad estable al giro y arbitraje con fixtures. P04.7–P04.9 necesitan recorridos físicos y blancos reales.
+La primera medición real de libinput está en `p04-02-motion-lab.md`. La geometría cuadrada descrita en `p04-01-input-design.md` ya tiene medición inicial; sigue la calibración a velocidad lógica idéntica, transición sin recreación y cursor observable. Implementar cursor, geometría, sensibilidad estable al giro y arbitraje con fixtures. P04.7–P04.9 necesitan recorridos físicos y blancos reales.
 
 P05 puede avanzar sobre esa geometría: Directo/Trackpad, pinch/pan/scroll, ayuda, transferencia explícita y controles. Integrar P01A antes de cerrar teclado, clipboard y adjuntos. El prototipo Liquid Glass, menú, hojas, catálogo de iconos, `KeyboardStickyView` y pantalla activa pueden prepararse antes del binario nativo; su aceptación visual, accesibilidad y rendimiento sobre Metal esperan el candidato.
 
