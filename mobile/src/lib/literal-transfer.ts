@@ -32,14 +32,18 @@ export class LiteralTransfer {
   busy = false;
   private sequence = 0;
   private session = '';
-  constructor(private origin: string, private capabilities: () => InputCapabilities | null) {}
+  constructor(private origin: string, private capabilities: () => InputCapabilities | null,
+    private sessionEpoch: () => string | null = () => null) {}
   private async request(body: object): Promise<unknown> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8000);
     try {
+      // Recovery can inspect a retired text lease through a new control
+      // connection. The request uses the current epoch, not the old lease ID.
+      const epoch = this.sessionEpoch();
       const response = await fetch(this.origin + '/api/input', { method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json', Origin: this.origin },
-        body: JSON.stringify(body), signal: controller.signal });
+        body: JSON.stringify({ ...body, ...(epoch ? { sessionEpoch: epoch } : {}) }), signal: controller.signal });
       if (!response.ok) throw Error('No se pudo confirmar el envío. Tu borrador sigue acá.');
       return await response.json();
     } finally { clearTimeout(timeout); }

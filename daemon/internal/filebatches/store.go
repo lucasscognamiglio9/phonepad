@@ -165,6 +165,18 @@ func New(root string) *Store {
 // Begin validates and starts (or resumes) a batch.  A same-ID, same-manifest
 // batch is resumable; a same-ID, different-manifest batch is a conflict.
 func (s *Store) Begin(manifest Manifest) (Status, error) {
+	return s.begin(manifest, nil)
+}
+
+// BeginWithGuard is the guarded form used by an HTTP caller whose permission
+// may change while the manifest is being decoded. The store lock is acquired
+// before the guard, so callers preserve the store.mu -> mutationGate order.
+// Validation and capacity checks happen before the guarded stage creation.
+func (s *Store) BeginWithGuard(manifest Manifest, guard func(func() error) error) (Status, error) {
+	return s.begin(manifest, guard)
+}
+
+func (s *Store) begin(manifest Manifest, guard func(func() error) error) (Status, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -211,23 +223,29 @@ func (s *Store) Begin(manifest Manifest) (Status, error) {
 	} else if counts.total >= limits.MaxTotalStaging {
 		return Status{}, capacityf("maximum total staging directories reached")
 	}
-	if err := s.ensureStorageLocked(); err != nil {
-		return Status{}, err
+	create := func() error {
+		if err := s.ensureStorageLocked(); err != nil {
+			return err
+		}
+		if _, err := os.Lstat(destination); err == nil {
+			// A destination may have appeared while the store was preparing the
+			// stage. It is never safe to overwrite it.
+			return conflictf("destination appeared during begin")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if _, err := os.Lstat(stage); err == nil {
+			return conflictf("staging path appeared during begin")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return s.createStageLocked(manifest, stage)
 	}
-	if _, err := os.Lstat(destination); err == nil {
-		// A destination may have appeared while the store was preparing the
-		// stage.  It is never safe to overwrite it.
-		return Status{}, conflictf("destination appeared during begin")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Status{}, err
-	}
-	if _, err := os.Lstat(stage); err == nil {
-		return Status{}, conflictf("staging path appeared during begin")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return Status{}, err
-	}
-
-	if err := s.createStageLocked(manifest, stage); err != nil {
+	if guard != nil {
+		if err := guard(create); err != nil {
+			return Status{}, err
+		}
+	} else if err := create(); err != nil {
 		return Status{}, err
 	}
 	return statusForStage(manifest, diskState{
@@ -276,6 +294,18 @@ func (s *Store) Status(id string) (Status, error) {
 // a gap or a mismatch is rejected.  The resulting file is synced before the
 // operation is acknowledged.
 func (s *Store) WriteChunk(id string, index int, offset int64, data []byte, chunkSHA256 string) (Status, error) {
+	return s.writeChunk(id, index, offset, data, chunkSHA256, nil)
+}
+
+// WriteChunkWithGuard is the guarded form used by an HTTP caller. It reads
+// and validates the request data before invoking the guard, then keeps the
+// store lock while the guarded file and state update run. This preserves the
+// store.mu -> mutationGate order used by CommitWithGuard.
+func (s *Store) WriteChunkWithGuard(id string, index int, offset int64, data []byte, chunkSHA256 string, guard func(func() error) error) (Status, error) {
+	return s.writeChunk(id, index, offset, data, chunkSHA256, guard)
+}
+
+func (s *Store) writeChunk(id string, index int, offset int64, data []byte, chunkSHA256 string, guard func(func() error) error) (Status, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -348,32 +378,39 @@ func (s *Store) WriteChunk(id string, index int, offset int64, data []byte, chun
 				return record.status, conflictf("overlapping chunk bytes differ")
 			}
 		}
-		if suffix := data[overlap:]; len(suffix) > 0 {
-			if _, err := file.WriteAt(suffix, current); err != nil {
+		write := func() error {
+			if suffix := data[overlap:]; len(suffix) > 0 {
+				if _, err := file.WriteAt(suffix, current); err != nil {
+					return err
+				}
+			}
+			// Also sync an entirely repeated chunk: an earlier interrupted write
+			// may have reached the page cache without reaching its durability ACK.
+			if err := file.Sync(); err != nil {
+				return err
+			}
+			if err := file.Close(); err != nil {
+				return err
+			}
+			// File size is authoritative. Persisting a refreshed state makes the
+			// activity and cancellation snapshot survive a daemon restart.
+			record.state.UpdatedAt = time.Now().UTC()
+			record.state.Files, err = fileStatusesFromStage(record.manifest, stage, limits)
+			if err != nil {
+				return err
+			}
+			if err := writeJSONAtomic(filepath.Join(stage, stateName), record.state); err != nil {
+				return err
+			}
+			record.status, err = statusForStage(record.manifest, record.state, stage, limits)
+			return err
+		}
+		if guard != nil {
+			if err := guard(write); err != nil {
 				return record.status, err
 			}
-		}
-		// Also sync an entirely repeated chunk: an earlier interrupted write
-		// may have reached the page cache without reaching its durability ACK.
-		if err := file.Sync(); err != nil {
+		} else if err := write(); err != nil {
 			return record.status, err
-		}
-		if err := file.Close(); err != nil {
-			return record.status, err
-		}
-		// File size is authoritative.  Persisting a refreshed state makes the
-		// activity and cancellation snapshot survive a daemon restart.
-		record.state.UpdatedAt = time.Now().UTC()
-		record.state.Files, err = fileStatusesFromStage(record.manifest, stage, limits)
-		if err != nil {
-			return Status{}, err
-		}
-		if err := writeJSONAtomic(filepath.Join(stage, stateName), record.state); err != nil {
-			return record.status, err
-		}
-		record.status, err = statusForStage(record.manifest, record.state, stage, limits)
-		if err != nil {
-			return Status{}, err
 		}
 		return record.status, nil
 	}
@@ -394,6 +431,20 @@ func (s *Store) WriteChunk(id string, index int, offset int64, data []byte, chun
 // the private stage to root/batch-ID.  The boolean is true only for the call
 // that actually published the directory; replaying a stored batch is false.
 func (s *Store) Commit(id string) (Status, bool, error) {
+	return s.commit(id, nil)
+}
+
+// CommitWithGuard is the guarded form used by the HTTP server when a host
+// permission can be revoked while a complete batch is being hashed. The
+// guard runs only after all file sizes and hashes have been verified and wraps
+// the receipt/publication effects. It must not be held while Commit reads or
+// hashes staged payloads. A stored replay returns without invoking guard; the
+// HTTP caller validates its request permission before calling this method.
+func (s *Store) CommitWithGuard(id string, guard func(func() error) error) (Status, bool, error) {
+	return s.commit(id, guard)
+}
+
+func (s *Store) commit(id string, guard func(func() error) error) (Status, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -464,36 +515,54 @@ func (s *Store) Commit(id string) (Status, bool, error) {
 		Files:        statuses,
 		Folder:       filepath.Base(destination),
 	}
-	// The receipt is inside the stage before rename.  A process dying before
-	// rename leaves a clearly identifiable private state; readStage rejects
-	// unknown receipt entries instead of replaying it on the next start.
-	if err := writeJSONAtomic(filepath.Join(stage, receiptName), receipt); err != nil {
-		return Status{}, false, err
+	renamed := false
+	publish := func() error {
+		// The receipt is inside the stage before rename. A process dying before
+		// rename leaves a clearly identifiable private state; readStage rejects
+		// unknown receipt entries instead of replaying it on the next start.
+		if err := writeJSONAtomic(filepath.Join(stage, receiptName), receipt); err != nil {
+			return err
+		}
+		if err := writeJSONAtomic(filepath.Join(stage, stateName), diskState{
+			Version:   SchemaVersion,
+			ID:        id,
+			State:     stateReceiving,
+			CreatedAt: record.state.CreatedAt,
+			UpdatedAt: time.Now().UTC(),
+			Files:     statuses,
+		}); err != nil {
+			return err
+		}
+		if err := renamePublishedFiles(stage, record.manifest); err != nil {
+			return err
+		}
+		if err := syncDir(stage); err != nil {
+			return err
+		}
+		if err := os.Rename(stage, destination); err != nil {
+			return err
+		}
+		renamed = true
+		if err := syncDir(s.root); err != nil {
+			// The rename has happened. The receipt remains authoritative and a
+			// later Status/Commit call will return stored; surface the durability
+			// error without pretending a second publication is needed.
+			return err
+		}
+		return nil
 	}
-	if err := writeJSONAtomic(filepath.Join(stage, stateName), diskState{
-		Version:   SchemaVersion,
-		ID:        id,
-		State:     stateReceiving,
-		CreatedAt: record.state.CreatedAt,
-		UpdatedAt: time.Now().UTC(),
-		Files:     statuses,
-	}); err != nil {
+	if guard != nil {
+		if err := guard(publish); err != nil {
+			if renamed {
+				return storedStatus, true, err
+			}
+			return Status{}, false, err
+		}
+	} else if err := publish(); err != nil {
+		if renamed {
+			return storedStatus, true, err
+		}
 		return Status{}, false, err
-	}
-	if err := renamePublishedFiles(stage, record.manifest); err != nil {
-		return Status{}, false, err
-	}
-	if err := syncDir(stage); err != nil {
-		return Status{}, false, err
-	}
-	if err := os.Rename(stage, destination); err != nil {
-		return Status{}, false, err
-	}
-	if err := syncDir(s.root); err != nil {
-		// The rename has happened.  The receipt remains authoritative and a
-		// later Status/Commit call will return stored; surface the durability
-		// error without pretending a second publication is needed.
-		return storedStatus, true, err
 	}
 	return storedStatus, true, nil
 }

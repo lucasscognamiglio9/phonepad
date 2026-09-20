@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -33,6 +34,11 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "origin", 403)
 		return
 	}
+	filesPermit, permitted := s.captureMutationPermit(mutationScopeFiles)
+	if !permitted {
+		http.Error(w, "file permission revoked", http.StatusForbidden)
+		return
+	}
 	if !s.uploadMu.TryLock() {
 		http.Error(w, "transfer busy", 429)
 		return
@@ -46,14 +52,16 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var (
-		intent     string
-		haveIntent bool
-		file       *os.File
-		name       string
-		mediaType  string
-		size       int64
-		dir        string
-		fileSeen   bool
+		intent              string
+		haveIntent          bool
+		file                *os.File
+		name                string
+		mediaType           string
+		size                int64
+		dir                 string
+		fileSeen            bool
+		clipboardPermit     mutationPermit
+		haveClipboardPermit bool
 	)
 	if s.uploadDir != "" {
 		dir = s.uploadDir
@@ -99,6 +107,13 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 			if intent != "" && intent != "clipboard" {
 				http.Error(w, "unsupported intent", 400)
 				return
+			}
+			if intent == "clipboard" {
+				clipboardPermit, haveClipboardPermit = s.captureMutationPermit(mutationScopeClipboard)
+				if !haveClipboardPermit {
+					http.Error(w, "clipboard permission revoked", http.StatusForbidden)
+					return
+				}
 			}
 			haveIntent = true
 		case "file":
@@ -159,7 +174,13 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	stem := strings.TrimSuffix(name, ext)
 	saved := stem + "-" + strings.TrimPrefix(filepath.Base(file.Name()), ".receiving-") + ext
 	// A hard link publishes atomically and fails if a destination already exists.
-	if err = os.Link(receivingPath, filepath.Join(dir, saved)); err != nil {
+	if err = s.runPermittedMutation(filesPermit, func() error {
+		return os.Link(receivingPath, filepath.Join(dir, saved))
+	}); err != nil {
+		if errors.Is(err, errMutationPermission) {
+			http.Error(w, "file permission revoked; file was not published", http.StatusForbidden)
+			return
+		}
 		http.Error(w, "cannot save file", 507)
 		return
 	}
@@ -175,16 +196,25 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 				kind, clipboardType = clipboardKindFor(fileType)
 			}
 		}
-		s.clipboardMu.Lock()
-		writer := s.clipboard
-		if writer == nil {
-			writer = systemClipboard()
-			s.clipboard = writer
+		copyErr := errors.New("clipboard permission revoked")
+		if haveClipboardPermit {
+			runErr := s.runPermittedMutation(clipboardPermit, func() error {
+				s.clipboardMu.Lock()
+				defer s.clipboardMu.Unlock()
+				writer := s.clipboard
+				if writer == nil {
+					writer = systemClipboard()
+					s.clipboard = writer
+				}
+				input.ClipboardMu.Lock()
+				copyErr = writer.Copy(filepath.Join(dir, saved), kind, clipboardType)
+				input.ClipboardMu.Unlock()
+				return nil
+			})
+			if runErr != nil && !errors.Is(runErr, errMutationPermission) {
+				copyErr = runErr
+			}
 		}
-		input.ClipboardMu.Lock()
-		copyErr := writer.Copy(filepath.Join(dir, saved), kind, clipboardType)
-		input.ClipboardMu.Unlock()
-		s.clipboardMu.Unlock()
 		response["clipboardKind"] = string(kind)
 		if copyErr == nil {
 			response["clipboard"] = "ready"

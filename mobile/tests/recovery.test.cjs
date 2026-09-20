@@ -38,7 +38,7 @@ function load(file, extra) {
   const source = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/lib', file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  vm.runInNewContext(source, { exports, require: name => name === "./literal-transfer" ? load("literal-transfer.ts", extra) : name === "buffer" ? require("buffer") : {}, URL, AbortController, ...extra }); return exports;
+  vm.runInNewContext(source, { exports, require: name => name === "./session-capabilities" ? load("session-capabilities.ts",extra) : name === "./literal-transfer" ? load("literal-transfer.ts", extra) : name === "buffer" ? require("buffer") : {}, URL, AbortController, ...extra }); return exports;
 }
 function control() {
   const time = clock(), sockets = [], states = [];

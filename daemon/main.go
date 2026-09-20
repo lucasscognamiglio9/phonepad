@@ -90,21 +90,15 @@ func main() {
 		inj, err = input.New()
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, `
-ERROR: no pude abrir /dev/uinput: %v
-
-Probablemente falten permisos. Corré el setup (requiere sudo) y volvé a
-loguearte para tomar el grupo 'input':
-
-    ./setup/setup.sh
-
-`, err)
-		os.Exit(1)
+		fmt.Fprintf(os.Stderr, "ADVERTENCIA: input no disponible; inicio en modo solo visualización: %v\n", err)
+		inj = nil
 	}
 	// Saca la inyección de texto (lenta: wl-copy + Ctrl+V + sleep) del read loop
 	// para no latir el cursor mientras se escribe/dicta (SPEC §4).
-	inj = input.NewAsyncText(inj, 256)
-	defer inj.Close()
+	if inj != nil {
+		inj = input.NewAsyncText(inj, 256)
+		defer inj.Close()
+	}
 
 	// Modo dev: si PHONEPAD_DEV_SRC apunta al repo, servimos web/ DESDE DISCO y
 	// activamos hot-reload (ver ADR 0003). Sin esa env var es producción pura:

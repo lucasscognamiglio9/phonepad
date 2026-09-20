@@ -8,6 +8,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(path.join(__dirname, 
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 function harness() {
+  const alerts = [];
   const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
   const focusCount = { value: 0 };
   const dimensions = { width: 390, height: 844 };
@@ -37,6 +38,7 @@ function harness() {
     react,
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-native': {
+      Alert: { alert: (...args) => alerts.push(args) },
       Keyboard: { addListener: (event, callback) => {
         (keyboardListeners[event] ??= []).push(callback);
         return { remove: () => { keyboardListeners[event] = (keyboardListeners[event] ?? []).filter(item => item !== callback); } };
@@ -64,7 +66,7 @@ function harness() {
   const type = value => { find('TextInput').props.onChangeText(value); render(); };
   render(); render();
   return {
-    props, sent, chosen, focusCount: () => focusCount.value, keyboardHeight, render, tree: () => tree, nodes, find, click, type,
+    props, sent, chosen, alerts, focusCount: () => focusCount.value, keyboardHeight, render, tree: () => tree, nodes, find, click, type,
     keyboard: (event, payload = {}) => (keyboardListeners[event] ?? []).forEach(callback => callback(payload)),
     measure: next => Object.assign(measurement, next),
     resize: next => Object.assign(dimensions, next),
@@ -405,4 +407,39 @@ test('a late replacement during delivery requires review before another send',as
  await new Promise(resolve=>setImmediate(resolve));h.render();
  assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Escribir').props.disabled,true);
  assert.ok(h.find('GlassButton','Continuar sin reenviar'));
+});
+
+test('a modern host without literal input never falls back to layout-dependent text commands',async()=>{
+ const h=harness();h.props.connection.capabilities={protocolVersion:2};
+ h.props.connection.literal={draft:'',pending:null,busy:false,
+   send:async()=>{throw Error('La computadora no admite este envío de texto.');}};
+ h.props.active=true;h.render();h.type('¿Pregunta_?');
+ assert.equal(h.sent.length,0);
+ h.click('Escribir');await new Promise(resolve=>setImmediate(resolve));h.render();
+ assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'¿Pregunta_?');
+});
+
+test('revoking input still allows receipt review and explicit local discard without new remote edits',async()=>{
+ const h=harness();let reviewed=0;
+ h.props.connection.inputCapabilities={version:1};
+ h.props.connection.literal={draft:'',pending:null,busy:false,reviewed:async()=>{reviewed++;h.props.connection.literal.pending=null;return true;}};
+ h.props.active=true;h.render();h.type('texto pendiente');
+ h.props.connection.literal.pending={text:'texto pendiente'};
+ h.props.disabled=true;h.props.canReview=true;h.props.active=false;h.render();h.render();
+ assert.equal(h.find('GlassButton','Continuar sin reenviar').props.disabled,false);
+ h.click('Continuar sin reenviar');await new Promise(resolve=>setImmediate(resolve));h.render();
+ assert.equal(reviewed,1);assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'texto pendiente');
+ h.props.disabled=false;h.render();h.props.disabled=true;h.render();h.render();
+ h.click('Descartar borrador');assert.equal(h.find('TextInput').props.value,'texto pendiente');
+ h.alerts[0][2].find(b=>b.text==='Descartar').onPress();h.render();
+ assert.equal(h.find('TextInput').props.value,'');assert.equal(h.props.connection.literal.draft,'');assert.equal(h.sent.length,0);
+});
+
+test('files permission can keep attachments available when input is unavailable',()=>{
+ const h=harness();h.props.disabled=true;h.props.allowAttachments=true;h.render();h.render();
+ assert.equal(h.find('GlassButton','Agregar').props.disabled,false);
+ h.click('Agregar');assert.equal(h.find('ActionMenu').props.keyboardAllowed,false);
+ h.find('ActionMenu').props.choose('photos');h.render();assert.deepEqual(h.chosen,['photos']);
+ h.props.allowAttachments=false;h.render();h.find('ActionMenu').props.choose('files');
+ assert.deepEqual(h.chosen,['photos']);
 });

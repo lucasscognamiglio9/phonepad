@@ -97,3 +97,24 @@ func TestFileTransferGatewayRequiresPinnedDevice(t *testing.T) {
 		t.Fatal("pinned device cannot reach transfer", w.Code)
 	}
 }
+
+func TestPrivateFileTransferRejectsRevokedFilesWithoutPublishing(t *testing.T) {
+	s := New(staticAuth("secret"), &fakeInjector{}, nil, "https://phone.example")
+	s.uploadDir = t.TempDir()
+	s.clipboard = &recordingClipboard{}
+	if err := s.SetPermissions(mutationPermissions("revoked", "granted")); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	s.handleFiles(w, clipboardUploadRequest(t, "revoked.txt", "text/plain", []byte("private"), false))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("revoked file upload status = %d, body = %s", w.Code, w.Body.String())
+	}
+	entries, err := os.ReadDir(s.uploadDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("revoked file upload published %d entries", len(entries))
+	}
+}

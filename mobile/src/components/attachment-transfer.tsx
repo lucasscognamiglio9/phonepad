@@ -6,7 +6,7 @@ import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimi
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassButton } from './glass-button';
 
-export function useAttachmentTransfer(origin: string, connected: boolean, paste: () => boolean) {
+export function useAttachmentTransfer(origin: string, connected: boolean, paste: () => boolean, canClipboard = true) {
   const insets = useSafeAreaInsets();
   const [selection, setSelection] = useState<AttachmentBatch | null>(null);
   const [prepared, setPrepared] = useState<PreparedBatch | null>(null);
@@ -19,6 +19,12 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const alive = useRef(true);
   const preparedRef = useRef<PreparedBatch | null>(null);
   const selectionRef = useRef<AttachmentBatch | null>(null);
+  const uploading = useRef(false);
+  const permissions = useRef({ connected, canClipboard });
+  permissions.current = { connected, canClipboard };
+  // A native photo picker can temporarily suspend the control connection.
+  // Keep its selection; only an upload depends on the current write permission.
+  useEffect(() => { if (!connected && uploading.current) request.current?.abort(); }, [connected]);
   const select = (value: AttachmentBatch | null) => { selectionRef.current = value; setSelection(value); };
   const remember = (value: PreparedBatch | null) => { preparedRef.current = value; setPrepared(value); };
   useEffect(() => {
@@ -34,22 +40,24 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     return () => { alive.current = false; request.current?.abort(); };
   }, [origin]);
 
-  const run = async (work: (signal: AbortSignal) => Promise<void>) => {
+  const run = async (work: (signal: AbortSignal) => Promise<void>, upload = false) => {
     if (request.current) return;
     const controller = new AbortController(); request.current = controller;
+    uploading.current = upload;
     setBusy(true); setProblem('');
     try { await work(controller.signal); }
     catch (error) {
       if (alive.current) setProblem(controller.signal.aborted ? 'Envío pausado. Conservamos el lote para reanudarlo.'
         : error instanceof Error ? error.message : 'Se interrumpió el envío. Conservamos la selección.');
     } finally {
-      if (request.current === controller) request.current = null;
+      if (request.current === controller) { request.current = null; uploading.current = false; }
       if (alive.current) { setBusy(false); setProgress(''); }
     }
   };
 
   const choose = (source: AttachmentSource) => {
     if (selectionRef.current) { setVisible(true); return; }
+    if (!permissions.current.connected) { setProblem('El equipo no permite recibir archivos en esta sesión.'); return; }
     void run(async signal => {
       // Negotiate before opening a provider so limits are known on both sides.
       const limits = await transferLimits(origin, signal);
@@ -62,6 +70,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   };
 
   const send = () => void run(async signal => {
+    if (!permissions.current.connected) throw Error('El equipo no permite recibir archivos en esta sesión.');
     const batch = selectionRef.current;
     if (!batch) return;
     const limits = await transferLimits(origin, signal);
@@ -77,8 +86,8 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       if (alive.current) setProgress(percent === 100 ? 'Verificando archivos…' : `Enviando ${percent}%`);
     });
     if (status.state !== 'stored') throw Error('La computadora todavía no confirmó todos los archivos.');
-    setProgress('Preparando el portapapeles…');
-    const receipt = await copyPreparedBatch(saved, signal);
+    if (permissions.current.canClipboard) setProgress('Preparando el portapapeles…');
+    const receipt = permissions.current.canClipboard ? await copyPreparedBatch(saved, signal) : status;
     if (!alive.current) return;
     // Local cleanup is safe only after the remote receipt. A lost receipt keeps
     // the manifest so the next attempt can query instead of duplicating work.
@@ -94,7 +103,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         ? 'El lote ya estaba guardado. No volvimos a reemplazar el portapapeles. Podés adjuntarlo desde Downloads → Phonepad.'
         : 'Los archivos llegaron a Downloads → Phonepad. Podés adjuntarlos desde esa carpeta; no se pudo confirmar el portapapeles.');
     }
-  });
+  }, true);
 
   const discard = () => void run(async signal => {
     const saved = preparedRef.current;
@@ -140,7 +149,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         {!!progress && <Text accessibilityLiveRegion="polite" style={textStyle}>{progress}</Text>}
         {!!problem && <Text accessibilityRole="alert" style={{ ...textStyle, color: '#ffd7a6' }}>{problem}</Text>}
         {busy ? <GlassButton label="Pausar envío" onPress={() => request.current?.abort()} /> : <>
-          <GlassButton label={prepared ? 'Reanudar mismo lote' : 'Enviar y preparar para pegar'} disabled={!connected || !selection} onPress={send} />
+          <GlassButton label={prepared ? 'Reanudar mismo lote' : canClipboard ? 'Enviar y preparar para pegar' : 'Enviar archivos'} disabled={!connected || !selection} onPress={send} />
           <GlassButton label="Descartar selección" onPress={discard} />
         </>}
         <GlassButton label="Volver a la pantalla" onPress={() => setVisible(false)} />

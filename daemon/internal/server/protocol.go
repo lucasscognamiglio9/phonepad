@@ -30,6 +30,9 @@ const (
 // cero. El consumidor decide qué campos son válidos según Type.
 type Msg struct {
 	Type string `json:"t"`
+	// SessionEpoch is required on input commands negotiated through protocol v2.
+	// Legacy connections leave it empty and retain the v1 wire contract.
+	SessionEpoch string `json:"sessionEpoch,omitempty"`
 
 	// m / s: deltas de movimiento o scroll.
 	Dx int `json:"dx"`
@@ -100,6 +103,9 @@ func Parse(data []byte) (Msg, bool) {
 }
 
 func validMsg(m Msg) bool {
+	if !validSessionEpoch(m.SessionEpoch) {
+		return false
+	}
 	switch m.Type {
 	case "m":
 		return absBound(m.Dx, maxDelta) && absBound(m.Dy, maxDelta)

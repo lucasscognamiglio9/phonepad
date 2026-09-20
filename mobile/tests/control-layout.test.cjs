@@ -75,6 +75,11 @@ function harness(options = {}) {
   class FakeConnection {
     constructor(origin, report) {
       this.origin = origin;
+      this.canInput = options.canInput !== false;
+      this.canView = true;
+      this.canTransfer = options.canTransfer !== false;
+      this.canClipboard = options.canClipboard !== false;
+      this.capabilities = null;
       this.literal = { draft: '', lateDraft: null, pending: null, busy: false };
       this.report = report;
       this.startCount = 0;
@@ -175,7 +180,7 @@ function harness(options = {}) {
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
     '../components/native-keyboard': { NativeKeyboard: 'NativeKeyboard' },
     '../lib/attachments': {
-      chooseAttachments: () => Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
+      chooseAttachments: () => options.choicePromise ?? Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
       attachmentBatch: items => ({ id: 'fixture-batch', items }),
 
     },
@@ -516,4 +521,29 @@ test('changing hosts protects pending text, uncertain operations and selections'
  assert.equal(legacy.updates[0].events.at(-1)[1],true,'pending text blocks update application too');
  legacy.find('NativeKeyboard').props.onPendingChange(false);legacy.render();
  legacy.find('GlassButton','Equipos').props.onPress();assert.equal(legacy.hostChanges(),1);
+});
+
+test('a view-only session can show video while keyboard control stays disabled',()=>{
+ const h=harness({canInput:false});h.reportConnection('connected');
+ assert.equal(h.find('NativeKeyboard').props.disabled,true);
+ h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ assert.ok(h.find('RTCView'));assert.equal(h.startVideoCount(),1);
+ h.setDimensions(844,390);assert.equal(h.find('LandscapeControls').props.disabled,true);
+ assert.equal(h.previews[0].disposeCount,0);
+});
+
+test('a saved batch can complete without clipboard permission and never offers Paste',async()=>{
+ const h=harness({attachment:photo,canClipboard:false});await choose(h);
+ h.find('GlassButton','Enviar archivos').props.onPress();await settle();h.render();
+ assert.equal(h.uploads.length,1);assert.equal(h.alerts[0][0],'Guardado en la computadora');
+ assert.equal(h.alerts[0][2],undefined);assert.equal(h.commands.length,0);
+});
+
+test('native picker suspension does not discard the photos chosen while the control socket reconnects',async()=>{
+ let finish;const choicePromise=new Promise(resolve=>{finish=resolve;});
+ const h=harness({choicePromise});h.reportConnection('connected');
+ h.find('NativeKeyboard').props.choose('photos');await settle();h.render();
+ h.reportConnection('offline');finish([photo]);await settle();h.render();
+ assert.equal(h.find('Modal').props.visible,true);assert.equal(h.uploads.length,0);
+ h.reportConnection('connected');await send(h);assert.equal(h.uploads.length,1);
 });

@@ -122,11 +122,13 @@ const items = [
   { key: 'photos', label: 'Fotos', symbol: 'photo.on.rectangle' },
 ] as const;
 
-export function ActionMenu({ anchor, close, choose, onDismiss }: {
+export function ActionMenu({ anchor, close, choose, onDismiss, keyboardAllowed = true, attachmentsAllowed = true }: {
   anchor: ActionMenuAnchor | null;
   close: () => void;
   choose: (action: Action) => void;
   onDismiss?: () => void;
+  keyboardAllowed?: boolean;
+  attachmentsAllowed?: boolean;
 }) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -299,8 +301,11 @@ export function ActionMenu({ anchor, close, choose, onDismiss }: {
               testID={`phonepad-action-${item.key}`}
               accessibilityRole="button"
               accessibilityLabel={item.label}
+              disabled={item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed}
+              accessibilityState={{ disabled: item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed }}
               onPress={() => select(item.key)}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+              style={({ pressed }) => [styles.row, pressed && styles.rowPressed,
+                (item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed) && styles.rowDisabled]}
             >
               <View style={styles.icon}>
                 <SymbolView name={item.symbol} tintColor="#f4f5f7" size={22} weight="regular" />
@@ -368,6 +373,7 @@ const styles = StyleSheet.create({
   rowPressed: {
     backgroundColor: '#ffffff18',
   },
+  rowDisabled: { opacity: 0.4 },
   icon: {
     width: 30,
     alignItems: 'center',

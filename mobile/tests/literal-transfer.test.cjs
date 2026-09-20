@@ -7,7 +7,7 @@ const ts = require('typescript');
 const crypto = require('node:crypto');
 const caps = {version:1,session:'session-one',textMode:'literal-block',maxTextBytes:131072,maxChunkBytes:16384,maxChunks:128,maxOperations:64};
 function harness() {
-  const calls = [], chunks = []; let manifest, state='receiving', capability={...caps}, loseCommit=false, failChunk=false, loseCancel=false, bytes=0;
+  const calls = [], chunks = []; let manifest, state='receiving', capability={...caps}, epoch=null, loseCommit=false, failChunk=false, loseCancel=false, bytes=0;
   const exported = {};
   const source = ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/lib/literal-transfer.ts'),'utf8'),{
     compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -23,9 +23,16 @@ function harness() {
       if(body.op==='commit') {state='dispatched';if(loseCommit) throw Error('lost receipt');}
       return {ok:true,json:async()=>({...manifest,state,receivedBytes:bytes,nextChunk:chunks.length})};
     }});
-  const transfer=new exported.LiteralTransfer('https://host',()=>capability);
-  return {transfer,calls,chunks,exported,loseCommit:()=>{loseCommit=true;},failChunk:()=>{failChunk=true;},loseCancel:()=>{loseCancel=true;},disconnect:()=>{capability=null;}};
+  const transfer=new exported.LiteralTransfer('https://host',()=>capability,()=>epoch);
+  return {transfer,calls,chunks,exported,setEpoch:value=>{epoch=value;},loseCommit:()=>{loseCommit=true;},failChunk:()=>{failChunk=true;},loseCancel:()=>{loseCancel=true;},disconnect:()=>{capability=null;}};
 }
+test('v2 text uses the current control epoch while recovery retains the original text lease',async()=>{
+ const h=harness();h.setEpoch('epoch-one');h.loseCommit();await assert.rejects(h.transfer.send('¿Texto_ íntegro?'));
+ assert.ok(h.calls.every(c=>c.sessionEpoch==='epoch-one'));
+ const lease=h.transfer.pending.manifest.session;
+ h.disconnect();h.setEpoch('epoch-two');assert.equal((await h.transfer.status()).state,'dispatched');
+ assert.equal(h.calls.at(-1).sessionEpoch,'epoch-two');assert.equal(h.calls.at(-1).session,lease);
+});
 test('large literal text crosses UTF-8 chunk boundaries and commits only after all bytes',async()=>{
  const h=harness();const text=('¿_👨‍👩‍👧‍👦\r\ne\u0301').repeat(2800);
  const receipt=await h.transfer.send(text);

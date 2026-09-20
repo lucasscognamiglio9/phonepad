@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Keyboard, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Alert, Keyboard, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -23,18 +23,21 @@ export function composerKeyboardOffset(active: boolean, keyboardHeight: number, 
 }
 
 // Keep text state here: typing must not rerender the video or restart its stream.
-export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange }: {
+export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange,
+  canReview = !disabled, allowAttachments = !disabled }: {
   connection: Connection; active: boolean; open: () => void; close: () => void;
   disabled: boolean; choosing: boolean; choose: (source: AttachmentSource) => void;
   visible?: boolean;
   onPendingChange?: (pending: boolean) => void;
+  canReview?: boolean;
+  allowAttachments?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const input = useRef<TextInput>(null);
   const literal = connection.literal;
-  const literalMode = !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft || !!literal?.lateDraft;
+  const literalMode = connection.capabilities?.protocolVersion === 2 || !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft || !!literal?.lateDraft;
   const [value, setValue] = useState(literal?.draft ?? '');
   const [sending, setSending] = useState(false);
   const [textStatus, setTextStatus] = useState('');
@@ -154,7 +157,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     setTextStatus('');
   };
   const reviewed = () => {
-    if (disabled || !visible) return;
+    if (!visible || (!!literal?.pending && !canReview)) return;
     if (sending) return;
     if (!literal?.pending) {
       finishReview();
@@ -224,12 +227,24 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     finally { setSending(false); }
   };
   const checkText = async () => {
-    if (!literal?.pending || sending || literal.busy || disabled) return;
+    if (!literal?.pending || sending || literal.busy || !canReview) return;
     const text = literal.pending.text;
     setSending(true);
     try { const receipt = await literal.status(); applyReceipt(receipt.state, text); }
     catch { setTextStatus('El resultado sigue sin confirmarse. Revisá la computadora; tu borrador sigue acá.'); }
     finally { setSending(false); }
+  };
+  const discardLocalDraft = () => {
+    if (sending || literal?.busy || literal?.pending) return;
+    Alert.alert('¿Descartar el borrador?', 'Se borrará este texto del teléfono. Esta acción no cambia el contenido de la computadora.', [
+      { text: 'Conservar', style: 'cancel' },
+      { text: 'Descartar', style: 'destructive', onPress: () => {
+        if (literal?.busy || literal?.pending) return;
+        editorGeneration.current++; setInputGeneration(editorGeneration.current);
+        if (literal) literal.draft = '';
+        resetContext(); finishReview();
+      } },
+    ]);
   };
   const finishMenu = (action: MenuAction | null) => {
     const wasActive = menuWasActive.current;
@@ -239,11 +254,13 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     menuAnchorRef.current = null;
     setMenuAnchor(null);
     // A late modal dismissal after rotation must not reopen the hidden field.
-    if (!visible || disabled) return;
+    if (!visible) return;
     if (action === 'keyboard') {
+      if (disabled) return;
       open();
       input.current?.focus();
     } else if (action) {
+      if (!allowAttachments) return;
       close();
       choose(action);
     } else if (wasActive && active && !disabled) {
@@ -262,6 +279,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   // dismissal, and keyboard selection can safely restore focus here.
   const chooseAction = (action: MenuAction) => finishMenu(action);
   const openMenu = () => {
+    if (!visible || choosing || (disabled && !allowAttachments)) return;
     if (menuInteraction.current) {
       dismissMenu();
       return;
@@ -276,7 +294,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     measureAnchorRef.current();
   };
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
-    <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss} />
+    <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss}
+      keyboardAllowed={!disabled} attachmentsAllowed={allowAttachments} />
     <Animated.View pointerEvents="box-none" style={[{ position: 'absolute', bottom, alignSelf: 'center', gap: 8 }, style]}>
       {lateDraft && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
@@ -288,19 +307,20 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
           <Text selectable style={{ color: '#f4f5f7', fontSize: 14, marginTop: 6 }}>{lateDraft.text || '(vacío)'}</Text>
         </ScrollView>
         <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-          <GlassButton label="Usar versión tardía" disabled={disabled || sending} onPress={useLateDraft} />
-          <GlassButton label="Descartar versión tardía" disabled={disabled || sending} onPress={discardLateDraft} />
+          <GlassButton label="Usar versión tardía" disabled={sending} onPress={useLateDraft} />
+          <GlassButton label="Descartar versión tardía" disabled={sending} onPress={discardLateDraft} />
         </View>
       </GlassSurface>}
       {deliveryIssue && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
           Envío interrumpido. Tu texto sigue acá. Revisá la computadora antes de continuar; podés seleccionar y copiar este borrador.
         </Text>
-        <GlassButton label="Continuar sin reenviar" disabled={disabled || sending} onPress={reviewed} />
+        <GlassButton label="Continuar sin reenviar" disabled={sending || (!!literal?.pending && !canReview)} onPress={reviewed} />
+        {!!value && !literal?.pending && <GlassButton label="Descartar borrador" disabled={sending} onPress={discardLocalDraft} />}
       </GlassSurface>}
       {literalMode && (textStatus || active) && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{textStatus || 'Escribí o dictá acá. Tocá Escribir para pasarlo a la computadora.'}</Text>
-        {literal?.pending && <GlassButton label="Consultar envío" disabled={disabled || sending} onPress={() => { void checkText(); }} />}
+        {literal?.pending && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
       </GlassSurface>}
       {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
@@ -382,7 +402,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               onLayout={() => { if (menuInteraction.current) measureAnchorRef.current(); }}
               style={{ width: 44, height: 44, justifyContent: 'center' }}>
               <GlassButton compact label="Agregar" symbol="plus"
-                disabled={disabled || choosing} onPress={openMenu} />
+                disabled={choosing || (disabled && !allowAttachments)} onPress={openMenu} />
             </View>
             {active && <>
               <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" symbol="keyboard.badge.ellipsis" selected={shortcuts || mods.length > 0}

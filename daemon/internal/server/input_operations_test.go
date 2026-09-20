@@ -189,3 +189,81 @@ func TestLiteralHTTPAuthorizationAndUnknown(t *testing.T) {
 		t.Fatal("unauthorized input")
 	}
 }
+
+func TestLiteralHTTPV2RequiresSessionEpoch(t *testing.T) {
+	s, _ := inputFixture()
+	s.currentProtocol = protocolVersion
+	s.sessionEpoch = "epoch-v2"
+	m := manifestFor(s, "epoch")
+
+	if w := inputCall(s, inputRequest{Op: "begin", Session: m.Session, Manifest: m}); w.Code != http.StatusConflict {
+		t.Fatalf("begin without epoch status = %d, want 409", w.Code)
+	}
+	request := inputRequest{Op: "begin", Session: m.Session, SessionEpoch: s.sessionEpoch, Manifest: m}
+	if w := inputCall(s, request); w.Code != http.StatusOK {
+		t.Fatalf("begin with epoch status = %d: %s", w.Code, w.Body.String())
+	}
+	request.Op = "status"
+	request.OperationID = m.OperationID
+	request.SessionEpoch = "stale"
+	if w := inputCall(s, request); w.Code != http.StatusConflict {
+		t.Fatalf("status with stale epoch status = %d, want 409", w.Code)
+	}
+}
+
+func TestLiteralHTTPRenewKeepsLegacyShapeAndAddsV2Epoch(t *testing.T) {
+	s, _ := inputFixture()
+	legacy := inputCall(s, inputRequest{Op: "renew", Session: s.inputSession})
+	if legacy.Code != http.StatusOK {
+		t.Fatalf("legacy renew status = %d: %s", legacy.Code, legacy.Body.String())
+	}
+	var legacyBody map[string]any
+	if err := json.Unmarshal(legacy.Body.Bytes(), &legacyBody); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := legacyBody["sessionEpoch"]; present {
+		t.Fatalf("legacy renew unexpectedly advertised session epoch: %v", legacyBody)
+	}
+
+	s, _ = inputFixture()
+	s.currentProtocol = protocolVersion
+	s.sessionEpoch = "epoch-v2"
+	v2 := inputCall(s, inputRequest{Op: "renew", Session: s.inputSession, SessionEpoch: s.sessionEpoch})
+	if v2.Code != http.StatusOK {
+		t.Fatalf("v2 renew status = %d: %s", v2.Code, v2.Body.String())
+	}
+	var v2Body map[string]any
+	if err := json.Unmarshal(v2.Body.Bytes(), &v2Body); err != nil {
+		t.Fatal(err)
+	}
+	if got := v2Body["sessionEpoch"]; got != s.sessionEpoch {
+		t.Fatalf("v2 renew epoch = %v, want %q", got, s.sessionEpoch)
+	}
+}
+
+func TestLiteralHTTPRevocationRetiresAndCancelsIdempotently(t *testing.T) {
+	s, p := inputFixture()
+	m := stageText(t, s, "cancel after revoke")
+	if err := s.SetPermissions(Permissions{
+		View:      Permission{State: "granted"},
+		Input:     Permission{State: "revoked"},
+		Files:     Permission{State: "granted"},
+		Clipboard: Permission{State: "granted"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status := inputRequest{Op: "status", Session: m.Session, OperationID: m.OperationID}
+	if got := operationReceipt(t, inputCall(s, status)); got.State != inputops.Cancelled {
+		t.Fatalf("retired receipt = %+v, want cancelled", got)
+	}
+	cancel := status
+	cancel.Op = "cancel"
+	for range 2 {
+		if got := operationReceipt(t, inputCall(s, cancel)); got.State != inputops.Cancelled {
+			t.Fatalf("idempotent cancel receipt = %+v", got)
+		}
+	}
+	if len(p.literals) != 0 {
+		t.Fatal("revoked operation reached literal adapter")
+	}
+}

@@ -23,7 +23,7 @@ function harness(contents=[Buffer.from('hello')], options={}) {
    assert.equal(init.headers.Origin,'https://host');assert.equal(init.credentials,'include');
    const query=new URL(url).searchParams,action=query.get('action');calls.push({action,method:init.method,offset:query.get('offset')});
    if(init.method==='GET'&&!query.has('id'))return {ok:true,json:async()=>options.limits??limits};
-   if(action==='begin')assert.deepEqual(JSON.parse(init.body),batch.manifest);
+   if(action==='begin'||action==='cancel')assert.deepEqual(JSON.parse(init.body),batch.manifest);
    if(init.method==='PUT'){
     const i=Number(query.get('index')),offset=Number(query.get('offset')),data=Buffer.from(init.body);
     assert.equal(offset,received[i].length);assert.equal(digest(data),init.headers['X-Chunk-SHA256']);
@@ -81,11 +81,11 @@ test('identity, byte counts and checksums reject corrupt acknowledgments',async(
   const status=h.status();edit(status);assert.throws(()=>h.verifiedStatus(status,h.batch.manifest),/recibo/);
  }
 });
-test('cancellation stops before networking and remote cancellation is idempotently prepared',async()=>{
+test('cancellation carries its manifest and does not require an authorized begin',async()=>{
  const h=harness(),controller=new AbortController();controller.abort();
  await assert.rejects(h.sendPreparedBatch(h.batch,limits,h.read,controller.signal,()=>{}),/pausado/);assert.equal(h.calls.length,0);
  assert.equal((await h.cancelPreparedBatch(h.batch,new AbortController().signal)).state,'cancelled');
- assert.deepEqual(h.calls.map(c=>c.action),['begin','cancel']);
+ assert.deepEqual(h.calls.map(c=>c.action),['cancel']);
 });
 test('negotiated limits cannot expand client memory or allow unsupported versions',async()=>{
  for(const value of [{...limits,maxChunkBytes:Infinity},{...limits,maxFiles:21},{...limits,maxBytes:0},{...limits,version:1}]){

@@ -104,9 +104,9 @@ export async function copyPreparedBatch(batch: PreparedBatch, signal: AbortSigna
   return status;
 }
 export async function cancelPreparedBatch(batch: PreparedBatch, signal: AbortSignal): Promise<TransferStatus> {
-  // Ensure a lost begin response is also cancellable. Begin has no input or
-  // clipboard effect, and is idempotent even after a completed commit.
-  const existing = verifiedStatus(await request(batch.origin, '?action=begin', 'POST', signal, JSON.stringify(batch.manifest)), batch.manifest);
-  if (existing.state !== 'receiving') return existing;
-  return verifiedStatus(await request(batch.origin, `?action=cancel&id=${batch.manifest.id}`, 'POST', signal), batch.manifest);
+  // Carry the immutable manifest so cancellation can reserve a tombstone even
+  // if begin never arrived. Cleanup stays available after upload permission is
+  // revoked and must not depend on issuing a newly authorized begin request.
+  return verifiedStatus(await request(batch.origin, `?action=cancel&id=${batch.manifest.id}`, 'POST', signal,
+    JSON.stringify(batch.manifest)), batch.manifest);
 }

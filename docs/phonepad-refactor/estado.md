@@ -1,12 +1,16 @@
 # Estado de ejecución: 20/09/2026
 
-## P01A-04 y P02-01/P02-02 implementados; P02-03 en progreso
+## P01A-04 y P02-01/P02-02/P02-03 implementados; P02 sigue abierto
 
 La ejecución sigue autorizada. Base de esta entrega: `1a43331` en `refactor/p00-baseline`. P01A-04 incorpora lotes reanudables, checksum de origen, selección revisable, limpieza y cancelación durable. También corrige las rutas del gateway y eventos tardíos del teclado. Ver `p01a-04.md` y `file-transfer-contract.md`.
 
 Verificación de P01A-04: pruebas de cliente y almacenamiento, gateway real a través de RemoteHandler, Go completo con detector de carreras y bundle iOS/Hermes. Los logs se guardan en `outputs/p01a-04`; el cierre de validación se registra en el documento del bloque. Un bundle Hermes no es un IPA ni aceptación física.
 
-P02-01 integró selección/configuración de equipos sin dirección fija y protección de contenido al cambiar. Pasaron 154 pruebas móviles y TypeScript. P02-02 ya separó contratos/FIFO portables del proveedor Linux y pasó pruebas Go completas con detector de carreras, vet y build Linux. Los tests del paquete de entrada compilan para Darwin/Windows; no se ejecutaron ni representan proveedores nuevos. P02-03 prepara negociación y modo de visualización.
+P02-01 integró selección/configuración de equipos sin dirección fija y protección de contenido al cambiar. P02-02 separó contratos/FIFO portables del proveedor Linux. Los tests del paquete de entrada compilan para Darwin/Windows; no se ejecutaron ni representan proveedores nuevos.
+
+P02-03 integró negociación v1/v2, identidad de conexión, permisos independientes, revocación de entrada y protección de mutaciones de archivos. El host puede iniciar sin inyector; la app conserva preview y contenido pendiente. Pasaron 169 pruebas móviles, TypeScript, Go completo con detector de carreras, vet, build Linux y bundles Hermes iOS/Android. La prueba de cliente TypeScript contra Go real por TLS/WS detectó y cubre discrepancias de saludo y época de texto. Ver `p02-03.md`, `p02-03-files.md` y `session-contract.md`. Los exports no son binarios nativos.
+
+P02.3/P02.4 todavía necesitan fuente/geometría y codecs reales; P02.6 necesita el cierre coordinado completo. P03.1 identificó el hook oficial GCC/TWCC y prepara un plugin de laboratorio privado. Todavía no reemplaza el controlador actual ni demuestra una mejora de FPS o latencia.
 
 P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperando candidato y receptor físico. P01A completa continúa abierta: acciones/atajos con recibos, alternativas a EditableText, matriz de dictado y consumidores reales. No hubo despliegue, OTA ni reinicio de servicios personales.
 
@@ -15,7 +19,7 @@ La pareja principal es Ubuntu+iPhone. El usuario tiene acceso a un Mac de un ami
 ### Continuación
 
 1. P02-01/P02-02 integrados. Conservar los logs en `outputs/p02` y comprobar selector/persistencia en el candidato físico.
-2. P02.3–P02.7: capacidades, épocas, modo de visualización y compatibilidad. Continuar P01A con acciones y proveedores sin pérdida de contenido.
+2. P02-04: fuente/geometría y codec confirmado por el proveedor. P02.6: cierre coordinado y timeout. Mantener migración/compatibilidad P02.7 y P01A con acciones y proveedores sin pérdida de contenido.
 3. P01.6/P03.1–P03.4 para medición y camino principal Linux; después P04/P05.
 4. P06/P07/P08 por tareas independientes; P09/P10 con herramientas y equipos disponibles.
 5. P11 bootstrap/instalación y distribución; P12 cierre de matriz y rollback.

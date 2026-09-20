@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -21,12 +22,13 @@ type inputLease struct {
 	targets  map[string]string
 }
 type inputRequest struct {
-	Op          string            `json:"op"`
-	Session     string            `json:"session"`
-	OperationID string            `json:"operationId"`
-	Manifest    inputops.Manifest `json:"manifest"`
-	Index       int               `json:"index"`
-	Data        []byte            `json:"data"` // JSON base64; never decoded as lossy Unicode chunks.
+	Op           string            `json:"op"`
+	Session      string            `json:"session"`
+	SessionEpoch string            `json:"sessionEpoch,omitempty"`
+	OperationID  string            `json:"operationId"`
+	Manifest     inputops.Manifest `json:"manifest"`
+	Index        int               `json:"index"`
+	Data         []byte            `json:"data"` // JSON base64; never decoded as lossy Unicode chunks.
 }
 
 // Called only under the same mutex that replaces the control websocket.
@@ -71,15 +73,15 @@ func (s *Server) inputHello(gen uint64) []byte {
 	if s.gen != gen {
 		return nil
 	}
-	if _, ok := s.inj.(input.LiteralInjector); !ok || s.inputSession == "" {
-		return respOK
+	if s.currentProtocol == protocolVersion {
+		// The first frame keeps the long-standing handshake type. Subsequent
+		// permission/capability changes use t=capabilities.
+		payload := s.capabilitiesPayloadLocked()
+		payload["t"] = "ok"
+		data, _ := json.Marshal(payload)
+		return data
 	}
-	response, _ := json.Marshal(map[string]any{"t": "ok", "input": map[string]any{
-		"version": 1, "session": s.inputSession, "maxTextBytes": inputops.MaxTextBytes,
-		"maxChunkBytes": inputops.MaxChunkBytes, "maxChunks": inputops.MaxChunks,
-		"textMode": "literal-block", "maxOperations": inputops.MaxOperations,
-	}})
-	return response
+	return s.legacyHelloLocked()
 }
 
 func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
@@ -114,8 +116,23 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid operation", 400)
 		return
 	}
+	if !validSessionEpoch(request.SessionEpoch) {
+		http.Error(w, "invalid session epoch", 400)
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.currentProtocol == protocolVersion && (s.sessionEpoch == "" || request.SessionEpoch == "" || request.SessionEpoch != s.sessionEpoch) {
+		http.Error(w, "stale session epoch", 409)
+		return
+	}
+	if request.Op != "status" && request.Op != "cancel" {
+		permission, allowed := s.permissionLocked(mutationScopeInput)
+		if !allowed {
+			http.Error(w, permissionRejectionCode(permission, "input_unavailable"), http.StatusForbidden)
+			return
+		}
+	}
 	lease, ok := s.inputLeases[request.Session]
 	if !ok || (s.inputSession != request.Session && !lease.retired.IsZero() && time.Since(lease.retired) > 10*time.Minute) {
 		http.Error(w, "unknown input session; do not replay", 409)
@@ -131,13 +148,41 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		respond(receipt)
 		return
 	}
+	if request.Op == "cancel" {
+		receipt, found := lease.registry.Lookup(request.OperationID)
+		if !found {
+			http.Error(w, "unknown operation; do not replay", 404)
+			return
+		}
+		transfer, err := lease.registry.Begin(receipt.Manifest)
+		if err != nil {
+			http.Error(w, "operation unavailable", 409)
+			return
+		}
+		receipt, err = transfer.Cancel()
+		// Retire turns receiving/ready operations into cancelled tombstones.
+		// A later explicit cancel must remain an idempotent recovery action.
+		if errors.Is(err, inputops.ErrState) && receipt.State == inputops.Cancelled {
+			err = nil
+		}
+		if err != nil {
+			http.Error(w, err.Error(), 409)
+			return
+		}
+		respond(receipt)
+		return
+	}
 	if s.current == nil || s.inputSession != request.Session {
 		http.Error(w, "inactive input session", 409)
 		return
 	}
 	if request.Op == "renew" {
 		s.newInputLease()
-		respond(map[string]any{"session": s.inputSession, "version": 1})
+		response := map[string]any{"session": s.inputSession, "version": 1}
+		if s.currentProtocol == protocolVersion {
+			response["sessionEpoch"] = s.sessionEpoch
+		}
+		respond(response)
 		return
 	}
 	var transfer *inputops.TextTransfer
@@ -187,8 +232,6 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 	switch request.Op {
 	case "chunk":
 		receipt, err = transfer.Append(request.Index, request.Data)
-	case "cancel":
-		receipt, err = transfer.Cancel()
 	case "commit":
 		receipt, err = transfer.Commit()
 		if err == nil && receipt.State == inputops.Ready {

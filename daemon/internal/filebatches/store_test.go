@@ -107,6 +107,109 @@ func TestStoreResumesOverlapAndPublishesOnce(t *testing.T) {
 	}
 }
 
+func TestStoreCommitGuardCanDenyPublicationAndPreservesReceivingStage(t *testing.T) {
+	root := t.TempDir()
+	manifest, data := manifestFor("01234567-0123-4567-8901-012345678920", "guard.txt", "guarded")
+	store := New(root)
+	if _, err := store.Begin(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.WriteChunk(manifest.ID, 0, 0, data[0], chunkHash(data[0])); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	status, published, err := store.CommitWithGuard(manifest.ID, func(effect func() error) error {
+		called = true
+		return errors.New("guard denied")
+	})
+	if !called || published || err == nil || status.ID != "" {
+		t.Fatalf("denied commit = %#v, %v, %v", status, published, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "batch-"+manifest.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("denied commit published destination: %v", err)
+	}
+	status, err = store.Status(manifest.ID)
+	if err != nil || status.State != stateReceiving || status.Files[0].ReceivedBytes != int64(len(data[0])) {
+		t.Fatalf("denied commit did not preserve receiving stage: %#v, %v", status, err)
+	}
+	if _, err := store.Cancel(manifest.ID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStoreCommitGuardRunsOnceAndReplayDoesNotRepublish(t *testing.T) {
+	root := t.TempDir()
+	manifest, data := manifestFor("01234567-0123-4567-8901-012345678921", "guard.txt", "guarded")
+	store := New(root)
+	if _, err := store.Begin(manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.WriteChunk(manifest.ID, 0, 0, data[0], chunkHash(data[0])); err != nil {
+		t.Fatal(err)
+	}
+	guardCalls := 0
+	effectCalls := 0
+	status, published, err := store.CommitWithGuard(manifest.ID, func(effect func() error) error {
+		guardCalls++
+		effectCalls++
+		return effect()
+	})
+	if err != nil || !published || status.State != stateStored || guardCalls != 1 || effectCalls != 1 {
+		t.Fatalf("guarded commit = %#v, %v, %v, guardCalls=%d, effectCalls=%d", status, published, err, guardCalls, effectCalls)
+	}
+	status, published, err = store.CommitWithGuard(manifest.ID, func(effect func() error) error {
+		guardCalls++
+		effectCalls++
+		return effect()
+	})
+	if err != nil || published || status.State != stateStored || guardCalls != 1 || effectCalls != 1 {
+		t.Fatalf("guarded replay = %#v, %v, %v, guardCalls=%d, effectCalls=%d", status, published, err, guardCalls, effectCalls)
+	}
+}
+
+func TestStoreBeginGuardDenialLeavesStorageUntouched(t *testing.T) {
+	root := t.TempDir()
+	manifest, _ := manifestFor("01234567-0123-4567-8901-012345678922", "guard.txt", "guarded")
+	store := New(root)
+	denied := errors.New("begin guard denied")
+	if _, err := store.BeginWithGuard(manifest, func(effect func() error) error {
+		return denied
+	}); !errors.Is(err, denied) {
+		t.Fatalf("guarded begin error = %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("denied begin left storage behind: %v", entries)
+	}
+}
+
+func TestStoreWriteChunkGuardDenialLeavesReceivingStage(t *testing.T) {
+	root := t.TempDir()
+	manifest, data := manifestFor("01234567-0123-4567-8901-012345678923", "guard.txt", "guarded")
+	store := New(root)
+	if _, err := store.Begin(manifest); err != nil {
+		t.Fatal(err)
+	}
+	denied := errors.New("chunk guard denied")
+	status, err := store.WriteChunkWithGuard(manifest.ID, 0, 0, data[0], chunkHash(data[0]), func(effect func() error) error {
+		return denied
+	})
+	if !errors.Is(err, denied) || status.State != stateReceiving {
+		t.Fatalf("guarded chunk = %#v, %v", status, err)
+	}
+	status, err = store.Status(manifest.ID)
+	if err != nil || status.State != stateReceiving || status.Files[0].ReceivedBytes != 0 {
+		t.Fatalf("denied chunk changed receiving state: %#v, %v", status, err)
+	}
+	info, err := os.Stat(filepath.Join(root, stagingDirName, manifest.ID, "file-0"))
+	if err != nil || info.Size() != 0 {
+		t.Fatalf("denied chunk changed staged file: info=%v err=%v", info, err)
+	}
+}
+
 func TestStoreRequiresCompleteChecksumsAndRejectsIdentityReuse(t *testing.T) {
 	root := t.TempDir()
 	manifest, data := manifestFor(testBatchID, "a.txt", "complete")

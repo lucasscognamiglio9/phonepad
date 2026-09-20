@@ -53,10 +53,22 @@ type Server struct {
 	pairURL string // URL de pairing (única fuente de verdad: terminal + /qr.svg)
 	hub     *hub   // canal SSE de eventos de conexión (vista pairing)
 
-	mu          sync.Mutex
-	current     *websocket.Conn // conexión activa; nil si no hay
-	gen         uint64          // generación monotónica; invalida frames de sesiones viejas
-	readTimeout time.Duration   // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
+	mu      sync.Mutex
+	current *websocket.Conn // conexión activa; nil si no hay
+	gen     uint64          // generación monotónica; invalida frames de sesiones viejas
+	// sessionEpoch is the random identity of the control connection. It is
+	// separate from inputSession, which may rotate on a text quota renewal.
+	sessionEpoch       string
+	currentProtocol    int
+	capabilityRevision uint64
+	permissions        Permissions
+	readTimeout        time.Duration // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
+
+	// mutationGate is held only while a bounded side effect is committed. It is
+	// never held while an HTTP upload body is read.
+	mutationGate           sync.Mutex
+	capabilitySendMu       sync.Mutex
+	capabilitySentRevision uint64
 
 	demo      bool
 	devInject bool // dev: inyectar el flag dev en index.html y no cachear
@@ -96,6 +108,8 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 	for _, o := range opts {
 		o(s)
 	}
+	s.permissions = defaultPermissions(inj)
+	s.capabilityRevision = 1
 	s.mux.HandleFunc("/ws", s.handleWS)
 	s.mux.HandleFunc("/api/preview/", s.handlePreview)
 	s.mux.HandleFunc("/api/desktop", s.handleDesktop)
@@ -191,6 +205,12 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad token", http.StatusUnauthorized)
 		return
 	}
+	protocol, supported := protocolForRequest(r.URL.Query().Get("protocol"))
+	if !supported {
+		w.Header().Set("Accept-Protocol", "1, 2")
+		http.Error(w, "unsupported protocol", http.StatusUpgradeRequired)
+		return
+	}
 
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {
@@ -199,7 +219,18 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.SetReadLimit(maxFrameBytes)
-	gen := s.setCurrent(c, r.UserAgent())
+	gen, err := s.setCurrent(c, r.UserAgent(), protocol)
+	if err != nil {
+		// The websocket handshake already happened, so report the reason on
+		// the wire instead of sending a v2 hello with an empty epoch. Keep the
+		// failure local to this connection; the previous session (if any) was
+		// not replaced because epoch allocation failed before taking the lock.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = c.Write(ctx, websocket.MessageText, rejectedMessage("session", "session_unavailable", 0, ""))
+		cancel()
+		c.CloseNow()
+		return
+	}
 	defer s.clearCurrent(c, gen)
 
 	// El ciclo de vida del WS debe sobrevivir al fin del request HTTP: coder/
@@ -210,12 +241,18 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Confirmar handshake (SPEC §3: {"t":"ok"}).
+	// Capability updates use the same writer lock. Take it before building the
+	// hello so a permission update cannot write a newer revision first and leave
+	// the client with an out-of-order initial frame.
+	s.capabilitySendMu.Lock()
 	hello := s.inputHello(gen)
 	if len(hello) == 0 {
+		s.capabilitySendMu.Unlock()
 		return
 	}
-	if err := c.Write(ctx, websocket.MessageText, hello); err != nil {
+	err = c.Write(ctx, websocket.MessageText, hello)
+	s.capabilitySendMu.Unlock()
+	if err != nil {
 		return
 	}
 
@@ -235,14 +272,27 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 // setCurrent registra la conexión nueva y cierra la vieja si existía. Notifica
 // a la vista pairing: en un reemplazo emite un solo client_connected con el
 // cliente nuevo (no parpadea disconnect+connect; ver SPEC §12).
-func (s *Server) setCurrent(c *websocket.Conn, ua string) uint64 {
+
+func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64, error) {
 	// Unlock explícito (no defer) a propósito: no sostener el mutex durante el
 	// I/O de red de abajo (old.Close / hub). El reset físico sí queda dentro de
 	// la sección crítica para que ningún frame atraviese la transición.
+	epoch, epochErr := newSessionEpoch()
+	if epochErr != nil && protocol == protocolVersion {
+		return 0, epochErr
+	}
+	if epochErr != nil {
+		log.Printf("session epoch for legacy connection: %v", epochErr)
+		epoch = ""
+	}
+	s.mutationGate.Lock()
 	s.mu.Lock()
 	old := s.current
 	s.current = c
 	s.gen++
+	s.currentProtocol = protocol
+	s.sessionEpoch = epoch
+	s.capabilityRevision++
 	s.newInputLease()
 	gen := s.gen
 	// El reset ocurre dentro de la misma sección crítica que cambia la
@@ -251,21 +301,37 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string) uint64 {
 	// antes de aceptar el primer frame de la sesión nueva.
 	resetInjector(s.inj)
 	s.mu.Unlock()
+	s.mutationGate.Unlock()
 	if old != nil {
-		old.Close(websocket.StatusPolicyViolation, "replaced by new client")
+		// Tell the replaced peer why control moved, but never make the new
+		// handshake wait for the old peer to answer. coder/websocket bounds its
+		// close handshake internally; running it here would otherwise block a
+		// reconnect for several seconds.
+		go func() {
+			if err := old.Close(websocket.StatusPolicyViolation, "replaced"); err != nil {
+				log.Printf("ws replaced close: %v", err)
+			}
+		}()
 	}
 	s.hub.clientConnected(ua)
-	return gen
+	return gen, nil
 }
 
 // clearCurrent limpia la referencia solo si sigue siendo esta conexión (no
 // pisa una conexión más nueva que ya la reemplazó). Solo cuando current pasa a
 // nil emite client_disconnected (no en reemplazo).
 func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
+	s.mutationGate.Lock()
 	s.mu.Lock()
 	disconnected := false
 	if s.current == c && s.gen == gen {
 		s.current = nil
+		s.currentProtocol = 0
+		// A permit captured by the disconnected control session must not become
+		// a mutation after the connection is gone. The next connection receives
+		// a fresh random epoch in setCurrent.
+		s.sessionEpoch = ""
+		s.capabilityRevision++
 		if lease, ok := s.inputLeases[s.inputSession]; ok {
 			lease.registry.Retire()
 			lease.retired = time.Now()
@@ -276,6 +342,7 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 		disconnected = true
 	}
 	s.mu.Unlock()
+	s.mutationGate.Unlock()
 	c.CloseNow()
 	if disconnected {
 		s.hub.clientDisconnected()
@@ -366,6 +433,20 @@ func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uin
 			}
 			return
 		}
+		if inputMessage(m) {
+			if s.currentProtocol == protocolVersion && (s.sessionEpoch == "" || m.SessionEpoch != s.sessionEpoch) {
+				s.mu.Unlock()
+				s.rejectInput(c, "stale_session_epoch")
+				return
+			}
+			permission, allowed := s.permissionLocked(mutationScopeInput)
+			if !allowed {
+				code := permissionRejectionCode(permission, "input_unavailable")
+				s.mu.Unlock()
+				s.rejectInput(c, code)
+				return
+			}
+		}
 		s.routeInjector(m)
 		s.mu.Unlock()
 		return
@@ -374,6 +455,9 @@ func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uin
 }
 
 func (s *Server) routeInjector(m Msg) {
+	if s.inj == nil {
+		return
+	}
 	switch m.Type {
 	case "m":
 		s.inj.Move(m.Dx, m.Dy)

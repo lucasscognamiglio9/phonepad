@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -82,6 +83,15 @@ func (s *Server) handleFileBatches(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" && r.Method != "GET" {
 		http.Error(w, "method", 405)
 		return
+	}
+	var filesPermit mutationPermit
+	if r.Method == "POST" {
+		var permitted bool
+		filesPermit, permitted = s.captureMutationPermit(mutationScopeFiles)
+		if !permitted {
+			http.Error(w, "file permission revoked", http.StatusForbidden)
+			return
+		}
 	}
 	root, err := s.batchRoot()
 	if err != nil {
@@ -226,39 +236,73 @@ func (s *Server) handleFileBatches(w http.ResponseWriter, r *http.Request) {
 	}
 	// Persist a conservative receipt before publication, so a process crash never
 	// causes the same batch ID to be published again. Clipboard success is later.
-	data, _ := json.Marshal(receipt)
-	if err = os.WriteFile(filepath.Join(staging, ".receipt.json"), data, 0600); err != nil {
-		http.Error(w, "storage unavailable", 507)
-		return
+	publish := func() error {
+		data, _ := json.Marshal(receipt)
+		if err := os.WriteFile(filepath.Join(staging, ".receipt.json"), data, 0600); err != nil {
+			return err
+		}
+		return os.Rename(staging, destination)
 	}
-	if err = os.Rename(staging, destination); err != nil {
+	if err = s.runPermittedMutation(filesPermit, publish); err != nil {
+		if errors.Is(err, errMutationPermission) {
+			http.Error(w, "file permission revoked; batch was not published", http.StatusForbidden)
+			return
+		}
 		http.Error(w, "cannot publish batch", 507)
 		return
 	}
-	s.clipboardMu.Lock()
-	if s.clipboard == nil {
-		s.clipboard = systemClipboard()
-	}
-	input.ClipboardMu.Lock()
-	writer, ok := s.clipboard.(interface{ CopyFiles([]string) error })
-	if len(paths) == 1 {
-		kind, media := clipboardKindFor(manifest.Files[0].Type)
-		if manifest.Files[0].Type == "" || manifest.Files[0].Type == "application/octet-stream" {
-			kind, media = clipboardKindFor(clipboardMediaTypeForName(manifest.Files[0].Name))
+
+	persistReceipt := func() error {
+		data, _ := json.Marshal(receipt)
+		temporary := filepath.Join(destination, ".receipt-next.json")
+		if err := os.WriteFile(temporary, data, 0600); err != nil {
+			return err
 		}
-		if s.clipboard.Copy(paths[0], kind, media) == nil {
-			receipt.Clipboard = "ready"
+		if err := os.Rename(temporary, filepath.Join(destination, ".receipt.json")); err != nil {
+			_ = os.Remove(temporary)
+			return err
 		}
-	} else if ok && writer.CopyFiles(paths) == nil {
-		receipt.Clipboard = "ready"
+		return nil
 	}
-	input.ClipboardMu.Unlock()
-	s.clipboardMu.Unlock()
+	clipboardPermit, clipboardPermitted := s.captureMutationPermit(mutationScopeClipboard)
+	if clipboardPermitted {
+		copyErr := s.runPermittedMutation(clipboardPermit, func() error {
+			s.clipboardMu.Lock()
+			defer s.clipboardMu.Unlock()
+			if s.clipboard == nil {
+				s.clipboard = systemClipboard()
+			}
+			input.ClipboardMu.Lock()
+			defer input.ClipboardMu.Unlock()
+			writer, ok := s.clipboard.(interface{ CopyFiles([]string) error })
+			if len(paths) == 1 {
+				kind, media := clipboardKindFor(manifest.Files[0].Type)
+				if manifest.Files[0].Type == "" || manifest.Files[0].Type == "application/octet-stream" {
+					kind, media = clipboardKindFor(clipboardMediaTypeForName(manifest.Files[0].Name))
+				}
+				if s.clipboard.Copy(paths[0], kind, media) == nil {
+					receipt.Clipboard = "ready"
+				}
+			} else if ok && writer.CopyFiles(paths) == nil {
+				receipt.Clipboard = "ready"
+			}
+			if receipt.Clipboard == "ready" {
+				if err := persistReceipt(); err != nil {
+					receipt.Clipboard = "unavailable"
+					return err
+				}
+			}
+			return nil
+		})
+		if copyErr != nil && !errors.Is(copyErr, errMutationPermission) {
+			// The batch is already published; keep its explicit unavailable
+			// clipboard result instead of turning a copy failure into a fake ready.
+			receipt.Clipboard = "unavailable"
+		}
+	}
 	// Never inject Ctrl+V or Enter. The user chooses when/where to paste.
-	data, _ = json.Marshal(receipt)
-	temporary := filepath.Join(destination, ".receipt-next.json")
-	if os.WriteFile(temporary, data, 0600) == nil {
-		_ = os.Rename(temporary, filepath.Join(destination, ".receipt.json"))
+	if receipt.Clipboard != "ready" {
+		receipt.Clipboard = "unavailable"
 	}
 	respond(receipt, 201)
 }

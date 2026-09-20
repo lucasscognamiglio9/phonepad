@@ -2,7 +2,7 @@
 
 ## Estado de entrada
 
-La reanudación está autorizada. El último checkpoint de código es `1a43331` en `refactor/p00-baseline`; este documento no marca código nuevo como implementado. P01A-04 está en progreso y se ocupa de reanudación y revisión de adjuntos. El trabajo actual conserva el alcance del plan maestro: 14 fases, 115 tareas y 32 requisitos.
+La reanudación está autorizada. El último checkpoint de código es `ba45a00` en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7` y P02-01 en `ba45a00`. P02-03 integra capacidades y revocación. El trabajo actual conserva el alcance del plan maestro: 14 fases, 115 tareas y 32 requisitos.
 
 La pareja principal para aceptación será Ubuntu+iPhone. También se pueden coordinar pruebas con un Mac de un amigo y un Android de otro amigo, pero aún no están comprobadas las herramientas de compilación, la firma, los builds, los permisos ni la disponibilidad efectiva de cada equipo. No usar esa posibilidad como evidencia anticipada.
 
@@ -20,9 +20,9 @@ P00.1–P00.5 y P01.1–P01.5 conservan sus resultados. P00.6 y P01.6 siguen par
 
 ## Orden y dependencias
 
-### 1. P01A-04: bloque activo
+### 1. P01A-04: implementación verificada
 
-Completar la reanudación por archivo/parte y la revisión antes de subir: checksum calculado en móvil, límites negociados y visibles, selección revisable, recuperación de partes sin duplicar las completas y limpieza de staging huérfano tras cancelación o crash. Mantener recibos, deduplicación de lotes completos y rollback existentes. No marcar el bloque implementado hasta tener pruebas y evidencia; la aceptación física permanece separada.
+Se completaron la reanudación por archivo/parte y la revisión antes de subir: checksum calculado en móvil, límites negociados y visibles, selección revisable, recuperación de partes sin duplicar las completas y limpieza de staging huérfano tras cancelación o crash. Mantener recibos, deduplicación de lotes completos y rollback existentes. El bloque tiene 138 pruebas móviles, Go race y export iOS; la aceptación física permanece separada.
 
 Después de fijar ese borde, continuar con recibos de acciones/atajos, repetición controlada de flechas y proveedor alternativo para destinos sin `EditableText`. La cobertura física de composición/dictado y los destinos reales de lotes corresponden a la matriz P01A.11 y no se sustituyen por GTK.
 
@@ -64,7 +64,7 @@ P11 puede preparar bootstrap, documentación, onboarding y el servicio opcional 
 | --- | --- | --- | --- | --- | --- |
 | P00.6 | Preparación ya disponible | Nuevo candidato nativo y fingerprint pendientes | Daemon/servidor comprobados | Ubuntu+iPhone principal; Android/Mac por comprobar | No |
 | P01.6 | Política P01.1–P01.5 implementada | Candidato móvil pendiente | A/B host/encoder disponible | Presentación, colas y detalle en receptor | No |
-| P01A | P01A-04 en curso; fase abierta | Expo Crypto exige build compatible | GTK/XWayland privado | iOS/Ubuntu primero; Android después | No |
+| P01A | P01A-04 implementado; fase abierta | Expo Crypto y FileSystem exigen build compatible | GTK/XWayland privado | iOS/Ubuntu primero; Android después | No |
 | P02 | Go/TypeScript/interfaces/fixtures | Puede validarse antes del móvil | Compatibilidad y sesión aisladas | Pares físicos después | No |
 | P03 | Instrumentación y camino principal | Runtime servidor seleccionable | HFR, color, colas, comparadores | Energía/temperatura/presentación | No |
 | P04–P05 | Geometría, gestos, UI | Cambios nativos requieren candidato | Fixtures/web/GTK | Touch, teclado, Metal, accesibilidad | No |

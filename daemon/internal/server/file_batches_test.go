@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -150,5 +151,38 @@ func TestBatchClipboardURIListPreservesOrderAndEscapes(t *testing.T) {
 	}
 	if mime != "text/uri-list" || !reflect.DeepEqual(strings.Split(strings.TrimSuffix(data, "\r\n"), "\r\n"), want) {
 		t.Fatal(mime, data)
+	}
+}
+
+func TestBatchRejectsRevokedFilesBeforeReadingBody(t *testing.T) {
+	s, p, m := batchFixture(t)
+	if err := s.SetPermissions(mutationPermissions("revoked", "granted")); err != nil {
+		t.Fatal(err)
+	}
+	if w := batchRequest(s, m, []string{"first", "second"}, false); w.Code != http.StatusForbidden {
+		t.Fatalf("revoked batch status = %d, body = %s", w.Code, w.Body.String())
+	}
+	if p.calls != 0 {
+		t.Fatal("revoked batch touched clipboard")
+	}
+	if entries, err := os.ReadDir(s.uploadDir); err != nil || len(entries) != 0 {
+		t.Fatalf("revoked batch left storage: entries=%v err=%v", entries, err)
+	}
+}
+
+func TestBatchPublishesFilesWithoutClipboardWhenClipboardRevoked(t *testing.T) {
+	s, p, m := batchFixture(t)
+	if err := s.SetPermissions(mutationPermissions("granted", "revoked")); err != nil {
+		t.Fatal(err)
+	}
+	w := batchRequest(s, m, []string{"first", "second"}, false)
+	if w.Code != http.StatusCreated || !strings.Contains(w.Body.String(), `"clipboard":"unavailable"`) {
+		t.Fatalf("clipboard-revoked batch = %d, %s", w.Code, w.Body.String())
+	}
+	if p.calls != 0 {
+		t.Fatal("clipboard-revoked batch copied files")
+	}
+	if _, err := os.Stat(filepath.Join(s.uploadDir, "batch-"+m.ID, "1-foto.png")); err != nil {
+		t.Fatalf("files were not published while clipboard was revoked: %v", err)
 	}
 }
