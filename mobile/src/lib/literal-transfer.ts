@@ -10,6 +10,7 @@ export type TextManifest = { version: 1; operationId: string; session: string; c
 export type TextReceipt = TextManifest & { state: 'receiving' | 'ready' | 'dispatching' | 'dispatched' | 'uncertain' | 'rejected' | 'cancelled';
   receivedBytes: number; nextChunk: number };
 export type PendingText = { manifest: TextManifest; text: string; receipt?: TextReceipt };
+export type LateDraft = { text: string; duplicate: boolean };
 
 export function inputCapabilities(value: unknown): InputCapabilities | null {
   const v = value as InputCapabilities | null;
@@ -26,6 +27,7 @@ export function inputCapabilities(value: unknown): InputCapabilities | null {
 // No retries or silent fallback to scancodes. A lost receipt requires status.
 export class LiteralTransfer {
   draft = '';
+  lateDraft: LateDraft | null = null;
   pending: PendingText | null = null;
   busy = false;
   private sequence = 0;
@@ -95,11 +97,67 @@ export class LiteralTransfer {
     if (this.busy || !this.pending) throw Error('No hay un envío disponible para consultar.');
     this.busy = true;
     try {
-      const { manifest } = this.pending;
+      const pending = this.pending;
+      const { manifest } = pending;
       const receipt = this.receipt(await this.request({ op: 'status', session: manifest.session, operationId: manifest.operationId }), manifest);
-      this.pending.receipt = receipt; return receipt;
+      if (this.pending === pending) pending.receipt = receipt;
+      return receipt;
     } finally { this.busy = false; }
   }
-  // Only an explicit review may forget uncertain work. This never sends input.
-  reviewed() { if (!this.busy) this.pending = null; }
+  // A terminal receipt returned by send/status is already verified locally.
+  // Clear only those receipts synchronously; uncertain work still requires an
+  // explicit review and a status query.
+  acknowledged() {
+    if (this.busy || !this.pending) return;
+    const state = this.pending.receipt?.state;
+    if (state === 'dispatched' || state === 'rejected' || state === 'cancelled') this.pending = null;
+  }
+  noteLateDraft(text: string, confirmedText: string): LateDraft {
+    this.lateDraft = { text, duplicate: text === confirmedText };
+    return this.lateDraft;
+  }
+  useLateDraft(): LateDraft | null {
+    const late = this.lateDraft;
+    if (late) {
+      const current = this.draft;
+      this.draft = late.text;
+      this.lateDraft = current && current !== late.text ? { text: current, duplicate: false } : null;
+    }
+    return late;
+  }
+  discardLateDraft() { this.lateDraft = null; }
+  // Forgetting a prepared operation must leave no staged text behind. The
+  // server's cancel is idempotent from the client's point of view: a second
+  // review first observes the cancelled receipt and does not send another
+  // cancel request. Claimed work is queried before it can be forgotten.
+  async reviewed(): Promise<boolean> {
+    const pending = this.pending;
+    if (this.busy || !pending) return false;
+    let receipt = pending.receipt;
+    if (!receipt || receipt.state === 'dispatching' || receipt.state === 'dispatched' || receipt.state === 'uncertain') {
+      try { receipt = await this.status(); }
+      catch { return false; }
+    }
+    if (this.pending !== pending) return false;
+    if (receipt.state === 'receiving' || receipt.state === 'ready') {
+      this.busy = true;
+      try {
+        const cancelled = this.receipt(await this.request({ op: 'cancel', session: pending.manifest.session,
+          operationId: pending.manifest.operationId }), pending.manifest);
+        pending.receipt = cancelled;
+        if (cancelled.state !== 'cancelled') return false;
+      } catch {
+        // A lost cancel response may still have committed the tombstone. Read
+        // it before deciding whether the local operation can be forgotten.
+        this.busy = false;
+        try { receipt = await this.status(); }
+        catch { return false; }
+        if (receipt.state !== 'cancelled') return false;
+      } finally { this.busy = false; }
+    } else if (receipt.state === 'dispatching') {
+      return false;
+    }
+    if (this.pending === pending) this.pending = null;
+    return true;
+  }
 }

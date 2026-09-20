@@ -101,3 +101,56 @@ func TestGatewayIsolation(t *testing.T) {
 		}
 	}
 }
+
+func TestGatewayAllowsInputAndFileTransferRoutes(t *testing.T) {
+	s := New(staticAuth("secret"), &fakeInjector{}, nil, "https://phone.example/")
+	s.uploadDir = t.TempDir()
+	h := s.RemoteHandler("https://phone.example")
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+		type_  string
+	}{
+		{method: http.MethodPost, path: "/api/input", body: `{}`, type_: "application/json"},
+		{method: http.MethodGet, path: "/api/file-batches?id=bad", type_: "application/json"},
+		{method: http.MethodPost, path: "/api/file-batches", body: `{}`, type_: "application/json"},
+		{method: http.MethodGet, path: "/api/file-transfers", type_: "application/json"},
+		{method: http.MethodPost, path: "/api/file-transfers", body: `{}`, type_: "application/json"},
+		{method: http.MethodPut, path: "/api/file-transfers?id=bad", body: "x", type_: "application/octet-stream"},
+	} {
+		r := httptest.NewRequest(tc.method, "https://phone.example"+tc.path, strings.NewReader(tc.body))
+		r.RemoteAddr = "127.0.0.1:12"
+		r.Header.Set("Origin", "https://phone.example")
+		r.Header.Set("Content-Type", tc.type_)
+		r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "secret"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code == http.StatusForbidden && strings.Contains(w.Body.String(), "operator route unavailable") {
+			t.Errorf("gateway rejected public route %s %s", tc.method, tc.path)
+		}
+	}
+
+	for _, path := range []string{"/api/input", "/api/file-batches", "/api/file-transfers"} {
+		r := httptest.NewRequest(http.MethodPost, "https://phone.example"+path, strings.NewReader(`{}`))
+		r.RemoteAddr = "127.0.0.1:12"
+		r.Header.Set("Origin", "https://evil.example")
+		r.Header.Set("Content-Type", "application/json")
+		r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "secret"})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), "operator route unavailable") {
+			t.Errorf("cross-origin public route %s was not rejected by auth/origin: %d %s", path, w.Code, w.Body.String())
+		}
+	}
+
+	r := httptest.NewRequest(http.MethodGet, "https://phone.example/api/file-transfers", nil)
+	r.RemoteAddr = "127.0.0.1:12"
+	r.Header.Set("Origin", "https://phone.example")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("file transfer without session reached unexpected status %d", w.Code)
+	}
+}

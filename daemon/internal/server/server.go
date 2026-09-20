@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 
 	"phonepad/daemon/internal/devreload"
+	"phonepad/daemon/internal/filebatches"
 	"phonepad/daemon/internal/input"
 )
 
@@ -30,17 +31,20 @@ type Authenticator interface {
 // token, rutea mensajes al Injector y maneja ping/pong. Asume 1 cliente (SPEC
 // §1 no-goals): una conexión nueva con token válido reemplaza a la anterior.
 type Server struct {
-	inputSession     string
-	inputLeases      map[string]inputLease
-	nativeUpdatePath string
-	uploadMu         sync.Mutex
-	uploadDir        string
-	clipboardMu      sync.Mutex
-	clipboard        clipboardWriter
-	trustedPeer      func(*http.Request) bool
-	pairMu           sync.Mutex
-	pairCode         string
-	pairExpires      time.Time
+	inputSession      string
+	inputLeases       map[string]inputLease
+	nativeUpdatePath  string
+	uploadMu          sync.Mutex
+	uploadDir         string
+	fileTransfersOnce sync.Once
+	fileTransfers     *filebatches.Store
+	fileTransfersErr  error
+	clipboardMu       sync.Mutex
+	clipboard         clipboardWriter
+	trustedPeer       func(*http.Request) bool
+	pairMu            sync.Mutex
+	pairCode          string
+	pairExpires       time.Time
 
 	desktop desktopRelay
 	auth    Authenticator
@@ -97,6 +101,7 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 	s.mux.HandleFunc("/api/desktop", s.handleDesktop)
 	s.mux.HandleFunc("/api/files", s.handleFiles)
 	s.mux.HandleFunc("/api/file-batches", s.handleFileBatches)
+	s.mux.HandleFunc("/api/file-transfers", s.handleFileTransfers)
 	s.mux.HandleFunc("/api/input", s.handleInput)
 	s.mux.HandleFunc(nativeUpdateRoute, s.handleNativeUpdate)
 	s.mux.HandleFunc("/share", s.handleShare(webFS))

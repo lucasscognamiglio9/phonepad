@@ -1,6 +1,28 @@
-# Estado de ejecución — 17/09/2026
+# Estado de ejecución: 20/09/2026
 
-## Checkpoint de cierre por cuota: P01A-03
+## P01A-04 implementado; P02-01 y P02-02 en progreso
+
+La ejecución sigue autorizada. Base de esta entrega: `1a43331` en `refactor/p00-baseline`. P01A-04 incorpora lotes reanudables, checksum de origen, selección revisable, limpieza y cancelación durable. También corrige las rutas del gateway y eventos tardíos del teclado. Ver `p01a-04.md` y `file-transfer-contract.md`.
+
+Verificación de P01A-04: pruebas de cliente y almacenamiento, gateway real a través de RemoteHandler, Go completo con detector de carreras y bundle iOS/Hermes. Los logs se guardan en `outputs/p01a-04`; el cierre de validación se registra en el documento del bloque. Un bundle Hermes no es un IPA ni aceptación física.
+
+P02-01 prepara selección/configuración de equipos sin dirección fija. P02-02 separa contratos/FIFO portables del proveedor Linux. Todavía no se marcan verificados ni cerrados mientras sus cambios están en progreso.
+
+P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperando candidato y receptor físico. P01A completa continúa abierta: acciones/atajos con recibos, alternativas a EditableText, matriz de dictado y consumidores reales. No hubo despliegue, OTA ni reinicio de servicios personales.
+
+La pareja principal es Ubuntu+iPhone. El usuario tiene acceso a un Mac de un amigo y un Android de otro. Aún debemos verificar toolchains, firma, permisos y disponibilidad. Expo Crypto y Expo FileSystem requieren un nuevo binario compatible.
+
+### Continuación
+
+1. Integrar y comprobar P02-01/P02-02, conservando configuración anterior y cerrando recursos del host anterior.
+2. P02.3–P02.7: capacidades, épocas, modo de visualización y compatibilidad. Continuar P01A con acciones y proveedores sin pérdida de contenido.
+3. P01.6/P03.1–P03.4 para medición y camino principal Linux; después P04/P05.
+4. P06/P07/P08 por tareas independientes; P09/P10 con herramientas y equipos disponibles.
+5. P11 bootstrap/instalación y distribución; P12 cierre de matriz y rollback.
+
+Cada checkpoint distingue código, compilación, laboratorio, aceptación física y distribución. Una espera física no detiene tareas Linux independientes. El runbook completo está en `continuation-2026-09-20.md`.
+
+## Historial archivado: checkpoint de cierre por cuota P01A-03, 17/09/2026
 
 El usuario pidió detener y dejar todo al día. Bloque de texto literal P01A-02 en `38f3f6a`; bloque de lotes P01A-03 terminado como entrega parcial, documentado en `p01a-03.md`. Once suites móviles, TypeScript, Python, Go race, vet y build aprobados. Evidencia de GTK real aislado para texto y portapapeles en `outputs/p01a-02` y `outputs/p01a-03`, ignorada por Git pero conservada.
 
@@ -8,11 +30,11 @@ El usuario pidió detener y dejar todo al día. Bloque de texto literal P01A-02 
 
 El estado siguiente es histórico y no reemplaza esta pausa.
 
-## Estado vigente: P01A, bloque 3
+## Historial: P01A, bloque 3
 
 Selección múltiple conectada a lotes atómicos e idempotentes, con proveedor de lista de archivos validado en GTK/XWayland privado. Ver `p01a-03.md`. Reanudar partes individuales, checksum de origen, acciones/atajos y aceptación física siguen pendientes. El bloque 2 de texto literal queda en commit `38f3f6a`. No desplegado. Continuar sin pausas rutinarias.
 
-## Estado vigente: P01A, bloque 2
+## Historial: P01A, bloque 2
 
 Texto literal conectado desde el compositor al endpoint autenticado y al adaptador AT-SPI. Ver `p01a-02.md`. GTK aislado verifica corpus y 100 KiB exactos; pruebas de cliente/servidor pasan. Fase parcial: faltan clipboard alternativo, acciones, lotes y aceptación física. Expo Crypto exige nuevo build nativo. No desplegado.
 
@@ -20,7 +42,7 @@ Autorización vigente: continuar sin pausas rutinarias; el usuario avisa cuándo
 
 ## Historial de checkpoints
 
-## Checkpoint vigente: P01A, bloque 1
+## Historial: P01A, bloque 1
 
 Borradores protegidos ante rechazo/desconexión y núcleo de transferencia literal hasta 128 KiB probado. Ver `p01a-01.md` y `input-operation-contract.md`. El núcleo todavía no se conecta al transporte ni inyector; no declarar resueltos símbolos, dictado, pegado largo o adjuntos. P01A sigue en curso; los pendientes físicos P00.6/P01.6 también.
 
@@ -28,7 +50,7 @@ Próximo bloque P01A-02: adaptador Linux de texto literal y proveedor de clipboa
 
 ## Historial P01
 
-## Checkpoint vigente: P01 implementada, aceptación física pendiente
+## Historial: P01 implementada, aceptación física pendiente
 
 P01.1–P01.5 entregadas con pruebas y comparación contra P00. P01.6 cuenta con A/B de encoder real aislado; faltan detalle visual y tráfico/colas extremo a extremo en dispositivo. Ver `p01.md` para resultados, límites y rollback. P00.6 sigue pendiente; no hubo despliegue ni publicación OTA.
 

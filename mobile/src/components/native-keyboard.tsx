@@ -8,6 +8,7 @@ import { GlassButton } from './glass-button';
 import { ActionMenu } from './action-menu';
 import type { Connection } from '../lib/connection';
 import type { AttachmentSource } from '../lib/attachments';
+import type { LateDraft } from '../lib/literal-transfer';
 import { textCommands } from '../lib/protocol';
 
 type MenuAnchor = { x: number; y: number; width: number; height: number };
@@ -32,14 +33,18 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const input = useRef<TextInput>(null);
   const literal = connection.literal;
-  const literalMode = !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft;
+  const literalMode = !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft || !!literal?.lateDraft;
   const [value, setValue] = useState(literal?.draft ?? '');
   const [sending, setSending] = useState(false);
   const [textStatus, setTextStatus] = useState('');
   const previous = useRef('');
   const draft = useRef(literal?.draft ?? '');
-  const interrupted = useRef(false);
-  const [deliveryIssue, setDeliveryIssue] = useState(false);
+  const interrupted = useRef(!!literal?.lateDraft);
+  const editorGeneration = useRef(0);
+  const confirmedText = useRef('');
+  const [inputGeneration, setInputGeneration] = useState(0);
+  const [lateDraft, setLateDraft] = useState<LateDraft | null>(literal?.lateDraft ?? null);
+  const [deliveryIssue, setDeliveryIssue] = useState(!!literal?.lateDraft);
   const [shortcuts, setShortcuts] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [mods, setMods] = useState<string[]>([]);
@@ -95,6 +100,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     }
   }, [active, visible, disabled, literalMode]);
   useEffect(() => {
+    if (inputGeneration > 0 && active && visible && !disabled) input.current?.focus();
+  }, [inputGeneration, active, visible, disabled]);
+  useEffect(() => {
     // A keyboard frame change can move the composer without changing its
     // React layout. Re-measure while the popup is open so its window anchor
     // follows the button instead of retaining the pre-keyboard coordinates.
@@ -119,14 +127,48 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   const canSend = () => !disabled && visible && !interrupted.current && !sending && !literal?.busy;
   const canSendKey = () => canSend() && !(literalMode && (draft.current || literal?.pending));
-  const reviewed = () => {
-    if (disabled || !visible) return;
+  const finishReview = () => {
     // This does not assert that the host applied anything and sends no input.
     // The user has reviewed the remote field; only later edits may be sent.
     previous.current = draft.current;
-    literal?.reviewed();
     setTextStatus('');
     interrupted.current = false; setDeliveryIssue(false); setMods([]);
+  };
+  const useLateDraft = () => {
+    const selected = literal?.useLateDraft ? literal.useLateDraft() : lateDraft;
+    if (!selected) return;
+    draft.current = selected.text; literal.draft = selected.text; setValue(selected.text);
+    setLateDraft(literal.lateDraft ?? null);
+    interrupted.current = false; setDeliveryIssue(false); setMods([]);
+    setTextStatus(selected.duplicate
+      ? 'La versión tardía coincide con el bloque confirmado. Revisala antes de escribir.'
+      : 'Versión tardía seleccionada. Revisala antes de escribir.');
+  };
+  const discardLateDraft = () => {
+    literal?.discardLateDraft?.();
+    setLateDraft(null);
+    interrupted.current = false; setDeliveryIssue(false); setMods([]);
+    setTextStatus('');
+  };
+  const reviewed = () => {
+    if (disabled || !visible) return;
+    if (sending) return;
+    if (!literal?.pending) {
+      finishReview();
+      return;
+    }
+    setSending(true);
+    Promise.resolve(literal.reviewed()).then(accepted => {
+      setSending(false);
+      if (accepted === false) {
+        setTextStatus('No se pudo cancelar el envío preparado. Consultá el estado antes de continuar.');
+        return;
+      }
+      finishReview();
+    }).catch(() => {
+      setSending(false);
+      setTextStatus('No se pudo consultar el envío. Revisá la computadora antes de continuar.');
+    });
   };
   const special = (key: string) => {
     if (!canSendKey()) return;
@@ -145,7 +187,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   const applyReceipt = (state: string, sentText: string) => {
     if (state === 'dispatched') {
-      literal.reviewed();
+      // Replacing the native editor makes callbacks from the old editor
+      // carry a generation that can never be mistaken for a new edit.
+      editorGeneration.current += 1;
+      setInputGeneration(editorGeneration.current);
+      confirmedText.current = sentText;
+      literal.acknowledged?.();
       if (draft.current.startsWith(sentText)) {
         // A late native event may append text while editable=false is taking
         // effect. Keep only the unsent suffix, never resend the delivered block.
@@ -228,6 +275,20 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
     <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss} />
     <Animated.View pointerEvents="box-none" style={[{ position: 'absolute', bottom, alignSelf: 'center', gap: 8 }, style]}>
+      {lateDraft && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
+        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
+          {lateDraft.duplicate
+            ? 'La versión tardía coincide con el bloque confirmado. Revisala antes de decidir qué borrador conservar.'
+            : 'Hay otra versión conservada del borrador. Podés elegirla sin perder el texto actual.'}
+        </Text>
+        <ScrollView style={{ maxHeight: 120 }} keyboardShouldPersistTaps="handled">
+          <Text selectable style={{ color: '#f4f5f7', fontSize: 14, marginTop: 6 }}>{lateDraft.text || '(vacío)'}</Text>
+        </ScrollView>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <GlassButton label="Usar versión tardía" disabled={disabled || sending} onPress={useLateDraft} />
+          <GlassButton label="Descartar versión tardía" disabled={disabled || sending} onPress={discardLateDraft} />
+        </View>
+      </GlassSurface>}
       {deliveryIssue && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
           Envío interrumpido. Tu texto sigue acá. Revisá la computadora antes de continuar; podés seleccionar y copiar este borrador.
@@ -265,8 +326,19 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       </GlassSurface></ScrollView></Animated.View>}
       <GlassSurface style={{ borderRadius: 28, padding: 4 }}>
         <View style={{ position: 'relative', minHeight: 44, paddingBottom: active ? 44 : 0 }}>
-          <TextInput ref={input} value={value} onChangeText={text => {
+          <TextInput key={inputGeneration} ref={input} value={value} onChangeText={text => {
               if (literalMode) {
+                if (inputGeneration !== editorGeneration.current) {
+                  // The callback belongs to the editor that was replaced at
+                  // the receipt. Keep the complete event and require review
+                  // because its origin is unknown.
+                  const late = literal.noteLateDraft?.(text, confirmedText.current)
+                    ?? { text, duplicate: text === confirmedText.current };
+                  setLateDraft(late);
+                  interrupted.current = true; setDeliveryIssue(true);
+                  setTextStatus('El borrador cambió al confirmar el envío. Revisalo antes de continuar.');
+                  return;
+                }
                 if (mods.length && !draft.current && Array.from(text).length === 1 && !/[\r\n]/.test(text) && canSendKey()) {
                   if (connection.send({ t: 'k', a: 'combo', mods, key: text })) {
                     setMods([]); resetContext(); return;

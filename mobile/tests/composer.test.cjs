@@ -9,6 +9,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(path.join(__dirname, 
 }).outputText;
 function harness() {
   const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
+  const focusCount = { value: 0 };
   const dimensions = { width: 390, height: 844 };
   const keyboardHeight = { value: 0 };
   const measurement = { x: 24, y: 720, width: 44, height: 44 };
@@ -26,6 +27,9 @@ function harness() {
       props.ref.current = { measureInWindow: callback => callback(
         measurement.x, measurement.y, measurement.width, measurement.height,
       ) };
+    }
+    if (type === 'TextInput' && props?.ref && typeof props.ref === 'object') {
+      props.ref.current = { focus: () => { focusCount.value += 1; }, blur: () => {} };
     }
     return { type, props };
   };
@@ -60,7 +64,7 @@ function harness() {
   const type = value => { find('TextInput').props.onChangeText(value); render(); };
   render(); render();
   return {
-    props, sent, chosen, keyboardHeight, render, tree: () => tree, nodes, find, click, type,
+    props, sent, chosen, focusCount: () => focusCount.value, keyboardHeight, render, tree: () => tree, nodes, find, click, type,
     keyboard: (event, payload = {}) => (keyboardListeners[event] ?? []).forEach(callback => callback(payload)),
     measure: next => Object.assign(measurement, next),
     resize: next => Object.assign(dimensions, next),
@@ -342,6 +346,52 @@ test('a late native append during delivery retains only the unsent suffix', asyn
   await new Promise(resolve=>setImmediate(resolve));h.render();
   assert.equal(h.find('TextInput').props.value,' next');
   assert.equal(h.props.connection.literal.draft,' next');
+});
+test('callbacks two editor generations old preserve the current draft and expose the late version',async()=>{
+ const h=harness();let finish;
+ h.props.connection.inputCapabilities={version:1};
+ h.props.connection.literal={draft:'',pending:null,lateDraft:null,
+   send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
+   noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
+   discardLateDraft(){this.lateDraft=null;}};
+ h.props.active=true;h.render();h.type('first');h.click('Escribir');
+ const firstEditor=h.find('TextInput');
+ const focused=h.focusCount();
+ finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
+ assert.ok(h.focusCount()>focused,'the remounted editor regains focus');
+ h.type('second');h.click('Escribir');
+ finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
+ h.type('nuevo');
+ await new Promise(resolve=>setImmediate(resolve));
+ firstEditor.props.onChangeText('first next');h.render();
+ assert.equal(h.find('TextInput').props.value,'nuevo');
+ assert.equal(h.props.connection.literal.draft,'nuevo');
+ assert.equal(h.props.connection.literal.lateDraft.text,'first next');
+ assert.equal(h.find('GlassButton','Escribir').props.disabled,true);
+ assert.ok(h.find('GlassButton','Usar versión tardía'));
+ h.props.visible=false;h.render();h.props.visible=true;h.render();
+ assert.ok(h.find('GlassButton','Usar versión tardía'),'late version survives hiding');
+ h.click('Descartar versión tardía');
+ assert.equal(h.find('TextInput').props.value,'nuevo');
+ assert.equal(h.props.connection.literal.lateDraft,null);
+ assert.equal(h.find('GlassButton','Escribir').props.disabled,false);
+});
+test('using a late editor version replaces the draft only after an explicit choice',async()=>{
+ const h=harness();let finish;
+ h.props.connection.inputCapabilities={version:1};
+ h.props.connection.literal={draft:'',pending:null,lateDraft:null,
+   send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
+   noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
+   useLateDraft(){const value=this.lateDraft;this.lateDraft=null;return value;}};
+ h.props.active=true;h.render();h.type('first');h.click('Escribir');
+ const oldEditor=h.find('TextInput');finish({state:'dispatched'});
+ await new Promise(resolve=>setImmediate(resolve));h.render();h.type('nuevo');
+ oldEditor.props.onChangeText('first next');h.render();
+ const sends=h.sent.length;
+ h.click('Usar versión tardía');
+ assert.equal(h.find('TextInput').props.value,'first next');
+ assert.equal(h.props.connection.literal.lateDraft,null);
+ assert.equal(h.sent.length,sends,'choosing a late version never sends it');
 });
 test('a late replacement during delivery requires review before another send',async()=>{
  const h=harness();let finish;

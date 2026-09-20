@@ -154,7 +154,7 @@ function harness(options = {}) {
       Keyboard: keyboard,
       StyleSheet: { absoluteFill, create: styles => styles },
       Text: 'Text',
-      View: 'View',
+      View: 'View', Modal: 'Modal', ScrollView: 'ScrollView',
       useWindowDimensions: () => dimensions,
     },
     'expo-status-bar': { StatusBar: 'StatusBar' },
@@ -175,7 +175,20 @@ function harness(options = {}) {
     '../lib/attachments': {
       chooseAttachments: () => Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
       attachmentBatch: items => ({ id: 'fixture-batch', items }),
-      sendAttachmentBatch: (...args) => { uploads.push(args); return options.uploadError ? Promise.reject(Error('transfer failed')) : Promise.resolve({ files: args[1].items.map(item => ({name:item.name,bytes:item.size})), ...options.receipt }); },
+
+    },
+    './glass-button': { GlassButton: 'GlassButton' },
+    '../lib/file-transfer': {
+      transferLimits: async () => ({ version: 2, maxFiles: 20, maxBytes: 104857600, maxChunkBytes: 1048576, ttlSeconds: 86400 }),
+      sendPreparedBatch: async (...args) => { uploads.push(args); if (options.uploadError) throw Error('transfer failed'); return {state:'stored'}; },
+      copyPreparedBatch: async batch => ({ state:'stored', files:batch.manifest.files, clipboard:{state:options.receipt?.clipboard ?? 'ready',replayed:options.replayed} }),
+      cancelPreparedBatch: async () => ({state:'cancelled'}),
+    },
+    '../lib/file-transfer-storage': {
+      restorePreparedBatch: () => null,
+      prepareBatch: async (origin,batch) => ({origin,createdAt:1,manifest:{version:2,id:batch.id,files:batch.items.map(f=>({name:f.name,bytes:f.size??123,type:f.type,sha256:'a'.repeat(64)}))}}),
+      readPreparedChunk: () => new Uint8Array(),
+      discardPreparedBatch: () => {},
     },
     '../lib/connection': { COMPUTER: 'https://computer.test/', Connection: FakeConnection },
     '../lib/video': { startVideo },
@@ -183,6 +196,11 @@ function harness(options = {}) {
     '../lib/preview-lifecycle': { PreviewLifecycle: FakePreviewLifecycle },
   };
 
+  const attachmentModule = {};
+  vm.runInNewContext(compile('components/attachment-transfer.tsx'), {
+    exports: attachmentModule, require: name => modules[name], AbortController, setTimeout, clearTimeout, Uint8Array,
+  });
+  modules['../components/attachment-transfer'] = attachmentModule;
   const exports = {};
   vm.runInNewContext(compile('screens/control.tsx'), {
     exports,
@@ -289,7 +307,7 @@ test('portrait keeps the composer and contains the preview without safe-area pad
   assert.strictEqual(rtc.props.style, h.absoluteFill);
   assert.deepEqual(h.findPath('NativeKeyboard'), nativePath);
 
-  for (const node of h.all('KeyboardAvoidingView').concat(h.all('View'), h.all('TouchSurface'))) {
+  for (const node of [h.tree(), h.find('TouchSurface')].concat(h.all('KeyboardAvoidingView'))) {
     const style = node.props?.style;
     if (!style || typeof style !== 'object' || Array.isArray(style)) continue;
     assert.equal(style.paddingTop, undefined, 'video ancestors must not add top inset padding');
@@ -412,66 +430,52 @@ test('rotation also clears keyboard space with the preview off; explicit reopeni
   assert.equal(h.find('KeyboardAvoidingView'), undefined);
 });
 
-const photo = { uri: 'file:///selected.jpg', name: 'Foto.jpg', type: 'image/jpeg' };
-const delivered = { name: 'Foto-123.jpg', bytes: 123, folder: 'Downloads/Phonepad', clipboard: 'ready', clipboardKind: 'image' };
+const photo = { uri: 'file:///selected.jpg', name: 'Foto.jpg', type: 'image/jpeg', size:123 };
+const delivered = { clipboard:'ready' };
 const settle = () => new Promise(resolve => setImmediate(resolve));
-
-test('photo upload prepares paste but sends no input until the user chooses Pegar ahora', async () => {
-  const h = harness({ attachment: photo, receipt: delivered });
-  h.reportConnection('connected');
-  h.find('NativeKeyboard').props.choose('camera');
-  await settle();
-  h.render();
-  assert.equal(h.uploads.length, 1);
-  assert.equal(h.alerts[0][0], 'Listo para pegar');
-  assert.equal(h.commands.length, 0, 'upload must never paste or submit automatically');
-  h.alerts[0][2].find(button => button.text === 'Pegar ahora').onPress();
-  assert.equal(h.commands.length, 1);
-  assert.equal(h.commands[0].command.key, 'v');
-  assert.deepEqual(Array.from(h.commands[0].command.mods), ['ctrl']);
-  assert.equal(h.commands.some(entry => entry.command?.key === 'Enter'), false);
+async function choose(h, source='photos') {
+ h.reportConnection('connected'); h.find('NativeKeyboard').props.choose(source); await settle(); h.render();
+}
+async function send(h) {
+ h.find('GlassButton','Enviar y preparar para pegar').props.onPress(); await settle(); h.render();
+}
+test('selection is reviewed before upload and never pastes or submits automatically',async()=>{
+ const h=harness({attachment:photo,receipt:delivered});await choose(h,'camera');
+ assert.equal(h.uploads.length,0);assert.equal(h.find('Modal').props.visible,true);
+ await send(h);assert.equal(h.uploads.length,1);assert.equal(h.commands.length,0);
+ h.alerts[0][2].find(b=>b.text==='Pegar ahora').onPress();
+ assert.equal(h.commands.length,1);assert.equal(h.commands[0].command.key,'v');
+ assert.deepEqual(Array.from(h.commands[0].command.mods),['ctrl']);
+ assert.equal(h.commands.some(c=>c.command.key==='Enter'),false);
 });
-
-test('saved upload without clipboard readiness never offers a misleading paste action', async () => {
-  const h = harness({ attachment: photo, receipt: { ...delivered, clipboard: 'unavailable' } });
-  h.find('NativeKeyboard').props.choose('files');
-  await settle();
-  assert.equal(h.alerts[0][0], 'Guardado en la laptop');
-  assert.equal(h.alerts[0][2], undefined);
-  assert.equal(h.commands.length, 0);
+test('unconfirmed or replayed clipboard never offers a misleading paste action',async()=>{
+ for(const options of [{receipt:{clipboard:'unavailable'}},{receipt:delivered,replayed:true}]){
+  const h=harness({attachment:photo,...options});await choose(h);await send(h);
+  assert.equal(h.alerts[0][0],'Guardado en la computadora');assert.equal(h.alerts[0][2],undefined);assert.equal(h.commands.length,0);
+ }
 });
-
-test('canceling the phone picker does not upload or report success', async () => {
-  const h = harness();
-  h.find('NativeKeyboard').props.choose('photos');
-  await settle();
-  h.render();
-  assert.equal(h.uploads.length, 0);
-  assert.equal(h.alerts.length, 0);
-  assert.equal(h.find('NativeKeyboard').props.choosing, false);
+test('canceling the native picker creates no transfer or success alert',async()=>{
+ const h=harness();await choose(h);assert.equal(h.uploads.length,0);assert.equal(h.alerts.length,0);
+ assert.equal(h.find('NativeKeyboard').props.choosing,false);
 });
-
-test('a failed paste command tells the user to reconnect and does not send Enter', async () => {
-  const h = harness({ attachment: photo, receipt: delivered, sendSucceeds: false });
-  h.find('NativeKeyboard').props.choose('camera');
-  await settle();
-  h.alerts[0][2].find(button => button.text === 'Pegar ahora').onPress();
-  assert.equal(h.alerts[1][0], 'Reconectá la laptop');
-  assert.equal(h.commands.length, 1);
-  assert.equal(h.commands[0].command.key, 'v');
+test('failed paste requests reconnection and never sends Enter',async()=>{
+ const h=harness({attachment:photo,receipt:delivered,sendSucceeds:false});await choose(h);await send(h);
+ h.alerts[0][2].find(b=>b.text==='Pegar ahora').onPress();assert.equal(h.alerts[1][0],'Reconectá la computadora');
+ assert.equal(h.commands.length,1);assert.equal(h.commands[0].command.key,'v');
 });
-
-test('multiple selected files form one batch and one explicit paste action',async()=>{
- const h=harness({attachments:[photo,{...photo,name:'second.jpg'}],receipt:delivered});
- h.reportConnection('connected');h.find('NativeKeyboard').props.choose('photos');await settle();h.render();
- assert.equal(h.uploads.length,1);assert.equal(h.uploads[0][1].items.length,2);assert.equal(h.commands.length,0);
- assert.equal(h.alerts[0][0],'Listo para pegar');
+test('multiple selections can be reviewed and removed before sending in order',async()=>{
+ const h=harness({attachments:[photo,{...photo,name:'second.jpg'},{...photo,name:'third.jpg'}]});await choose(h);
+ h.find('GlassButton','Quitar second.jpg').props.onPress();h.render();await send(h);
+ assert.deepEqual(Array.from(h.uploads[0][0].manifest.files,f=>f.name),['Foto.jpg','third.jpg']);
 });
-test('lost batch response retains a retry with the same batch identity',async()=>{
- const h=harness({attachments:[photo],uploadError:true});
- h.find('NativeKeyboard').props.choose('photos');await settle();h.render();
- const first=h.uploads[0][1];
- const retry=h.all('GlassButton').find(n=>n.props.label==='Reintentar lote');
- assert.ok(retry);retry.props.onPress();await settle();h.render();
- assert.equal(h.uploads[1][1],first);assert.equal(h.commands.length,0);
+test('lost upload response reuses the prepared manifest and does not allow changing its files',async()=>{
+ const h=harness({attachment:photo,uploadError:true});await choose(h);await send(h);
+ const first=h.uploads[0][0];assert.equal(h.find('GlassButton','Quitar Foto.jpg'),undefined);
+ h.find('GlassButton','Reanudar mismo lote').props.onPress();await settle();h.render();
+ assert.equal(h.uploads[1][0],first);assert.equal(h.commands.length,0);
+});
+test('preview stays mounted while reviewing, uploading and closing the attachment sheet',async()=>{
+ const h=harness({attachment:photo});h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ const rtc=h.findPath('RTCView');await choose(h);assert.deepEqual(h.findPath('RTCView'),rtc);
+ await send(h);assert.deepEqual(h.findPath('RTCView'),rtc);assert.equal(h.startVideoCount(),1);
 });
