@@ -62,6 +62,8 @@ def disable_ice_upnp(peer):
 from media_contract import (MediaContractError, MediaTracker, dimensions_from_caps,
                             fit_square_pixel_size, requested_codecs, unknown_media, validate_media)
 from rate_control import RateController
+from gcc_controller import (GCCController, GCCControllerError, controller_name,
+                            require_runtime)
 
 
 def available_codecs():
@@ -111,9 +113,19 @@ class Session:
         self.codec = codec
         self.media_tracker = media_tracker
         self.media_provider = media_provider
-        print('rtc start codec=' + codec, flush=True)
+        self.controller_name = controller_name()
+        self.controller = None
+        if self.controller_name == 'gcc':
+            # Reject a requested controller before opening capture or starting
+            # a pipeline. Missing private factories must be visible to the
+            # caller, never turn into a silent legacy fallback.
+            require_runtime()
+        print('rtc start codec=' + codec + ' controller=' + self.controller_name, flush=True)
         hevc = codec == 'H265'
-        self.rate = RateController(8000 if hevc else 12000, 4000 if hevc else 6000, policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
+        self.rate = (RateController(8000 if hevc else 12000, 4000 if hevc else 6000,
+                                    policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
+                     if self.controller_name == 'legacy' else None)
+        initial_kbps = self.rate.target if self.rate is not None else (4000 if hevc else 6000)
         encoder = 'vaapih265enc' if hevc else 'vaapih264enc'
         profile = 'video/x-h265,profile=main' if hevc else 'video/x-h264,profile=constrained-baseline'
         parser, payloader = ('h265parse', 'rtph265pay') if hevc else ('h264parse', 'rtph264pay')
@@ -126,12 +138,12 @@ class Session:
         processing = (
             '! vapostproc '
             f'! video/x-raw(memory:VAMemory),format=NV12,{size_caps},colorimetry=bt709 '
-            f'! vah264enc name=encoder rate-control=vbr bitrate={self.rate.target} '
+            f'! vah264enc name=encoder rate-control=vbr bitrate={initial_kbps} '
             'b-frames=0 ref-frames=1 key-int-max=60 cpb-size=720 target-usage=5 '
         ) if self.modern else (
             '! vaapipostproc '
             f'! video/x-raw(memory:VASurface),format=NV12,{size_caps} '
-            f'! {encoder} name=encoder rate-control=vbr bitrate={self.rate.target} '
+            f'! {encoder} name=encoder rate-control=vbr bitrate={initial_kbps} '
             f'max-bframes=0 keyframe-period=30 cpb-length=120 quality-level={7 if hevc else 5} '
         )
         self.pipeline = Gst.parse_launch(
@@ -139,7 +151,7 @@ class Session:
             '! valve name=flow drop-mode=transform-to-gap '
             + processing +
             f'! {profile} '
-            f'! {parser} config-interval=-1 ! {payloader} pt=96 mtu=1200 config-interval=-1 aggregate-mode=zero-latency '
+            f'! {parser} config-interval=-1 ! {payloader} name=payloader pt=96 mtu=1200 config-interval=-1 aggregate-mode=zero-latency '
             f'! application/x-rtp,media=video,encoding-name={codec},payload=96 '
             '! webrtcbin name=peer bundle-policy=max-bundle latency=30')
         def configure_transport(bin, sub_bin, element):
@@ -154,6 +166,13 @@ class Session:
         # UPnP discovery/removal can also stall negotiation and teardown.
         disable_ice_upnp(self.peer)
         self.encoder = self.pipeline.get_by_name('encoder')
+        self.payloader = self.pipeline.get_by_name('payloader')
+        if getattr(self, 'controller_name', 'legacy') == 'gcc':
+            try:
+                self.controller = GCCController(self.peer, self.payloader, self.encoder, codec)
+            except Exception:
+                self.pipeline.set_state(Gst.State.NULL)
+                raise
         self.flow = self.pipeline.get_by_name('flow')
         self.counts = {'source':0,'input':0,'encoded':0}
         self.last_counts = self.counts.copy()
@@ -271,6 +290,15 @@ class Session:
         result, sdp = GstSdp.SDPMessage.new_from_text(text)
         if result != GstSdp.SDPResult.OK:
             raise ValueError('invalid answer')
+        if getattr(self, 'controller_name', 'legacy') == 'gcc':
+            try:
+                self.controller.validate_answer(text)
+            except GCCControllerError:
+                # Do not leave a GCC session alive after accepting an answer
+                # that cannot provide the feedback the requested controller
+                # depends on.
+                self.close()
+                raise
         self.peer.emit('set-remote-description',
                        GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.ANSWER, sdp),
                        Gst.Promise.new())
@@ -288,7 +316,9 @@ class Session:
             self.close()
             raise ValueError('session expired')
         self.suspended = False
-        self.rate.reset()
+        controller_mode = getattr(self, 'controller_name', 'legacy')
+        if controller_mode != 'gcc':
+            self.rate.reset()
         self.touched = time.monotonic()
         self.sample_time = time.monotonic()
         self.last_counts = self.counts.copy()
@@ -303,8 +333,23 @@ class Session:
                 result['media'] = self.media_snapshot()
             return result
 
-        target = self.rate.update(data.get('loss'), data.get('delay'), data.get('rtt'), route=data.get('route'), sequence=data.get('sequence'))
-        self.encoder.set_property('bitrate', target)
+        controller = getattr(self, 'controller', None)
+        controller_mode = getattr(self, 'controller_name', 'legacy')
+        reported_controller = 'gcc' if controller_mode == 'gcc' else self.rate.policy
+        if controller_mode == 'gcc':
+            controller.receiver_report_received(data)
+            applied_kbps = int(self.encoder.get_property('bitrate'))
+            decision = {
+                'controller': 'gcc',
+                'reason': 'gstreamer_gcc',
+                'requestedKbps': None,
+                'appliedKbps': applied_kbps,
+            }
+        else:
+            target = self.rate.update(data.get('loss'), data.get('delay'), data.get('rtt'), route=data.get('route'), sequence=data.get('sequence'))
+            self.encoder.set_property('bitrate', target)
+            applied_kbps = int(self.encoder.get_property('bitrate'))
+            decision = {**self.rate.decision, 'appliedKbps': applied_kbps}
         self.touched = time.monotonic()
         now=time.monotonic();elapsed=max(.001,now-self.sample_time)
         rates={key+'Fps':round((value-self.last_counts[key])/elapsed,1) for key,value in self.counts.items()}
@@ -314,14 +359,21 @@ class Session:
         if data.get('client') == 'native' and now-self.last_diagnostic >= 1:
             self.last_diagnostic = now
             metrics = {key: data.get(key) for key in ('frames','fps','width','height','bytes') if isinstance(data.get(key),(int,float)) and math.isfinite(data[key])}
-            print('rtc ' + json.dumps({'receiver': metrics, 'sender': rates, 'decision': self.rate.decision, 'appliedKbps': self.encoder.get_property('bitrate')}), flush=True)
+            print('rtc ' + json.dumps({'receiver': metrics, 'sender': rates, 'controller': reported_controller,
+                                       'decision': decision, 'gcc': controller.snapshot() if controller else None}), flush=True)
         samples = sorted(self.encode_ms)
-        return {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': self.encoder.get_property('bitrate'), 'controller': self.rate.policy, 'rateDecision': {**self.rate.decision, 'appliedKbps': self.encoder.get_property('bitrate')}, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'media': self.media_snapshot()}
+        response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'media': self.media_snapshot()}
+        if controller is not None:
+            response['gcc'] = controller.snapshot()
+        return response
 
     def close(self):
         if not self.closed:
             self.closed = True
             print('rtc closed encoded=' + str(self.counts['encoded']), flush=True)
+            controller = getattr(self, 'controller', None)
+            if controller is not None:
+                controller.close()
             self.flow.set_property('drop', True)
             self.pipeline.send_event(Gst.Event.new_flush_start())
             self.pipeline.set_state(Gst.State.NULL)
@@ -696,9 +748,15 @@ class Manager:
             session = self.dispatch(start)
             if not session.ready.wait(7) or session.error or session.closed:
                 self.dispatch(session.close)
+                with self._life_lock:
+                    if self.session is session:
+                        self.session = None
                 raise RuntimeError('WebRTC unavailable')
             def description():
                 local = session.peer.get_property('local-description')
+                offer_sdp = local.sdp.as_text()
+                if session.controller_name == 'gcc':
+                    session.controller.validate_offer(offer_sdp)
                 if self.media_tracker is not None:
                     try:
                         self.media_tracker.select_codec(session.codec)
@@ -707,8 +765,15 @@ class Manager:
                         # probe was unavailable; never claim it before this
                         # point.
                         self.media_tracker.set_codecs([session.codec], selected=session.codec)
-                return {'id': session.id, 'type': 'offer', 'sdp': local.sdp.as_text(), 'media': session.media_snapshot()}
-            return self.dispatch(description)
+                return {'id': session.id, 'type': 'offer', 'sdp': offer_sdp, 'media': session.media_snapshot()}
+            try:
+                return self.dispatch(description)
+            except Exception:
+                self.dispatch(session.close)
+                with self._life_lock:
+                    if self.session is session:
+                        self.session = None
+                raise
         def update():
             session = self.session
             if not session or session.closed or not secrets.compare_digest(str(data.get('id', '')), session.id):

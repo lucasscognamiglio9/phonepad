@@ -17,4 +17,8 @@ if env.get('PHONEPAD_LAB_DECODE') == '1':
     decoder = runtime.parent / 'tools/hfr-decode'
     env['GST_PLUGIN_PATH'] = str(decoder / 'plugins') + ':' + env['GST_PLUGIN_PATH']
     env['LD_LIBRARY_PATH'] = str(decoder / 'extracted/usr/lib/x86_64-linux-gnu') + ':' + env['LD_LIBRARY_PATH']
+if env.get('PHONEPAD_LAB_PLUGIN_DIR'):
+    plugin_dir = pathlib.Path(env['PHONEPAD_LAB_PLUGIN_DIR']).resolve(strict=True)
+    if not plugin_dir.is_dir(): raise SystemExit('Invalid lab plugin directory')
+    env['GST_PLUGIN_PATH'] = str(plugin_dir) + ':' + env['GST_PLUGIN_PATH']
 os.execve('/usr/bin/python3', ['/usr/bin/python3', *sys.argv[1:]], env)

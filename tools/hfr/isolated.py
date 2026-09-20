@@ -116,6 +116,8 @@ try:
         experiment = here / ('webrtc_lab.py' if os.environ.get('PHONEPAD_LAB_WEBRTC') == '1' else 'measure.py')
         if os.environ.get('PHONEPAD_LAB_MEDIA') == '1':
             experiment = here.parent / 'refactor/p02_media_lab.py'
+        if os.environ.get('PHONEPAD_LAB_GCC') == '1':
+            experiment = here.parent / 'refactor/p03_gcc_media_lab.py'
         worker = start(['/usr/bin/python3', str(here / 'runtime.py'), str(experiment)], 'measure-' + str(cycle))
         if os.environ.get('PHONEPAD_LAB_FAULT') == '1':
             time.sleep(8)
@@ -127,7 +129,7 @@ try:
             result = inspector.wait(timeout=10)
         else:
             result = worker.wait(timeout=int(os.environ.get('PHONEPAD_LAB_SECONDS', '15')) + 20)
-        if result: raise RuntimeError('Measurement failed; inspect measure log')
+        if result: raise RuntimeError('Measurement exited ' + str(result) + '; inspect measure log')
         if shell.poll() is not None: raise RuntimeError('Isolated compositor exited unexpectedly')
         destination = root / ('cycle-' + str(cycle)); destination.mkdir()
         for name in ('result.json', 'motion.h264'):
