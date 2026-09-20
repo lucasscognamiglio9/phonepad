@@ -13,7 +13,10 @@ const available = (() => {
   }
 })();
 
-export function GlassSurface({ interactive = false, style, ...props }: ViewProps & { interactive?: boolean }) {
+export function GlassSurface({ interactive = false, material = 'clear', style, ...props }: ViewProps & {
+  interactive?: boolean;
+  material?: 'clear' | 'regular';
+}) {
   const [reduceTransparency, setReduceTransparency] = useState(false);
 
   useEffect(() => {
@@ -29,5 +32,5 @@ export function GlassSurface({ interactive = false, style, ...props }: ViewProps
     return <View {...props} style={[{ backgroundColor: '#24262b' }, style]} />;
   }
 
-  return <GlassView {...props} glassEffectStyle="clear" colorScheme="dark" isInteractive={interactive} style={style} />;
+  return <GlassView {...props} glassEffectStyle={material} colorScheme="dark" isInteractive={interactive} style={style} />;
 }

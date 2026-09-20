@@ -12,7 +12,8 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SymbolView } from 'expo-symbols';
+import { ActionIcon } from './action-icon';
+import { ACTIONS, ATTACHMENT_MENU_ACTIONS } from '../lib/actions';
 import Animated, {
   Easing,
   ReduceMotion,
@@ -115,12 +116,7 @@ export function getActionMenuLayout(
 
 type Action = AttachmentSource | 'keyboard';
 
-const items = [
-  { key: 'keyboard', label: 'Teclado', symbol: 'keyboard' },
-  { key: 'files', label: 'Archivos', symbol: 'paperclip' },
-  { key: 'camera', label: 'Cámara', symbol: 'camera' },
-  { key: 'photos', label: 'Fotos', symbol: 'photo.on.rectangle' },
-] as const;
+const items = ATTACHMENT_MENU_ACTIONS.map(key => ({ key, ...ACTIONS[key] }));
 
 export function ActionMenu({ anchor, close, choose, onDismiss, keyboardAllowed = true, attachmentsAllowed = true }: {
   anchor: ActionMenuAnchor | null;
@@ -308,7 +304,7 @@ export function ActionMenu({ anchor, close, choose, onDismiss, keyboardAllowed =
                 (item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed) && styles.rowDisabled]}
             >
               <View style={styles.icon}>
-                <SymbolView name={item.symbol} tintColor="#f4f5f7" size={22} weight="regular" />
+                <ActionIcon action={item.key} />
               </View>
               <Text style={styles.label}>{item.label}</Text>
             </Pressable>)}

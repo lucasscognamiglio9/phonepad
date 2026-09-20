@@ -336,11 +336,11 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
           <View style={{ width: 64 }}><GlassButton compact label="Copiar"
             onPress={() => clipboard('c')} /></View>
           <View style={{ width: 140 }}>
-            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" symbol="arrow.up" onPress={() => special('ArrowUp')} /></View>
+            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" onPress={() => special('ArrowUp')} /></View>
             <View style={{ flexDirection: 'row', gap: 4 }}>
-              <GlassButton compact label="Izquierda" symbol="arrow.left" onPress={() => special('ArrowLeft')} />
-              <GlassButton compact label="Abajo" symbol="arrow.down" onPress={() => special('ArrowDown')} />
-              <GlassButton compact label="Derecha" symbol="arrow.right" onPress={() => special('ArrowRight')} />
+              <GlassButton compact label="Izquierda" action="left" onPress={() => special('ArrowLeft')} />
+              <GlassButton compact label="Abajo" action="down" onPress={() => special('ArrowDown')} />
+              <GlassButton compact label="Derecha" action="right" onPress={() => special('ArrowRight')} />
             </View>
           </View>
           <View style={{ width: 64 }}><GlassButton compact label="Pegar"
@@ -401,17 +401,17 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             <View ref={addButton} collapsable={false}
               onLayout={() => { if (menuInteraction.current) measureAnchorRef.current(); }}
               style={{ width: 44, height: 44, justifyContent: 'center' }}>
-              <GlassButton compact label="Agregar" symbol="plus"
+              <GlassButton compact label="Agregar" action="more"
                 disabled={choosing || (disabled && !allowAttachments)} onPress={openMenu} />
             </View>
             {active && <>
-              <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" symbol="keyboard.badge.ellipsis" selected={shortcuts || mods.length > 0}
+              <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" action="shortcuts" selected={shortcuts || mods.length > 0}
                 onPress={() => setShortcuts(current => !current)} /></View>
               <View style={{ flex: 1 }} />
               {literalMode && <GlassButton label="Escribir" disabled={disabled || sending || deliveryIssue || !value || !!literal?.pending}
                 onPress={() => { void writeText(); }} />}
             </>}
-            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" symbol="return" disabled={disabled || sending || (literalMode && (!!value || !!literal?.pending))} onPress={submit} /></View>
+            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Enter" action="enter" disabled={disabled || sending || (literalMode && (!!value || !!literal?.pending))} onPress={submit} /></View>
           </View>
         </View>
       </GlassSurface>

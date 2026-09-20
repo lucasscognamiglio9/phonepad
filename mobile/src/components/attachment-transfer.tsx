@@ -143,7 +143,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
           {selection?.items.map((item, index) => <View key={`${selection.id}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Text style={{ ...textStyle, flex: 1 }} numberOfLines={3}>{index + 1}. {item.name}</Text>
-            {!prepared && <GlassButton label={`Quitar ${item.name}`} symbol="xmark" disabled={busy} onPress={() => remove(index)} />}
+            {!prepared && <GlassButton label={`Quitar ${item.name}`} action="remove" disabled={busy} onPress={() => remove(index)} />}
           </View>)}
         </ScrollView>
         {!!progress && <Text accessibilityLiveRegion="polite" style={textStyle}>{progress}</Text>}

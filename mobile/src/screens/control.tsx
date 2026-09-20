@@ -97,11 +97,11 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
       reconnect={() => { hideLandscapeControls(); reconnect(); }} exitPreview={togglePreview}
       disabled={!inputReady} insets={insets} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 16, right: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <GlassButton label="Equipos" symbol="desktopcomputer" onPress={changeHost} />
-        <GlassButton label="Reconectar" symbol="arrow.clockwise" onPress={() => { closeKeyboard(); reconnect(); }} />
+        <GlassButton label="Equipos" action="hosts" onPress={changeHost} />
+        <GlassButton label="Reconectar" action="reconnect" onPress={() => { closeKeyboard(); reconnect(); }} />
       </View>
       {status}
-      <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} symbol="desktopcomputer" selected={preview} onPress={togglePreview} />
+      <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
     </View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
       <Text selectable style={{ color: '#b7bbc4', fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>

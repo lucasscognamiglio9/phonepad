@@ -18,7 +18,8 @@ export type LandscapeControlsFrame = {
 
 export const LANDSCAPE_CONTROL_SIZE = 44;
 export const LANDSCAPE_CONTROL_GAP = 6;
-export const LANDSCAPE_CONTROLS_CONTENT_HEIGHT = LANDSCAPE_CONTROL_SIZE * 4 + LANDSCAPE_CONTROL_GAP * 3;
+export const LANDSCAPE_CONTROLS_PADDING = 8;
+export const LANDSCAPE_CONTROLS_CONTENT_HEIGHT = LANDSCAPE_CONTROL_SIZE * 4 + LANDSCAPE_CONTROL_GAP * 3 + LANDSCAPE_CONTROLS_PADDING * 2;
 
 function finite(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -78,7 +79,7 @@ export function LandscapeControls({
     return <View pointerEvents="box-none" style={styles.overlay}>
       <View pointerEvents="box-none" style={[styles.positioner, { top: frame.handleTop, right: frame.right, height: LANDSCAPE_CONTROL_SIZE }]}>
         <GlassSurface interactive style={styles.handleSurface}>
-          <GlassButton compact label="Mostrar controles" symbol="chevron.left" onPress={show} />
+          <GlassButton compact label="Mostrar controles" action="showControls" onPress={show} />
         </GlassSurface>
       </View>
     </View>;
@@ -86,19 +87,21 @@ export function LandscapeControls({
 
   return <View pointerEvents="box-none" style={styles.overlay}>
     <View pointerEvents="box-none" style={[styles.positioner, { top: frame.top, right: frame.right, height: frame.height }]}>
-      <ScrollView
-        style={[styles.scroll, { height: frame.height }]}
-        contentContainerStyle={styles.content}
-        bounces={false}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="always"
-        keyboardDismissMode="none"
-      >
-        <GlassButton label="Ocultar controles" symbol="chevron.right" onPress={hide} />
-        <GlassButton label="Teclado" symbol="keyboard" disabled={disabled} onPress={openKeyboard} />
-        <GlassButton label="Reconectar" symbol="arrow.clockwise" onPress={reconnect} />
-        <GlassButton label="Ocultar pantalla" symbol="desktopcomputer" onPress={exitPreview} />
-      </ScrollView>
+      <GlassSurface interactive material="regular" style={[styles.railSurface, { height: frame.height }]}>
+        <ScrollView
+          style={[styles.scroll, { height: frame.height }]}
+          contentContainerStyle={styles.content}
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
+        >
+          <GlassButton compact label="Ocultar controles" action="hideControls" onPress={hide} />
+          <GlassButton compact label="Teclado" action="keyboard" disabled={disabled} onPress={openKeyboard} />
+          <GlassButton compact label="Reconectar" action="reconnect" onPress={reconnect} />
+          <GlassButton compact label="Ocultar pantalla" action="screen" onPress={exitPreview} />
+        </ScrollView>
+      </GlassSurface>
     </View>
   </View>;
 }
@@ -109,7 +112,7 @@ const styles = StyleSheet.create({
   },
   positioner: {
     position: 'absolute',
-    width: 72,
+    width: LANDSCAPE_CONTROL_SIZE + LANDSCAPE_CONTROLS_PADDING * 2,
     alignItems: 'flex-end',
   },
   handleSurface: {
@@ -120,10 +123,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scroll: {
-    width: 72,
+    width: LANDSCAPE_CONTROL_SIZE + LANDSCAPE_CONTROLS_PADDING * 2,
+  },
+  railSurface: {
+    borderRadius: 30,
+    overflow: 'hidden',
   },
   content: {
-    alignItems: 'flex-end',
+    alignItems: 'center',
     gap: LANDSCAPE_CONTROL_GAP,
+    padding: LANDSCAPE_CONTROLS_PADDING,
   },
 });

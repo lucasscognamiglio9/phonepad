@@ -5,6 +5,11 @@ const path = require('node:path');
 const ts = require('typescript');
 const vm = require('node:vm');
 
+const actions = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(
+  path.join(__dirname, '../src/lib/actions.ts'), 'utf8',
+), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, { exports: actions });
+
 function loadActionMenu(overrides = {}) {
   const source = ts.transpileModule(fs.readFileSync(
     path.join(__dirname, '../src/components/action-menu.tsx'), 'utf8',
@@ -37,7 +42,8 @@ function loadActionMenu(overrides = {}) {
       useWindowDimensions: () => ({ width: 390, height: 844 }),
     },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }) },
-    'expo-symbols': { SymbolView: 'SymbolView' },
+    './action-icon': { ActionIcon: 'ActionIcon' },
+    '../lib/actions': actions,
     'react-native-reanimated': {
       default: { View: 'AnimatedView' },
       Easing: { out: value => value, cubic: value => value },
@@ -186,7 +192,8 @@ function componentHarness(initialAnchor, platform = 'ios') {
       useWindowDimensions: () => ({ width: 390, height: 844 }),
     },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, right: 0, bottom: 34, left: 0 }) },
-    'expo-symbols': { SymbolView: 'SymbolView' },
+    './action-icon': { ActionIcon: 'ActionIcon' },
+    '../lib/actions': actions,
     'react-native-reanimated': {
       default: { View: 'AnimatedView' },
       Easing: { out: value => value, cubic: value => value },

@@ -95,24 +95,25 @@ test('hidden mode exposes only a safe glass handle and its press is UI-only', ()
   const buttons = h.nodes().filter(node => node.type === 'GlassButton');
   assert.equal(buttons.length, 1);
   assert.equal(buttons[0].props.label, 'Mostrar controles');
-  assert.equal(buttons[0].props.symbol, 'chevron.left');
+  assert.equal(buttons[0].props.action, 'showControls');
   buttons[0].props.onPress();
   assert.deepEqual(h.calls, ['show']);
   const roots = h.nodes().filter(node => node.type === 'View');
   assert.ok(roots.every(node => node.props.pointerEvents === 'box-none'));
 });
 
-test('visible mode keeps four controls in a scrollable transparent rail', () => {
+test('visible mode keeps four controls in one scrollable glass capsule', () => {
   const h = componentHarness({ height: 180, visible: true });
   const buttons = h.nodes().filter(node => node.type === 'GlassButton');
   assert.deepEqual(buttons.map(node => node.props.label), [
     'Ocultar controles', 'Teclado', 'Reconectar', 'Ocultar pantalla',
   ]);
-  assert.deepEqual(buttons.map(node => node.props.symbol), [
-    'chevron.right', 'keyboard', 'arrow.clockwise', 'desktopcomputer',
+  assert.deepEqual(buttons.map(node => node.props.action), [
+    'hideControls', 'keyboard', 'reconnect', 'screen',
   ]);
   assert.equal(buttons[1].props.disabled, true);
-  assert.equal(h.nodes().filter(node => node.type === 'GlassSurface').length, 0, 'the rail itself has no giant glass background');
+  assert.equal(h.nodes().filter(node => node.type === 'GlassSurface').length, 1);
+  assert.ok(buttons.every(node => node.props.compact), 'buttons share the capsule material');
   const scroll = h.nodes().find(node => node.type === 'ScrollView');
   assert.equal(scroll.props.keyboardShouldPersistTaps, 'always');
   assert.equal(scroll.props.keyboardDismissMode, 'none');
