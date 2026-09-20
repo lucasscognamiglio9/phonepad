@@ -18,9 +18,11 @@ import (
 
 const (
 	p04MotionFixtureEnv = "PHONEPAD_P04_MOTION_FIXTURE_DIR"
+	p04MotionCasesEnv   = "PHONEPAD_P04_MOTION_CASES"
 	p04MotionTimeout    = 70 * time.Second
 	p04MotionResolution = int32(28)
 	p04MotionIsoGain    = 100.0 / 844.0
+	p04MotionSquareMM   = 100.0
 )
 
 type p04MotionCase struct {
@@ -83,6 +85,7 @@ type p04MotionSummary struct {
 }
 
 type p04MotionAnalysis struct {
+	Case                     string
 	Stage                    string
 	Axis                     string
 	Direction                string
@@ -115,13 +118,9 @@ func TestNativeTouchpadMotionFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cases := []p04MotionCase{
-		{Name: "current-portrait", Mapper: "current-aspect-fit", Width: 390, Height: 844, MaxX: devMaxX, MaxY: devMaxY, Resolution: devRes},
-		{Name: "current-landscape", Mapper: "current-aspect-fit", Width: 844, Height: 390, MaxX: devMaxX, MaxY: devMaxY, Resolution: devRes},
-		{Name: "isotropic-portrait", Mapper: "isotropic-invariant", Width: 390, Height: 844,
-			MaxX: p04MotionAxis(390 * p04MotionIsoGain), MaxY: p04MotionAxis(844 * p04MotionIsoGain), Resolution: p04MotionResolution},
-		{Name: "isotropic-landscape", Mapper: "isotropic-invariant", Width: 844, Height: 390,
-			MaxX: p04MotionAxis(844 * p04MotionIsoGain), MaxY: p04MotionAxis(390 * p04MotionIsoGain), Resolution: p04MotionResolution},
+	cases, err := p04MotionCases()
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	reports := make([]json.RawMessage, 0, len(cases))
@@ -140,6 +139,51 @@ func TestNativeTouchpadMotionFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("P04 motion evidence preserved at %s", runDir)
+}
+
+func p04MotionCases() ([]p04MotionCase, error) {
+	cases := []p04MotionCase{
+		{Name: "current-portrait", Mapper: "current-aspect-fit", Width: 390, Height: 844, MaxX: devMaxX, MaxY: devMaxY, Resolution: devRes},
+		{Name: "current-landscape", Mapper: "current-aspect-fit", Width: 844, Height: 390, MaxX: devMaxX, MaxY: devMaxY, Resolution: devRes},
+		{Name: "isotropic-portrait", Mapper: "isotropic-invariant", Width: 390, Height: 844,
+			MaxX: p04MotionAxis(390 * p04MotionIsoGain), MaxY: p04MotionAxis(844 * p04MotionIsoGain), Resolution: p04MotionResolution},
+		{Name: "isotropic-landscape", Mapper: "isotropic-invariant", Width: 844, Height: 390,
+			MaxX: p04MotionAxis(844 * p04MotionIsoGain), MaxY: p04MotionAxis(390 * p04MotionIsoGain), Resolution: p04MotionResolution},
+		{Name: "square-portrait", Mapper: "square-centered", Width: 390, Height: 844,
+			MaxX: p04MotionAxis(p04MotionSquareMM), MaxY: p04MotionAxis(p04MotionSquareMM), Resolution: p04MotionResolution},
+		{Name: "square-landscape", Mapper: "square-centered", Width: 844, Height: 390,
+			MaxX: p04MotionAxis(p04MotionSquareMM), MaxY: p04MotionAxis(p04MotionSquareMM), Resolution: p04MotionResolution},
+	}
+	filter := strings.TrimSpace(os.Getenv(p04MotionCasesEnv))
+	if filter == "" {
+		return cases, nil
+	}
+	wanted := make(map[string]bool)
+	for _, name := range strings.Split(filter, ",") {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		wanted[name] = true
+	}
+	if len(wanted) == 0 {
+		return nil, fmt.Errorf("%s must contain at least one case name", p04MotionCasesEnv)
+	}
+	selected := make([]p04MotionCase, 0, len(wanted))
+	for _, motionCase := range cases {
+		if wanted[motionCase.Name] {
+			selected = append(selected, motionCase)
+			delete(wanted, motionCase.Name)
+		}
+	}
+	if len(wanted) != 0 {
+		unknown := make([]string, 0, len(wanted))
+		for name := range wanted {
+			unknown = append(unknown, name)
+		}
+		return nil, fmt.Errorf("%s contains unknown case(s): %s", p04MotionCasesEnv, strings.Join(unknown, ","))
+	}
+	return selected, nil
 }
 
 func runP04MotionCase(t *testing.T, runDir string, motionCase p04MotionCase) (json.RawMessage, error) {
@@ -267,9 +311,72 @@ func TestP04MotionEvidenceAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, analysis := range analyses {
-		t.Logf("%s: events=%d accelerated=%.6f raw=%.6f units rawMM=%.6f mmPerPoint=%.9f",
-			analysis.Stage, analysis.Events, analysis.AxisAccelerated, analysis.AxisRaw,
+		t.Logf("%s/%s: events=%d accelerated=%.6f raw=%.6f units rawMM=%.6f mmPerPoint=%.9f",
+			analysis.Case, analysis.Stage, analysis.Events, analysis.AxisAccelerated, analysis.AxisRaw,
 			analysis.RawMM, analysis.MMPerPoint)
+	}
+}
+
+func TestP04SquareCenteredMapper(t *testing.T) {
+	const tolerance = 1e-12
+	gain := p04MotionIsoGain
+	cases := []p04MotionCase{
+		{Name: "square-portrait", Width: 390, Height: 844},
+		{Name: "square-landscape", Width: 844, Height: 390},
+	}
+	for _, motionCase := range cases {
+		t.Run(motionCase.Name, func(t *testing.T) {
+			corners := []struct {
+				name string
+				x, y float64
+			}{
+				{name: "top-left", x: 0, y: 0},
+				{name: "top-right", x: motionCase.Width, y: 0},
+				{name: "bottom-left", x: 0, y: motionCase.Height},
+				{name: "bottom-right", x: motionCase.Width, y: motionCase.Height},
+			}
+			for _, corner := range corners {
+				got := p04SquareContact(1, corner.x, corner.y, motionCase.Width, motionCase.Height)
+				wantX := (p04MotionSquareMM-gain*motionCase.Width)/(2*p04MotionSquareMM) + gain*corner.x/p04MotionSquareMM
+				wantY := (p04MotionSquareMM-gain*motionCase.Height)/(2*p04MotionSquareMM) + gain*corner.y/p04MotionSquareMM
+				if math.Abs(got.X-wantX) > tolerance || math.Abs(got.Y-wantY) > tolerance {
+					t.Fatalf("%s: got (%g,%g), want (%g,%g)", corner.name, got.X, got.Y, wantX, wantY)
+				}
+				if got.X < -tolerance || got.X > 1+tolerance || got.Y < -tolerance || got.Y > 1+tolerance {
+					t.Fatalf("%s saturates outside square: (%g,%g)", corner.name, got.X, got.Y)
+				}
+			}
+
+			topLeft := p04SquareContact(1, 0, 0, motionCase.Width, motionCase.Height)
+			topRight := p04SquareContact(1, motionCase.Width, 0, motionCase.Width, motionCase.Height)
+			bottomLeft := p04SquareContact(1, 0, motionCase.Height, motionCase.Width, motionCase.Height)
+			bottomRight := p04SquareContact(1, motionCase.Width, motionCase.Height, motionCase.Width, motionCase.Height)
+			if !(topLeft.X < topRight.X && bottomLeft.X < bottomRight.X && topLeft.Y < bottomLeft.Y && topRight.Y < bottomRight.Y) {
+				t.Fatalf("mapper is not monotonic: TL=(%g,%g) TR=(%g,%g) BL=(%g,%g) BR=(%g,%g)",
+					topLeft.X, topLeft.Y, topRight.X, topRight.Y, bottomLeft.X, bottomLeft.Y, bottomRight.X, bottomRight.Y)
+			}
+			shortAxis := "x"
+			if motionCase.Height < motionCase.Width {
+				shortAxis = "y"
+			}
+			if shortAxis == "x" {
+				if !(topLeft.X > 0 && topRight.X < 1) || math.Abs(topLeft.Y) > tolerance || math.Abs(bottomLeft.Y-1) > tolerance {
+					t.Fatalf("portrait edge mapping has wrong centered margin: TL=(%g,%g) BR=(%g,%g)", topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y)
+				}
+			} else if !(topLeft.Y > 0 && bottomLeft.Y < 1) || math.Abs(topLeft.X) > tolerance || math.Abs(topRight.X-1) > tolerance {
+				t.Fatalf("landscape edge mapping has wrong centered margin: TL=(%g,%g) TR=(%g,%g)", topLeft.X, topLeft.Y, topRight.X, topRight.Y)
+			}
+
+			origin := p04SquareContact(1, 0, 0, motionCase.Width, motionCase.Height)
+			x100 := p04SquareContact(1, 100, 0, motionCase.Width, motionCase.Height)
+			y100 := p04SquareContact(1, 0, 100, motionCase.Width, motionCase.Height)
+			if got := (x100.X - origin.X) * p04MotionSquareMM; math.Abs(got-gain*100) > tolerance {
+				t.Fatalf("X gain=%g mm, want %g", got, gain*100)
+			}
+			if got := (y100.Y - origin.Y) * p04MotionSquareMM; math.Abs(got-gain*100) > tolerance {
+				t.Fatalf("Y gain=%g mm, want %g", got, gain*100)
+			}
+		})
 	}
 }
 
@@ -433,7 +540,7 @@ func analyzeP04MotionReport(data []byte) ([]p04MotionAnalysis, error) {
 		}
 		rawMM := math.Abs(axisRaw) / float64(report.Fixture.Case.Resolution)
 		analyses = append(analyses, p04MotionAnalysis{
-			Stage: expected.Name, Axis: expected.Axis, Direction: expected.Direction, Events: len(motions),
+			Case: report.Fixture.Case.Name, Stage: expected.Name, Axis: expected.Axis, Direction: expected.Direction, Events: len(motions),
 			AxisAccelerated: axisAccelerated, PerpendicularAccelerated: perpendicularAccelerated,
 			AxisRaw: axisRaw, PerpendicularRaw: perpendicularRaw, RawMM: rawMM,
 			MMPerPoint: rawMM / logicalDistance,
@@ -483,6 +590,14 @@ func p04MotionAxis(mm float64) int32 {
 	return int32(math.Round(mm * float64(p04MotionResolution)))
 }
 
+func p04SquareContact(id int, x, y, width, height float64) Contact {
+	return Contact{
+		ID: id,
+		X:  (p04MotionSquareMM-p04MotionIsoGain*width)/(2*p04MotionSquareMM) + p04MotionIsoGain*x/p04MotionSquareMM,
+		Y:  (p04MotionSquareMM-p04MotionIsoGain*height)/(2*p04MotionSquareMM) + p04MotionIsoGain*y/p04MotionSquareMM,
+	}
+}
+
 func p04MotionTraces() []p04MotionTrace {
 	traces := make([]p04MotionTrace, 0, 8)
 	for _, speed := range []struct {
@@ -518,6 +633,9 @@ func emitP04MotionTrace(pad *mtTouchpad, motionCase p04MotionCase, trace p04Moti
 		}
 		if motionCase.Mapper == "current-aspect-fit" {
 			return p04CurrentContact(id, x*motionCase.Width, y*motionCase.Height, motionCase.Width, motionCase.Height)
+		}
+		if motionCase.Mapper == "square-centered" {
+			return p04SquareContact(id, x*motionCase.Width, y*motionCase.Height, motionCase.Width, motionCase.Height)
 		}
 		return Contact{ID: id, X: x, Y: y}
 	}

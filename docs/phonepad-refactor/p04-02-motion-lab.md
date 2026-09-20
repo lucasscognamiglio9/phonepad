@@ -1,12 +1,13 @@
 # P04.7: fixture de movimiento del touchpad
 
-Estado: fixture ejecutada en laboratorio aislado el 20/09/2026. No declara
-pasadas humanas, recorrido de cursor físico ni cierre de P04.7-P04.9.
+Estado: las cuatro variantes legacy/isotrópicas y las dos cuadradas se
+ejecutaron en dos laboratorios aislados el 20/09/2026. No declara pasadas
+humanas, recorrido de cursor físico ni cierre de P04.7-P04.9.
 
 ## Alcance
 
 Este bloque mide el movimiento que entrega libinput para cuatro variantes de
-entrada:
+entrada de referencia y dos casos de geometría cuadrada, todos medidos:
 
 - `current-portrait`: reproduce `mapTouchToContact` con una vista 390 x 844 y
   el touchpad virtual existente de 100 x 70 mm a 28 unidades/mm.
@@ -16,6 +17,17 @@ entrada:
   `x/W` e `y/H`, y declaran una geometría por orientación con una ganancia
   isotrópica constante `g = 100/844 mm por punto`. La instancia tiene
   `P_x = g*W` y `P_y = g*H`, con resolución 28 y rangos enteros redondeados.
+- `square-portrait` y `square-landscape`: usan un touchpad virtual de 100 x
+  100 mm, resolución 28 y `g = 100/844 mm por punto`. El teléfono ocupa un
+  subrectángulo centrado sin saturación:
+
+  ```text
+  X = (100 - gW) / 200 + g*x / 100
+  Y = (100 - gH) / 200 + g*y / 100
+  ```
+
+  Estos casos miden el candidato de marco fijo con un dispositivo nuevo por
+  caso. Todavía no prueban la transición de orientación sobre una misma instancia.
 
 La propuesta isotrópica no multiplica posiciones normalizadas ni las recorta
 después. El cambio de tamaño físico ocurre al crear el dispositivo uinput. No
@@ -101,6 +113,20 @@ casos informaron `exclusiveGrab: true`, perfil actual y predeterminado `2`,
 `availableProfiles: 7` (la máscara de bits `0b111`, no siete perfiles) y
 `profileChanged: false`. No se produjo un `observer-error.json`.
 
+Para ejecutar solamente los dos casos nuevos, el filtro opcional conserva el
+resto de la prueba sin repetir mediciones anteriores. Este comando está
+preparado para el laboratorio autorizado y no se ejecutó durante esta revisión:
+
+```sh
+cd /home/luque/Documents/Codex/2026-09-15/https-github-com-peetzweg-opendisplay-mir/work/phonepad-refactor/daemon
+GOCACHE=/tmp/phonepad-refactor-go-cache GOPROXY=off \
+PHONEPAD_P04_MOTION_FIXTURE_DIR=/tmp/phonepad-p04-square \
+PHONEPAD_P04_MOTION_CASES=square-portrait,square-landscape \
+PHONEPAD_REPO_ROOT=/home/luque/Documents/Codex/2026-09-15/https-github-com-peetzweg-opendisplay-mir/work/phonepad-refactor \
+/home/luque/Documents/Codex/2026-09-08/phonepad/work/runtime/go/bin/go \
+test -mod=vendor ./internal/input -run '^TestNativeTouchpadMotionFixture$' -count=1 -v
+```
+
 El límite del observador es de 60 segundos por caso y el test conserva los
 archivos aunque un caso falle. `summary.json` reúne las respuestas válidas.
 Cada caso también deja `device.json`, `traces.json`, `observer.log` y
@@ -115,8 +141,8 @@ acelerar, el tiempo entre eventos y el sentido de cada traza. Permite medir
 la ganancia real del dispositivo virtual bajo dos velocidades y comprobar si
 la geometría isotrópica mantiene la relación de mm por punto al girar.
 
-En la salida observada, la mediana de la ganancia no acelerada sobre las
-trazas fue:
+En la salida observada de las cuatro variantes ya medidas, la mediana de la
+ganancia no acelerada sobre las trazas fue:
 
 | Caso | X, mm/punto | Y, mm/punto |
 | --- | ---: | ---: |
@@ -144,12 +170,46 @@ PHONEPAD_P04_MOTION_SUMMARY=/home/luque/Documents/Codex/2026-09-15/https-github-
 go test ./internal/input -run '^TestP04MotionEvidence' -count=1 -v
 ```
 
-Para cada traza, `analyzeP04MotionReport` exige las ocho etapas, al menos un
-evento por etapa, signo correcto en el eje esperado y una componente
-perpendicular dentro del 1% (con mínimo de una unidad). Calcula `rawMM` como
+Para cada caso y traza, `analyzeP04MotionReport` exige las ocho etapas, al
+menos un evento por etapa, signo correcto en el eje esperado y una componente
+perpendicular dentro del 1% (con mínimo de una unidad). El log identifica cada
+línea como `case/stage`. Calcula `rawMM` como
 `abs(sum(axisUnaccelerated)) / resolution` y `mmPerPoint` como `rawMM /
 (abs(end-start) * viewportAxis)`. La salida acelerada queda en las unidades
 de píxeles estandarizados de libinput y no entra en esa conversión.
+
+La prueba pura `TestP04SquareCenteredMapper` comprueba offline las cuatro
+esquinas, monotonicidad de ambos ejes, márgenes centrados, ganancia de 100
+puntos y ausencia de saturación para portrait y landscape. Bitácora de esta
+revisión:
+
+```text
+=== RUN   TestP04SquareCenteredMapper
+--- PASS: TestP04SquareCenteredMapper (0.00s)
+```
+
+La segunda ejecución seleccionó solo los dos casos square. Terminó en
+11,08 s, con límite externo de 180 s y memoria virtual de 4 GiB. Ambos casos
+registraron grab exclusivo, perfil 2 y ningún cambio de perfil. La evidencia
+está en `outputs/p04/square-motion-lab/run-1789896079817643851/summary.json`;
+los logs son `outputs/p04/square-motion-lab.log` y
+`outputs/p04/square-motion-analysis.log`.
+
+| Caso | Mediana X, mm/punto | Mediana Y, mm/punto |
+| --- | ---: | ---: |
+| square portrait | 0,114812 | 0,112930 |
+| square landscape | 0,114781 | 0,114812 |
+
+La diferencia de ganancia X entre orientaciones fue aproximadamente 0,03% en
+esta ejecución. En Y fue aproximadamente 1,7%. El análisis validó las ocho
+trazas de cada caso y rechazó una copia incompleta. Esta evidencia respalda
+la invariancia geométrica del candidato; todavía no elige su ganancia final.
+
+Las trazas recorren una fracción del viewport en el mismo tiempo, por lo que
+portrait y landscape no tienen la misma velocidad en puntos por segundo. No
+comparar directamente sus sumas aceleradas como una prueba de respuesta a
+velocidad idéntica. La siguiente calibración debe usar también distancia y
+velocidad lógicas iguales, un cursor observable y blancos pequeños.
 
 No permite afirmar cuántas pasadas necesita una persona ni dónde termina el
 cursor en una pantalla física. Tampoco mide una pantalla, un compositor o una
@@ -167,7 +227,8 @@ Archivos de este bloque:
   lecturas de libinput.
 - Este documento.
 
-La validación ejecutada aquí incluye `python3 -m py_compile` del observador,
+La validación anterior incluye `python3 -m py_compile` del observador,
 formateo y compilación focal del paquete Go con el runtime privado y la
-ejecución opt-in de cuatro casos en 22,52 s. No se tocaron perfiles globales,
+ejecución opt-in de cuatro casos en 22,52 s. La segunda añadió dos casos
+cuadrados reales en 11,08 s, la prueba pura y el análisis de su evidencia. No se tocaron perfiles globales,
 dispositivos físicos ni la configuración del usuario.

@@ -113,11 +113,12 @@ falta consumir esos márgenes para obtener la ganancia `g`, y no se recrea el
 dispositivo al girar. Las esquinas del teléfono se convierten en las esquinas
 del subrectángulo; no se aplica `clamp` para ocultar una geometría inválida.
 
-El laboratorio P04.7 ejecutado anteriormente midió cuatro dispositivos
-separados, uno por orientación y variante, y por tanto no probó este cuadrado
-fijo ni la ausencia de reenumeración al girar. Este candidato necesita una
-medición aparte antes de elegir `P`, `g` o cualquier rango/resolución de
-uinput. No cambia los defaults actuales ni se aplica todavía.
+La primera ejecución P04.7 midió cuatro dispositivos por orientación y
+variante. Una segunda ejecución probó este cuadrado de 100 mm en ambas
+orientaciones y confirmó una ganancia X casi idéntica. Ver las cifras y
+limitaciones en `p04-02-motion-lab.md`. Cada caso todavía crea su propia
+instancia; falta la transición sobre un único uinput y calibrar recorrido y
+precisión antes de elegir `P` y `g`. No cambia los defaults ni se aplica todavía.
 
 ### Referencia ya medida: dispositivo por orientación
 
