@@ -30,6 +30,7 @@ import (
 type clipboardKind string
 
 const (
+	clipboardText  clipboardKind = "text"
 	clipboardImage clipboardKind = "image"
 	clipboardFile  clipboardKind = "file"
 )
@@ -68,6 +69,13 @@ func (c wlClipboard) Copy(path string, kind clipboardKind, mediaType string) err
 		return errors.New("clipboard writer unavailable")
 	}
 	switch kind {
+	case clipboardText:
+		file, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		return c.copy("text/plain;charset=utf-8", file)
 	case clipboardImage:
 		pngPath, cleanup, err := clipboardPNG(path)
 		if err != nil {
@@ -489,6 +497,12 @@ type desktopClipboard struct {
 func (c *desktopClipboard) Copy(path string, kind clipboardKind, mediaType string) error {
 	if c == nil {
 		return errors.New("clipboard writer unavailable")
+	}
+	if kind == clipboardText {
+		if c.native == nil {
+			return errors.New("clipboard writer unavailable")
+		}
+		return c.native.Copy(path, kind, mediaType)
 	}
 	if kind == clipboardImage && c.native != nil {
 		if err := c.native.Copy(path, kind, mediaType); err == nil {

@@ -39,7 +39,7 @@ export function HelpSheet({ visible, close, mode = 'trackpad' }: HelpSheetProps)
 
         <GlassSurface style={styles.card}>
           <Text style={styles.heading}>Mover el puntero</Text>
-          <Text style={styles.body}>Deslizá un dedo sobre la superficie para mover el puntero. Levantá el dedo para terminar el contacto. Si aparece el teclado, el primer toque devuelve el foco a la superficie.</Text>
+          <Text style={styles.body}>En Trackpad, deslizá un dedo para mover el puntero, tocá para hacer clic y usá dos dedos para desplazar. En Directo, tocá el destino, deslizá para arrastrar o mantené pulsado para abrir el menú contextual. Dos toques hacen doble clic.</Text>
         </GlassSurface>
 
         <GlassSurface style={styles.card}>
@@ -48,8 +48,8 @@ export function HelpSheet({ visible, close, mode = 'trackpad' }: HelpSheetProps)
         </GlassSurface>
 
         <GlassSurface style={styles.card}>
-          <Text style={styles.heading}>Trackpad Mode</Text>
-          <Text style={styles.body}>El modo Trackpad envía contactos al trackpad de la computadora. Las flechas admiten mantener pulsado; soltarlas detiene la repetición. Los gestos incompletos se cancelan al ocultar la superficie, girar la ventana o perder la conexión.</Text>
+          <Text style={styles.heading}>Modos y zoom</Text>
+          <Text style={styles.body}>Elegí el modo y ajustá el recorrido en Opciones. Sobre el escritorio, pellizcá para ampliar y mové dos dedos para recorrer la imagen ampliada. El zoom conserva el teclado y la transmisión. Las flechas repiten al mantenerlas pulsadas y se detienen al soltarlas.</Text>
         </GlassSurface>
 
         <Pressable

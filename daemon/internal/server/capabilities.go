@@ -164,6 +164,12 @@ func (s *Server) applyPointerGeometry(ctx context.Context, optIn bool) error {
 		desired = *s.pointerCalibration
 	}
 	s.mu.Unlock()
+	if support, ok := inj.(interface{ SupportsPointerGeometryConfiguration() bool }); ok && !support.SupportsPointerGeometryConfiguration() {
+		if desired.ID == "legacy-100x70" {
+			return nil
+		}
+		return input.ErrPointerGeometryUnavailable
+	}
 	controller, ok := inj.(input.PointerGeometryController)
 	if !ok {
 		return nil
@@ -316,6 +322,9 @@ func (s *Server) capabilitiesPayloadLocked() map[string]any {
 	if s.inputAllowedLocked() {
 		inputState = "available"
 		inputActionsValue = append(inputActionsValue, inputActions...)
+		if d, ok := s.inj.(input.DirectPointer); ok && s.directPointerOptIn && d.SupportsDirectPointer() {
+			inputActionsValue = append(inputActionsValue, "p")
+		}
 		effective = !s.demo
 	}
 	var pointerGeometry *pointerGeometryCapability
@@ -545,7 +554,7 @@ func (s *Server) rejectInput(c *websocket.Conn, code string) {
 
 func inputMessage(message Msg) bool {
 	switch message.Type {
-	case "m", "b", "s", "k", "g", "t":
+	case "m", "b", "s", "k", "g", "t", "p":
 		return true
 	default:
 		return false

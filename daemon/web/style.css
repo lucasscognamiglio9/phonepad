@@ -20,7 +20,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: roun
 .workspace, #pad { position: absolute; inset: 0; min-height: 0; }
 #pad { width: 100%; height: 100%; touch-action: none; -webkit-user-select: none; user-select: none; background: var(--bg); }
 #pad-hint { display: none; }
-#actionbar { position: absolute; z-index: 4; left: 50%; bottom: var(--bottom); transform: translateX(-50%); width: min(330px, calc(100% - 40px)); padding: 3px; display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--line); border-radius: 28px; background: #131518; }
+#actionbar { position: absolute; z-index: 4; left: 50%; bottom: var(--bottom); transform: translateX(-50%); width: min(330px, calc(100% - 40px)); padding: 3px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 28px; background: #131518; }
 .action { height: 44px; border-radius: 24px; background: transparent; }
 .action__label { font-size: 13px; font-weight: 500; letter-spacing: .1px; }
 .keyboard-open #actionbar { display: none; }
@@ -32,7 +32,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: roun
 .key svg { width: 19px; height: 19px; }
 .key.is-armed { background: #e4e6eb; color: #111215; }
 .key--close { color: #a9adb5; font-size: 11px; }
-#kbd-area { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: .01; pointer-events: none; }
+#kbd-area { display: grid; gap: 6px; margin-top: 6px; }
 #hidden-input { position: absolute; width: 1px; height: 1px; font-size: 16px; opacity: 0; border: 0; outline: none; }
 #sheet-backdrop { display: none !important; }
 #desktop { position: absolute; z-index: 2; top: calc(60px + env(safe-area-inset-top)); left: 12px; right: 12px; aspect-ratio: 16/9; max-height: calc(100% - 190px); overflow: hidden; border: 1px solid #ffffff14; border-radius: 14px; background: #050607; }
@@ -54,3 +54,16 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: roun
   .preview-expanded.keyboard-open #desktop { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 @media (prefers-reduced-motion: no-preference) { button { transition: background .12s, color .12s; } }
+
+/* Adaptive receiver controls share the native contract. */
+#web-draft{width:100%;min-height:48px;max-height:30dvh;resize:vertical;background:#171b21;color:#f4f5f7;border:1px solid #59606b;border-radius:12px;padding:10px;font:inherit;box-sizing:border-box}
+.web-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.web-actions button,#receiver-options button,#receiver-options select{min-height:44px;padding:8px 12px;background:#242830;color:#f4f5f7;border:1px solid #59606b;border-radius:12px;font:inherit}
+#receiver-options{box-sizing:border-box;max-width:min(540px,94vw);max-height:85dvh;overflow:auto;background:#090b0e;color:#f4f5f7;border:1px solid #59606b;border-radius:24px;padding:24px}
+#receiver-options::backdrop{background:#0008}#receiver-options label{display:block;margin:12px 0}#receiver-result,#text-result{white-space:pre-wrap}#file-review li{margin:8px 0;overflow-wrap:anywhere}
+#desktop{overflow:hidden}#web-draft:focus{outline:2px solid #9dd3ff}
+@media(orientation:landscape){#web-draft{max-height:20dvh;min-height:44px}.sheet{max-height:45dvh;overflow:auto}}
+
+#sheet { max-height:calc(var(--visible-height, 100dvh)*.6); overflow:auto; }
+.keyboard-open #desktop,.preview-expanded.keyboard-open #desktop {bottom:calc(var(--composer-height, 176px) + var(--bottom) + 8px); max-height:none; aspect-ratio:auto}
+#text-result:empty{display:none}

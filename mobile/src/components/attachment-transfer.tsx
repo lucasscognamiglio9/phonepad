@@ -6,7 +6,7 @@ import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimi
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassButton } from './glass-button';
 
-export function useAttachmentTransfer(origin: string, connected: boolean, paste: () => boolean, canClipboard = true) {
+export function useAttachmentTransfer(origin: string, connected: boolean, paste: () => boolean, canClipboard = true, sessionEpoch?: string | null) {
   const insets = useSafeAreaInsets();
   const [selection, setSelection] = useState<AttachmentBatch | null>(null);
   const [prepared, setPrepared] = useState<PreparedBatch | null>(null);
@@ -21,6 +21,8 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const selectionRef = useRef<AttachmentBatch | null>(null);
   const uploading = useRef(false);
   const permissions = useRef({ connected, canClipboard });
+  const epoch = useRef(sessionEpoch);
+  useEffect(() => { if (epoch.current !== sessionEpoch) request.current?.abort(); epoch.current = sessionEpoch; }, [sessionEpoch]);
   permissions.current = { connected, canClipboard };
   // A native photo picker can temporarily suspend the control connection.
   // Keep its selection; only an upload depends on the current write permission.
@@ -60,7 +62,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     if (!permissions.current.connected) { setProblem('El equipo no permite recibir archivos en esta sesión.'); return; }
     void run(async signal => {
       // Negotiate before opening a provider so limits are known on both sides.
-      const limits = await transferLimits(origin, signal);
+      const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
       if (alive.current) setLimits(limits);
       const items = await chooseAttachments(source);
       if (!items.length || signal.aborted || !alive.current) return;
@@ -73,7 +75,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     if (!permissions.current.connected) throw Error('El equipo no permite recibir archivos en esta sesión.');
     const batch = selectionRef.current;
     if (!batch) return;
-    const limits = await transferLimits(origin, signal);
+    const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
     if (alive.current) setLimits(limits);
     let saved = preparedRef.current;
     if (!saved) {
@@ -81,6 +83,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       if (!alive.current) return;
       remember(saved);
     }
+    saved = { ...saved, sessionEpoch: epoch.current ?? undefined };
     setProgress('Consultando el lote…');
     const status = await sendPreparedBatch(saved, limits, readPreparedChunk, signal, percent => {
       if (alive.current) setProgress(percent === 100 ? 'Verificando archivos…' : `Enviando ${percent}%`);
@@ -109,7 +112,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     const saved = preparedRef.current;
     if (saved) {
       setProgress('Cancelando el lote…');
-      const result = await cancelPreparedBatch(saved, signal);
+      const result = await cancelPreparedBatch({ ...saved, sessionEpoch: epoch.current ?? undefined }, signal);
       if (result.state === 'stored' && alive.current) Alert.alert('El lote ya estaba guardado', 'Quitamos la selección del teléfono. Los archivos siguen en Downloads → Phonepad.');
       discardPreparedBatch(saved.manifest.id);
     }
@@ -143,6 +146,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
           {selection?.items.map((item, index) => <View key={`${selection.id}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Text style={{ ...textStyle, flex: 1 }} numberOfLines={3}>{index + 1}. {item.name}</Text>
+            {!prepared && <GlassButton compact label={`Subir ${item.name}`} action="up" disabled={busy || index === 0} onPress={() => { const current = selectionRef.current; if (!current || index === 0) return; const items = [...current.items]; [items[index-1],items[index]] = [items[index],items[index-1]]; select({ ...current, items }); }} />}
             {!prepared && <GlassButton label={`Quitar ${item.name}`} action="remove" disabled={busy} onPress={() => remove(index)} />}
           </View>)}
         </ScrollView>

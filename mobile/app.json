@@ -2,7 +2,7 @@
   "expo": {
     "name": "Phonepad",
     "slug": "phonepad",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "default",
     "icon": "./assets/phonepad-icon.png",
     "userInterfaceStyle": "dark",
@@ -13,7 +13,7 @@
         "ITSAppUsesNonExemptEncryption": false
       },
       "bitcode": false,
-      "buildNumber": "4"
+      "buildNumber": "5"
     },
     "android": {
       "package": "app.phonepad.mobile",
@@ -34,7 +34,8 @@
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH"
-      ]
+      ],
+      "versionCode": 5
     },
     "web": {
       "favicon": "./assets/favicon.png"

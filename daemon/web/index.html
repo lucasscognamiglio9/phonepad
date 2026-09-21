@@ -15,9 +15,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="phonepad">
-  <link rel="stylesheet" href="style.css?v=22">
+  <link rel="stylesheet" href="style.css?v=23">
 </head>
-<body data-phonepad-build="22">
+<body data-phonepad-build="23">
   <header class="minimal-top">
     <button id="refresh-control" class="icon-button" aria-label="Reconectar" title="Reconectar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 8a7 7 0 0 1 12-2l2 3M4 15l2 3a7 7 0 0 0 12-2"/></svg></button>
     <div id="status" class="status status--connecting" role="status"><span class="status__dot"></span><span id="status-text">Conectando</span></div>
@@ -36,6 +36,7 @@
   </div>
 
   <nav id="actionbar" class="actionbar" aria-label="acciones">
+    <button id="open-options" class="action" aria-label="Opciones y ayuda">Opciones</button>
     <button id="kbd-toggle" class="action" aria-label="mostrar u ocultar teclado" aria-expanded="false"><span class="action__label">Teclado</span></button>
     <button id="copy" class="action" aria-label="copiar en la PC (Ctrl+C)"><span class="action__label">Copy</span></button>
     <button id="paste" class="action" aria-label="pegar en la PC (Ctrl+V)"><span class="action__label">Paste</span></button>
@@ -62,15 +63,29 @@
     <!-- Focus target required for the native keyboard; never a visible form. -->
     <div id="kbd-area" class="kbd-area">
       <!-- Input oculto: capta beforeinput del teclado virtual. -->
-      <input id="hidden-input" class="hidden-input"
+      <input hidden id="hidden-input" class="hidden-input"
              type="text"
              autocomplete="off" autocorrect="off" autocapitalize="off"
              spellcheck="false" aria-label="Escribir en la computadora" tabindex="0">
+    <textarea id="web-draft" rows="2" aria-label="Borrador para la computadora" placeholder="Escribí o dictá. Enviar texto conserva saltos de línea." autocapitalize="sentences" spellcheck="true"></textarea>
+    <div class="web-actions"><button id="send-text">Enviar texto</button><button id="review-text">Consultar envío</button><button id="resolve-text">Ya revisé el resultado</button><span id="text-result" role="status"></span></div>
     </div>
   </section>
-
-  <script src="app.js?v=22"></script>
-  <script src="rtc.js?v=22"></script>
-<script src="preview.js?v=22"></script>
+  <dialog id="receiver-options" aria-label="Opciones de sesión"><h2>Controles de sesión</h2>
+   <label>Modo <select id="pointer-mode"><option value="trackpad">Trackpad</option><option value="direct">Directo</option></select></label>
+   <label>Recorrido <input id="pointer-gain" type="range" min="0.5" max="2" step="0.1" value="1"></label>
+   <p>Un toque hace clic; dos toques hacen doble clic. Mantené y arrastrá para mover. Dos dedos desplazan. En Directo, dos dedos sin mover hacen clic derecho. Pellizcá para zoom; con zoom, dos dedos mueven la imagen.</p>
+   <button id="zoom-reset">Restablecer zoom</button>
+   <button id="clipboard-phone">Copiar al teléfono</button><button id="clipboard-host">Copiar al equipo</button>
+   <p>El clipboard copia texto hasta 128 KiB. Nunca envía ni pega automáticamente.</p>
+   <label>Fotos y archivos <input id="file-picker" type="file" multiple></label><ol id="file-review"></ol>
+   <div class="web-actions"><button id="send-files">Enviar lote</button><button id="pause-files">Pausar</button><button id="cancel-files">Cancelar lote</button><button id="copy-files">Preparar lote para pegar</button></div>
+   <p id="receiver-result" role="status"></p><button id="close-options">Cerrar</button>
+  </dialog>
+  <script src="phonepad-core.js?v=23"></script>
+  <script src="app.js?v=23"></script>
+  <script src="rtc.js?v=23"></script>
+<script src="preview.js?v=23"></script>
+<script src="receiver-controls.js?v=23"></script>
 </body>
 </html>

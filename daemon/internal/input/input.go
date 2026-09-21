@@ -137,8 +137,13 @@ func New() (Injector, error) {
 		kbd.Close()
 		return nil, err
 	}
+	// Optional direct pointer. Failure preserves the existing trackpad provider.
+	pad, padErr := uinput.CreateTouchPad("/dev/uinput", []byte("phonepad-direct"), 0, 65535, 0, 65535)
+	if padErr != nil {
+		log.Printf("direct pointer unavailable: %v", padErr)
+	}
 	geometry := legacyPointerGeometryProfile(1)
-	return &uinputDevice{mouse: mouse, kbd: kbd, mt: mt, geometry: &geometry, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
+	return &uinputDevice{mouse: mouse, kbd: kbd, pad: pad, mt: mt, geometry: &geometry, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
 }
 
 // NewAbsolute crea los devices para control absoluto (computer use): mouse (para
@@ -167,6 +172,17 @@ func NewAbsolute(w, h int) (AbsInjector, error) {
 
 // MoveTo posiciona el cursor de forma absoluta. En un device relativo (New, sin
 // touchpad) es un no-op: el posicionamiento absoluto sólo existe en NewAbsolute.
+func (d *uinputDevice) SupportsDirectPointer() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.mt != nil && d.pad != nil
+}
+func (d *uinputDevice) MoveNormalized(x, y int) {
+	if d.SupportsDirectPointer() {
+		d.MoveTo(x, y)
+	}
+}
+
 func (d *uinputDevice) MoveTo(x, y int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()

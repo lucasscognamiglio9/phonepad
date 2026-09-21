@@ -36,7 +36,7 @@ function harness(options = {}) {
   const react = {
     useState(initial) {
       const index = cursor++;
-      if (!slots[index] || slots[index].kind !== 'state') slots[index] = { kind: 'state', value: initial };
+      if (!slots[index] || slots[index].kind !== 'state') slots[index] = { kind: 'state', value: typeof initial === 'function' ? initial() : initial };
       const slot = slots[index];
       return [slot.value, next => {
         const value = typeof next === 'function' ? next(slot.value) : next;
@@ -149,6 +149,11 @@ function harness(options = {}) {
   const pointerGeometry = {};
   vm.runInNewContext(compile('lib/pointer-geometry.ts'), { exports: pointerGeometry, Number, Math });
   const modules = {
+    'expo-keep-awake': {activateKeepAwakeAsync: async()=>{},deactivateKeepAwake:async()=>{}},
+    '../lib/session-awake': {keepSessionAwake:()=>()=>{}},
+    '../lib/control-preferences': {loadControlPreferences:()=>({mode:'trackpad',gain:1}),saveControlPreferences:()=>{}},
+    '../lib/clipboard-transfer': {transferClipboard:async()=>{}},
+    '../components/session-options': {SessionOptions:'SessionOptions'},
     react,
     'react/jsx-runtime': {
       jsx: (type, props) => ({ type, props: props || {} }),
@@ -341,7 +346,7 @@ test('portrait help opens above the stable control tree without remounting previ
   const h = harness();
   h.reportConnection('connected');
   const nativePath = h.findPath('NativeKeyboard');
-  h.find('GlassButton', 'Ayuda').props.onPress();
+  h.find('GlassButton', 'Opciones').props.onPress(); h.render(); h.find('SessionOptions').props.help();
   h.render();
   assert.equal(h.find('HelpSheet').props.visible, true);
   assert.deepEqual(h.findPath('NativeKeyboard'), nativePath);
@@ -403,6 +408,10 @@ test('landscape preview reserves only the keyboard overlap and avoids Android do
 
   h.setDimensions(844, 130);
   assert.equal(h.find('RTCView').props.style, h.absoluteFill, 'Android resize is already reflected by the window');
+  h.find('NativeKeyboard').props.onOcclusionChange(68);h.render();
+  assert.equal(h.find('RTCView').props.style.bottom,68,'reserve the measured composer once');
+  assert.equal(h.find('TouchSurface').props.viewportInsetBottom,68,'direct input uses the same free rectangle');
+  assert.equal(h.startVideoCount(),1,'resizing does not restart video');
 });
 
 test('landscape preview handles resize-first and keyboard-state-first event ordering', () => {
@@ -464,7 +473,7 @@ test('returning to portrait restores the same composer position after landscape 
   assert.equal(h.find('NativeKeyboard').props.visible, true);
 });
 
-test('closed composer ignores stale native keyboard spacing through repeated rotations', () => {
+test('rotation preserves the active composer and mounted preview', () => {
   const h = harness();
   h.reportConnection('connected');
   h.find('GlassButton', 'Ver pantalla').props.onPress();
@@ -474,8 +483,8 @@ test('closed composer ignores stale native keyboard spacing through repeated rot
     h.find('NativeKeyboard').props.open(); h.render();
     assert.equal(h.find('KeyboardAvoidingView'), undefined, 'keyboard adjustment must never wrap the video');
     h.setDimensions(844, 390);
-    assert.equal(h.find('NativeKeyboard').props.active, false);
-    assert.equal(h.find('NativeKeyboard').props.visible, false);
+    assert.equal(h.find('NativeKeyboard').props.active, true);
+    assert.equal(h.find('NativeKeyboard').props.visible, true);
     assert.equal(h.find('KeyboardAvoidingView'), undefined);
     assert.equal(h.tree().type, 'View');
     assert.equal(h.tree().props.style.flex, 1);
@@ -489,11 +498,11 @@ test('closed composer ignores stale native keyboard spacing through repeated rot
   assert.equal(h.commands.length, 0);
 });
 
-test('rotation also clears keyboard space with the preview off; explicit reopening still works', () => {
+test('rotation preserves keyboard focus without preview and explicit closing still works', () => {
   const h = harness(); h.reportConnection('connected');
   h.find('NativeKeyboard').props.open(); h.render();
   h.setDimensions(844, 390);
-  assert.equal(h.find('NativeKeyboard').props.active, false);
+  assert.equal(h.find('NativeKeyboard').props.active, true);
   assert.equal(h.find('KeyboardAvoidingView'), undefined);
   h.find('NativeKeyboard').props.open(); h.render();
   assert.equal(h.find('KeyboardAvoidingView'), undefined, 'keyboard adjustment must never wrap the video');
@@ -543,7 +552,7 @@ test('lost upload response reuses the prepared manifest and does not allow chang
  const h=harness({attachment:photo,uploadError:true});await choose(h);await send(h);
  const first=h.uploads[0][0];assert.equal(h.find('GlassButton','Quitar Foto.jpg'),undefined);
  h.find('GlassButton','Reanudar mismo lote').props.onPress();await settle();h.render();
- assert.equal(h.uploads[1][0],first);assert.equal(h.commands.length,0);
+ assert.equal(h.uploads[1][0].manifest,first.manifest);assert.equal(h.commands.length,0);
 });
 test('preview stays mounted while reviewing, uploading and closing the attachment sheet',async()=>{
  const h=harness({attachment:photo});h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();

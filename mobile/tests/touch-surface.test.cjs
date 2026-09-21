@@ -1,4 +1,6 @@
 const test = require('node:test');
+const directPointer = {};
+require('node:vm').runInNewContext(require('typescript').transpileModule(require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/lib/direct-pointer.ts'),'utf8'),{compilerOptions:{module:1,target:9}}).outputText,{exports:directPointer,setTimeout,clearTimeout});
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -137,9 +139,9 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
         Simultaneous: (...items) => ({ kind: 'Simultaneous', items }),
       },
     },
-    'react-native-reanimated': { useSharedValue, useAnimatedStyle: fn => fn() },
+    'react-native-reanimated': { default: { View: 'AnimatedView' }, useSharedValue, useAnimatedStyle: fn => fn() },
     'react-native-worklets': { scheduleOnRN: (fn, ...args) => defer ? queue.push([fn, args]) : fn(...args) },
-    '../lib/connection': {},
+    '../lib/direct-pointer': directPointer, '../lib/connection': {},
     '../lib/protocol': {}, '../lib/pointer-geometry': pointerGeometryModule, '../lib/preview-zoom': previewZoomModule,
   };
   const componentExports = {};
@@ -377,4 +379,16 @@ test('release removes changed ids from tracked contacts instead of trusting stal
   const tracked = [{ id: 7, x: .7, y: .7 }, { id: 9, x: .9, y: .9 }];
   assert.deepEqual(removeChangedTouchContacts(tracked, [{ id: 7 }]), [{ id: 9, x: .9, y: .9 }]);
   assert.deepEqual(removeChangedTouchContacts(tracked, [{ id: 4 }]), tracked);
+});
+
+test('pinch cancellation leaves the next touch sequence usable',()=>{
+ const h=render();h.rerender({preview:true});
+ const down={allTouches:[point(1,20,20)],changedTouches:[point(1,20,20)]};
+ h.manual().handlers.onTouchesDown(down);
+ const pinch=h.gestures.find(g=>g.kind==='Pinch');
+ pinch.handlers.onBegin();pinch.handlers.onUpdate({scale:2});
+ h.manual().handlers.onTouchesUp(down);
+ const count=h.calls.length;
+ h.manual().handlers.onTouchesDown({allTouches:[point(2,30,30)],changedTouches:[point(2,30,30)]});
+ assert.equal(h.calls.length,count+1);
 });

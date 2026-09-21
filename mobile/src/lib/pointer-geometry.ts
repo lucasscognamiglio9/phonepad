@@ -84,14 +84,17 @@ export function selectPointerGeometry(capabilities: unknown): PointerGeometrySel
 }
 
 function finitePositive(value: number, fallback: number) {
+  'worklet';
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
 function clampUnit(value: number) {
+  'worklet';
   return Math.max(0, Math.min(1, value));
 }
 
 function coordinate(value: number) {
+  'worklet';
   return Number.isFinite(value) ? value : 0;
 }
 
@@ -141,4 +144,15 @@ export function mapPointerSnapshot(
   'worklet';
   return points.map(point => mapPointerToContact(point, surface, geometry))
     .sort((left, right) => left.id - right.id);
+}
+
+// The calibrated mobile mapper keeps millimeters per logical point invariant
+// across rotation. The host remains the only acceleration stage.
+export function mapCalibratedPointerSnapshot(points: readonly PointerPoint[], surface: PointerSurfaceSize, geometry: PointerGeometry, gain: number): PointerPoint[] {
+ 'worklet';
+ const width=finitePositive(surface.width,1),height=finitePositive(surface.height,1);
+ const w=geometry.kind==='square-centered'?geometry.sideMm:geometry.widthMm;
+ const h=geometry.kind==='square-centered'?geometry.sideMm:geometry.heightMm;
+ const scale=(geometry.kind==='square-centered'?geometry.gainMmPerPoint:Math.min(w,h)/Math.max(width,height))*Math.max(.5,Math.min(2,gain));
+ return points.map(p=>({id:p.id,x:clampUnit(.5+(coordinate(p.x)-width/2)*scale/w),y:clampUnit(.5+(coordinate(p.y)-height/2)*scale/h)})).sort((a,b)=>a.id-b.id);
 }

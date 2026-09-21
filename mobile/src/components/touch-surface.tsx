@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { AppState, View, type ViewStyle } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Gesture, GestureDetector, type GestureTouchEvent, type TouchData } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
 import { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -8,10 +9,12 @@ import type { TouchContact } from '../lib/protocol';
 import {
   LEGACY_POINTER_GEOMETRY,
   mapPointerSnapshot,
+  mapCalibratedPointerSnapshot,
   mapPointerToContact,
   type PointerGeometry,
   type PointerSurfaceSize,
 } from '../lib/pointer-geometry';
+import { directPoint, DirectPointerSequence } from '../lib/direct-pointer';
 import { clampPreviewPan, clampPreviewScale, previewPanBounds, PREVIEW_ZOOM_MIN } from '../lib/preview-zoom';
 
 export { LEGACY_POINTER_GEOMETRY, SQUARE_POINTER_GEOMETRY } from '../lib/pointer-geometry';
@@ -76,13 +79,18 @@ export function removeChangedTouchContacts(
 }
 
 export function TouchSurface({ connection, children, preview, dismissKeyboard,
-  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0 }: {
+  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0 }: {
   connection: Connection;
   children?: ReactNode;
   preview: boolean;
   dismissKeyboard?: () => void;
   pointerGeometry?: PointerGeometry;
   pointerGeometryEpoch?: number;
+  mode?: 'direct' | 'trackpad';
+  gain?: number;
+  disabled?: boolean;
+  videoSize?: { width?: number; height?: number };
+  viewportInsetBottom?: number;
 }) {
   const width = useSharedValue(1);
   const height = useSharedValue(1);
@@ -96,6 +104,8 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   const pinchStartScale = useSharedValue(PREVIEW_ZOOM_MIN);
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
+  const zoomOwns = useSharedValue(false);
+  const direct = useMemo(() => new DirectPointerSequence(command => inputEpoch.current === connection.inputEpoch && connection.send(command)), [connection]);
   const inputEpoch = useRef<number | null>(null);
   const inputBlocked = useRef(false);
   const generationOnJS = useRef(0);
@@ -106,10 +116,14 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     // protocol's cancellation frame so the daemon cannot interpret an
     // interrupted contact as a physical tap.
     if (inputEpoch.current !== null) {
+      if (mode === 'direct') {
+        if (cancelled || generation > generationOnJS.current || inputEpoch.current !== connection.inputEpoch) direct.cancel(); else direct.frame([]);
+      } else {
       if (cancelled || generation > generationOnJS.current) {
         connection.cancelTouch(inputEpoch.current);
       } else {
         connection.touch(inputEpoch.current, []);
+      }
       }
     }
     generationOnJS.current = generation;
@@ -137,7 +151,11 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       inputEpoch.current = connection.inputEpoch;
       inputBlocked.current = false;
     }
-    if (inputBlocked.current) return;
+    if (inputBlocked.current || disabled) return;
+    if (mode === 'direct') {
+      if (inputEpoch.current !== connection.inputEpoch) { inputBlocked.current = true; return; }
+      direct.frame(contacts); return;
+    }
     if (!connection.touch(inputEpoch.current, contacts)) inputBlocked.current = true;
   };
 
@@ -147,6 +165,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     sequenceGeneration.value = generation;
     sequenceActive.value = false;
     keyboardConsumed.value = false;
+    zoomOwns.value = false;
     activeContacts.value = [];
     previewScale.value = PREVIEW_ZOOM_MIN;
     previewOffsetX.value = 0;
@@ -155,6 +174,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   };
 
   const previewStyle = useAnimatedStyle(() => ({
+    transformOrigin: [width.value / 2, Math.max(1, height.value - viewportInsetBottom) / 2, 0],
     transform: [
       { translateX: previewOffsetX.value },
       { translateY: previewOffsetY.value },
@@ -166,7 +186,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     // A mode switch, including entering preview or changing the keyboard
     // overlay, invalidates any in-flight native sequence.
     return () => interruptSequence();
-  }, [connection, preview, dismissKeyboard, pointerGeometry, pointerGeometryEpoch]);
+  }, [connection, preview, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, mode, gain, disabled, viewportInsetBottom]);
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
@@ -176,9 +196,28 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   }, [connection]);
 
   const gestures = useMemo(() => {
+    const map = (touches: readonly TouchData[]) => {
+      'worklet';
+      if (mode === 'direct') return touches.map(touch => {
+        const p=directPoint(touch.x,touch.y,width.value,Math.max(1,height.value-viewportInsetBottom),videoSize?.width??0,videoSize?.height??0,previewScale.value,previewOffsetX.value,previewOffsetY.value);
+        return p ? {id:touch.id,...p} : null;
+      }).filter((p): p is NonNullable<typeof p> => p !== null);
+      const mapped=mapTouchSnapshot(touches,{width:width.value,height:height.value},pointerGeometry);
+      if (gain === undefined) return mapped;
+      return mapCalibratedPointerSnapshot(touches,{width:width.value,height:height.value},pointerGeometry,gain);
+    };
+    const claimZoom = () => {
+      'worklet';
+      if (zoomOwns.value) return;
+      zoomOwns.value=true;
+      scheduleOnRN(sendTouchFrame,[],sequenceGeneration.value,false,false,true);
+    };
     const forward = Gesture.Manual()
       .onTouchesDown((event: GestureTouchEvent) => {
         'worklet';
+        if (disabled) return;
+        if (event.allTouches.length === 1) zoomOwns.value = false;
+        if (zoomOwns.value) return;
         if (dismissKeyboard) {
           if (!keyboardConsumed.value) {
             keyboardConsumed.value = true;
@@ -189,25 +228,31 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         if (!sequenceActive.value) {
           sequenceGeneration.value += 1;
           sequenceActive.value = true;
-          const contacts = mapTouchSnapshot(event.allTouches, { width: width.value, height: height.value }, pointerGeometry);
+          const contacts = map(event.allTouches);
           activeContacts.value = contacts;
           scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, true, false, false);
           return;
         }
-        const contacts = mapTouchSnapshot(event.allTouches, { width: width.value, height: height.value }, pointerGeometry);
+        const contacts = map(event.allTouches);
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
       .onTouchesMove((event: GestureTouchEvent) => {
         'worklet';
-        if (dismissKeyboard || !sequenceActive.value) return;
-        const contacts = mapTouchSnapshot(event.allTouches, { width: width.value, height: height.value }, pointerGeometry);
+        if (disabled || zoomOwns.value || dismissKeyboard || !sequenceActive.value) return;
+        const contacts = map(event.allTouches);
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
       .onTouchesUp((event: GestureTouchEvent) => {
         'worklet';
-        if (dismissKeyboard || !sequenceActive.value) return;
+        if (zoomOwns.value) {
+          if (!event.allTouches.some(touch => !event.changedTouches.some(changed => changed.id === touch.id))) {
+            sequenceActive.value = false; activeContacts.value = []; zoomOwns.value = false;
+          }
+          return;
+        }
+        if (disabled || zoomOwns.value || dismissKeyboard || !sequenceActive.value) return;
         const trackedIds = activeContacts.value.map(contact => contact.id);
         const changedIds = event.changedTouches.map(touch => touch.id);
         // A delayed native up from a previous sequence must not observe the
@@ -229,21 +274,23 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         scheduleOnRN(sendTouchFrame, [], sequenceGeneration.value, false, false, true);
       });
     const pinch = Gesture.Pinch()
-      .enabled(preview)
+      .enabled(preview && !disabled && !dismissKeyboard)
       .onBegin(() => {
         'worklet';
         pinchStartScale.value = previewScale.value;
       })
       .onUpdate(event => {
         'worklet';
+        if (!zoomOwns.value && Math.abs(event.scale - 1) < .08) return;
+        claimZoom();
         const nextScale = clampPreviewScale(pinchStartScale.value * event.scale);
         previewScale.value = nextScale;
-        const bounds = previewPanBounds({ width: width.value, height: height.value }, nextScale);
+        const bounds = previewPanBounds({ width: width.value, height: Math.max(1, height.value - viewportInsetBottom) }, nextScale);
         previewOffsetX.value = Math.min(bounds.x, Math.max(-bounds.x, previewOffsetX.value));
         previewOffsetY.value = Math.min(bounds.y, Math.max(-bounds.y, previewOffsetY.value));
       });
     const pan = Gesture.Pan()
-      .enabled(preview)
+      .enabled(preview && !disabled && !dismissKeyboard)
       .minPointers(2)
       .maxPointers(2)
       .onBegin(() => {
@@ -253,13 +300,15 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       })
       .onUpdate(event => {
         'worklet';
+        if (previewScale.value <= 1) return;
+        claimZoom();
         const next = clampPreviewPan({ x: panStartX.value + event.translationX, y: panStartY.value + event.translationY },
-          { width: width.value, height: height.value }, previewScale.value);
+          { width: width.value, height: Math.max(1, height.value - viewportInsetBottom) }, previewScale.value);
         previewOffsetX.value = next.x;
         previewOffsetY.value = next.y;
       });
     return Gesture.Simultaneous(forward, pinch, pan);
-  }, [connection, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, preview]);
+  }, [connection, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, preview, mode, gain, disabled, videoSize?.width, videoSize?.height, viewportInsetBottom]);
 
   const onLayout = (event: { nativeEvent: { layout: { width: number; height: number } } }) => {
     width.value = event.nativeEvent.layout.width;
@@ -274,9 +323,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       onLayout={onLayout}
       collapsable={false}
       style={{ flex: 1, overflow: 'hidden' }}
-      accessibilityLabel="Touchpad multitáctil. Los gestos físicos se procesan en la computadora."
+      accessibilityLabel={mode === 'direct' ? 'Control directo de la pantalla. Tocá o arrastrá; dos dedos para scroll o clic derecho.' : 'Touchpad multitáctil. Los gestos físicos se procesan en la computadora.'}
     >
-      <View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</View>
+      <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
     </View>
   </GestureDetector>;
 }

@@ -4,7 +4,7 @@ import { bytesToHex } from '@noble/hashes/utils.js';
 export type TransferLimits = { version: 2; maxFiles: number; maxBytes: number; maxChunkBytes: number; ttlSeconds: number };
 export type TransferFile = { name: string; type: string; bytes: number; sha256: string };
 export type TransferManifest = { version: 2; id: string; files: TransferFile[] };
-export type PreparedBatch = { origin: string; manifest: TransferManifest; createdAt: number };
+export type PreparedBatch = { origin: string; manifest: TransferManifest; createdAt: number; sessionEpoch?: string };
 export type TransferStatus = {
   version: 2; id: string; state: 'receiving' | 'stored' | 'cancelled'; folder?: string;
   files: Array<TransferFile & { index: number; receivedBytes: number }>;
@@ -21,7 +21,7 @@ export function assertActive(signal: AbortSignal) {
 
 // One bounded request at a time. A lost response is recovered by beginning the
 // SAME manifest again; nothing implicitly retries a clipboard action.
-async function request(origin: string, query: string, method: string, signal: AbortSignal, body?: string | Uint8Array, digest?: string): Promise<unknown> {
+async function request(origin: string, query: string, method: string, signal: AbortSignal, body?: string | Uint8Array, digest?: string, sessionEpoch?: string): Promise<unknown> {
   assertActive(signal);
   const abort = new AbortController();
   const stop = () => abort.abort();
@@ -30,7 +30,7 @@ async function request(origin: string, query: string, method: string, signal: Ab
   try {
     const response = await fetch(origin + route + query, {
       method, credentials: 'include', signal: abort.signal,
-      headers: { Origin: origin, ...(body !== undefined ? { 'Content-Type': typeof body === 'string' ? 'application/json' : 'application/octet-stream' } : {}), ...(digest ? { 'X-Chunk-SHA256': digest } : {}) },
+      headers: { Origin: origin, ...(sessionEpoch ? { 'X-PhonePad-Session': sessionEpoch } : {}), ...(body !== undefined ? { 'Content-Type': typeof body === 'string' ? 'application/json' : 'application/octet-stream' } : {}), ...(digest ? { 'X-Chunk-SHA256': digest } : {}) },
       body: body instanceof Uint8Array ? new Uint8Array(body).buffer : body,
     });
     if (!response.ok) throw Error(response.status === 401 || response.status === 403 ? 'Este dispositivo no está autorizado.'
@@ -43,8 +43,8 @@ async function request(origin: string, query: string, method: string, signal: Ab
   } finally { clearTimeout(timer); signal.removeEventListener('abort', stop); }
 }
 
-export async function transferLimits(origin: string, signal: AbortSignal): Promise<TransferLimits> {
-  const value = await request(origin, '', 'GET', signal) as TransferLimits;
+export async function transferLimits(origin: string, signal: AbortSignal, sessionEpoch?: string): Promise<TransferLimits> {
+  const value = await request(origin, '', 'GET', signal, undefined, undefined, sessionEpoch) as TransferLimits;
   if (!value || value.version !== 2 || !integer(value.maxFiles) || value.maxFiles < 1 || value.maxFiles > 20
     || !integer(value.maxBytes) || value.maxBytes < 1 || value.maxBytes > 100 * 1024 * 1024
     || !integer(value.maxChunkBytes) || value.maxChunkBytes < 1 || value.maxChunkBytes > 1024 * 1024
@@ -73,7 +73,7 @@ export async function sendPreparedBatch(batch: PreparedBatch, limits: TransferLi
   const { origin, manifest } = batch;
   const total = manifest.files.reduce((n, file) => n + file.bytes, 0);
   if (manifest.files.length > limits.maxFiles || total > limits.maxBytes) throw Error('El lote supera los límites de esta computadora.');
-  let status = verifiedStatus(await request(origin, '?action=begin', 'POST', signal, JSON.stringify(manifest)), manifest);
+  let status = verifiedStatus(await request(origin, '?action=begin', 'POST', signal, JSON.stringify(manifest), undefined, batch.sessionEpoch), manifest);
   if (status.state === 'cancelled') throw Error('Este lote se canceló. Creá una nueva selección.');
   const report = () => progress(total ? Math.floor(status.files.reduce((n, f) => n + f.receivedBytes, 0) / total * 100) : 100);
   report();
@@ -84,7 +84,7 @@ export async function sendPreparedBatch(batch: PreparedBatch, limits: TransferLi
       const count = Math.min(limits.maxChunkBytes, 256 * 1024, manifest.files[index].bytes - offset);
       const data = read(manifest.id, index, offset, count);
       if (data.byteLength !== count) throw Error('La copia local del archivo cambió. Revisá el lote antes de continuar.');
-      const next = verifiedStatus(await request(origin, `?id=${manifest.id}&index=${index}&offset=${offset}`, 'PUT', signal, data, checksum(data)), manifest);
+      const next = verifiedStatus(await request(origin, `?id=${manifest.id}&index=${index}&offset=${offset}`, 'PUT', signal, data, checksum(data), batch.sessionEpoch), manifest);
       if (next.state !== 'receiving' || next.files[index].receivedBytes !== offset + count
         || next.files.some((file, i) => i !== index && file.receivedBytes !== status.files[i].receivedBytes)) throw Error('La computadora confirmó un avance inesperado. Consultá el lote antes de continuar.');
       status = next; report();
@@ -92,14 +92,14 @@ export async function sendPreparedBatch(batch: PreparedBatch, limits: TransferLi
   }
   if (status.state === 'stored') return status;
   assertActive(signal);
-  return verifiedStatus(await request(origin, `?action=commit&id=${manifest.id}`, 'POST', signal), manifest);
+  return verifiedStatus(await request(origin, `?action=commit&id=${manifest.id}`, 'POST', signal, undefined, undefined, batch.sessionEpoch), manifest);
 }
 
 export async function queryPreparedBatch(batch: PreparedBatch, signal: AbortSignal): Promise<TransferStatus> {
-  return verifiedStatus(await request(batch.origin, `?id=${batch.manifest.id}`, 'GET', signal), batch.manifest);
+  return verifiedStatus(await request(batch.origin, `?id=${batch.manifest.id}`, 'GET', signal, undefined, undefined, batch.sessionEpoch), batch.manifest);
 }
 export async function copyPreparedBatch(batch: PreparedBatch, signal: AbortSignal): Promise<TransferStatus> {
-  const status = verifiedStatus(await request(batch.origin, `?action=clipboard&id=${batch.manifest.id}`, 'POST', signal), batch.manifest);
+  const status = verifiedStatus(await request(batch.origin, `?action=clipboard&id=${batch.manifest.id}`, 'POST', signal, undefined, undefined, batch.sessionEpoch), batch.manifest);
   if (status.state !== 'stored' || !status.clipboard || status.clipboard.state === 'unrequested') throw Error('No se pudo confirmar el portapapeles. Los archivos siguen guardados.');
   return status;
 }
@@ -108,5 +108,5 @@ export async function cancelPreparedBatch(batch: PreparedBatch, signal: AbortSig
   // if begin never arrived. Cleanup stays available after upload permission is
   // revoked and must not depend on issuing a newly authorized begin request.
   return verifiedStatus(await request(batch.origin, `?action=cancel&id=${batch.manifest.id}`, 'POST', signal,
-    JSON.stringify(batch.manifest)), batch.manifest);
+    JSON.stringify(batch.manifest), undefined, batch.sessionEpoch), batch.manifest);
 }

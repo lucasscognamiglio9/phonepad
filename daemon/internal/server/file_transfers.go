@@ -57,6 +57,9 @@ func (s *Server) handleFileTransfers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method", 405)
 		return
 	}
+	if !s.acceptRequestSession(w, r) {
+		return
+	}
 	id, action := r.URL.Query().Get("id"), r.URL.Query().Get("action")
 	if r.Method == "GET" && id == "" {
 		writeTransferJSON(w, map[string]any{"version": filebatches.SchemaVersion, "maxFiles": filebatches.MaxFiles, "maxBytes": filebatches.MaxTotalBytes, "maxChunkBytes": filebatches.MaxChunkBytes, "ttlSeconds": int(filebatches.TTL.Seconds())})

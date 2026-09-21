@@ -1,6 +1,6 @@
 {
   "name": "phonepad-mobile",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "expo-router/entry",
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.2",
@@ -8,6 +8,7 @@
     "@noble/hashes": "2.0.1",
     "buffer": "^6.0.3",
     "expo": "~57.0.21",
+    "expo-clipboard": "~57.0.2",
     "expo-constants": "~57.0.17",
     "expo-crypto": "~57.0.2",
     "expo-dev-client": "~57.0.18",
@@ -17,6 +18,7 @@
     "expo-glass-effect": "~57.0.2",
     "expo-haptics": "~57.0.2",
     "expo-image-picker": "~57.0.16",
+    "expo-keep-awake": "~57.0.2",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.20",
     "expo-status-bar": "~57.0.1",
@@ -42,7 +44,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/*.test.cjs"
+    "test": "node --test tests/*.test.cjs",
+    "build:web-core": "node scripts/build-web-core.cjs"
   },
   "private": true
 }

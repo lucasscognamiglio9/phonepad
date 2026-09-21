@@ -18,6 +18,8 @@ const Net = (() => {
   let pongTimer = null;
   let missed = 0;
   let pingSent = 0;
+  let capabilities = null;
+  let inputCaps = null;
   let connected = false;     // socket abierto y handshake ok
   let manualClose = false;
   let reconnectTimer = null;
@@ -54,7 +56,7 @@ const Net = (() => {
   // Esquema derivado del protocolo de la página: https → wss, http → ws.
   // Una página https no puede abrir ws:// plano (mixed-content); esto lo evita.
   const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
-  const wsURL = `${wsProto}//${location.host}/ws`;
+  const wsURL = `${wsProto}//${location.host}/ws?protocol=2&directPointer=1`;
 
   function rejectAuth() {
     authRejected = true;
@@ -148,7 +150,14 @@ const Net = (() => {
         if (pongTimer) { clearTimeout(pongTimer); pongTimer = null; }
         missed = 0;
         if (connected && pingSent) document.getElementById("status-text").textContent = `conectado · ${Math.max(0, Date.now() - pingSent)} ms de red`;
+      } else if (msg.t === "capabilities") {
+        try { capabilities=PhonepadCore.parseSessionCapabilities(msg);inputCaps=PhonepadCore.inputCapabilities(msg.input); } catch { socket.close(); return; }
+        window.dispatchEvent(new CustomEvent('phonepad-capabilities'));
+      } else if (msg.t === "receipt") {
+        window.dispatchEvent(new CustomEvent('phonepad-receipt',{detail:msg}));
       } else if (msg.t === "ok") {
+        try { capabilities=PhonepadCore.parseSessionCapabilities(msg);inputCaps=PhonepadCore.inputCapabilities(msg.input); } catch { socket.close(); render('error','Versiones incompatibles'); return; }
+        window.dispatchEvent(new CustomEvent('phonepad-capabilities'));
         connected = true;
         backoffIdx = 0;
         Pad.reset();
@@ -207,6 +216,7 @@ const Net = (() => {
   }
 
   function cleanupSocket() {
+    capabilities=null;inputCaps=null;queueMicrotask(()=>window.dispatchEvent(new CustomEvent('phonepad-capabilities')));
     stopKeepalive();
     ws = null;
     connected = false;
@@ -225,9 +235,11 @@ const Net = (() => {
   }
 
   function send(obj) {
+    if(obj.t!=='ping' && !PhonepadCore.allowsInput(capabilities,obj.t)) return false;
+    if(obj.t!=='ping' && capabilities?.sessionEpoch) obj={...obj,sessionEpoch:capabilities.sessionEpoch};
     if (ws && ws.readyState === WebSocket.OPEN) {
       if (ws.bufferedAmount > 65536) { ws.close(); return; }
-      if (connected || obj.t === "ping") ws.send(JSON.stringify(obj));
+      if (connected || obj.t === "ping") { ws.send(JSON.stringify(obj)); return true; }
     }
   }
 
@@ -247,8 +259,10 @@ const Net = (() => {
     render("error", "sesión pausada");
   }
   function resume() { manualClose = false; authRejected = false; return connect(); }
-  return { connect, send, isConnected, pause, resume };
+  return { connect, send, isConnected, pause, resume, get capabilities(){return capabilities}, get inputCaps(){return inputCaps} };
 })();
+
+window.PhonepadNet=Net;
 
 // Relative touchpad gestures, shared by the full-screen pad and live preview.
 const Pad = (() => {
@@ -273,7 +287,7 @@ const Pad = (() => {
     e.preventDefault?.();points.set(e.pointerId,{x:e.clientX,y:e.clientY});const c=center();
     const dx=c.x-last.x,dy=c.y-last.y;last=c;
     if(Math.hypot(c.x-origin.x,c.y-origin.y)>8)moved=true;
-    if(points.size===1 && peak===1){Net.send({t:"m",dx:Math.round(dx*2),dy:Math.round(dy*2)});}
+    if(points.size===1 && peak===1){Net.send({t:"m",dx:Math.round(dx*2*(window.PhonepadControlGain?.()??1)),dy:Math.round(dy*2*(window.PhonepadControlGain?.()??1))});}
     else if(points.size===2 && peak===2){
       scrollX+=dx;scrollY+=dy;const x=Math.trunc(scrollX/18),y=Math.trunc(scrollY/18);
       if(x||y){Net.send({t:"s",dx:x,dy:y});scrollX-=x*18;scrollY-=y*18;}
@@ -548,13 +562,13 @@ const Sheet = (() => {
     if (open) {
       backdrop.hidden = true;
       document.getElementById("keyboard-extras").hidden=false;
-      Keyboard.focusInput();
+      document.getElementById('web-draft')?.focus();
     } else {
       document.getElementById("keyboard-extras").hidden=true;
       Keyboard.releaseModifiers();
       backdrop.classList.remove("is-visible");
       setTimeout(() => { backdrop.hidden = true; }, 240);
-      const inp = document.getElementById("hidden-input");
+      const inp = document.getElementById("web-draft");
       if (inp) inp.blur();
     }
   }
@@ -581,6 +595,7 @@ const Sheet = (() => {
     window.visualViewport?.addEventListener("resize",fit);
     window.visualViewport?.addEventListener("scroll",fit);
     window.addEventListener("resize",fit);fit();
+    if(typeof ResizeObserver!=="undefined") new ResizeObserver(()=>document.documentElement.style.setProperty("--composer-height",`${sheet.getBoundingClientRect().height}px`)).observe(sheet);
   }
 
   return { init, close: () => setOpen(false) };
@@ -650,7 +665,7 @@ const Updates = (() => {
   let registration, pending = false, timer, activePointers = new Set();
   function apply() {
     if (!pending || document.hidden || activePointers.size) return;
-    if (document.activeElement?.id === "hidden-input") { idle(); return; }
+    if ((document.activeElement?.id === "hidden-input" || window.PhonepadHasPendingWork?.())) { idle(); return; }
     Net.pause();
     location.reload();
   }
@@ -663,7 +678,7 @@ const Updates = (() => {
   function init() {
     if (!("serviceWorker" in navigator) || window.__PHONEPAD_DEV__) return;
     navigator.serviceWorker.addEventListener("message", e => {
-      if (e.data?.type === "PHONEPAD_VERSION" && e.data.build !== "22") { pending = true; idle(); }
+      if (e.data?.type === "PHONEPAD_VERSION" && e.data.build !== document.body.dataset.phonepadBuild) { pending = true; idle(); }
     });
     navigator.serviceWorker.addEventListener("controllerchange", () => { pending = true; idle(); });
     navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r => { registration = r; check(); }).catch(() => {});
@@ -685,9 +700,9 @@ function main() {
   document.addEventListener("dblclick", (e) => e.preventDefault());
 
   Pad.init();
-  Keyboard.init();
+  // The shared literal composer is initialized by receiver-controls.js.
   Sheet.init();
-  Clipboard.init();
+  // Explicit bidirectional clipboard is initialized by receiver-controls.js.
   Shell.init();
 
   document.getElementById("refresh-control").addEventListener("click", () => { paused = false; Net.pause(); Net.resume(); window.dispatchEvent(new Event("phonepad-recover")); });

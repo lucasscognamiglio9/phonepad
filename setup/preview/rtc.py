@@ -160,6 +160,8 @@ def _lab_h264_config(default_keyint):
     }
 
 
+from cursor_lease import CursorGuardian
+
 class Session:
     def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None):
         self.id = secrets.token_urlsafe(24)
@@ -450,6 +452,7 @@ class Session:
         self.touched = time.monotonic()
 
     def suspend(self):
+        if getattr(self, 'cursor_guardian', None): self.cursor_guardian.set_active(False)
         if not self.suspended:
             self.suspended = True
             self.touched = time.monotonic()
@@ -457,6 +460,7 @@ class Session:
         return {'ok': True}
 
     def resume(self):
+        if getattr(self, 'cursor_guardian', None): self.cursor_guardian.set_active(True)
         if self.suspended and time.monotonic() - self.touched >= 300:
             self.close()
             raise ValueError('session expired')
@@ -527,6 +531,7 @@ class Session:
         return response
 
     def close(self):
+        if getattr(self, 'cursor_guardian', None): self.cursor_guardian.close()
         if not self.closed:
             self.closed = True
             freshness = getattr(self, 'freshness', None)
@@ -873,6 +878,9 @@ class Manager:
             return {'ok': True}
         if operation == 'start':
             preferences = requested_codecs(data)
+            cursor_size = data.get('cursorSize', 0)
+            if type(cursor_size) is not int or (cursor_size != 0 and not 24 <= cursor_size <= 128):
+                raise ValueError('invalid cursor size')
             width = data.get('width', 1920)
             if type(width) is not int or not 320 <= width <= 1920:
                 raise ValueError('invalid width')
@@ -927,6 +935,8 @@ class Manager:
                         # probe was unavailable; never claim it before this
                         # point.
                         self.media_tracker.set_codecs([session.codec], selected=session.codec)
+                session.cursor_guardian = CursorGuardian(cursor_size)
+                session.cursor_guardian.set_active(True)
                 return {'id': session.id, 'type': 'offer', 'sdp': offer_sdp, 'media': session.media_snapshot()}
             try:
                 return self.dispatch(description)

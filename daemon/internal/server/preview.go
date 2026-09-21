@@ -52,6 +52,9 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 			operation = action.Op
 		}
 	}
+	if operation != "stop" && !s.acceptRequestSession(w, r) {
+		return
+	}
 	path := "/status"
 	if rtc {
 		path = "/rtc"

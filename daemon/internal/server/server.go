@@ -42,6 +42,7 @@ type Server struct {
 	fileTransfersErr  error
 	clipboardMu       sync.Mutex
 	clipboard         clipboardWriter
+	readClipboardText func(context.Context) (string, error)
 	trustedPeer       func(*http.Request) bool
 	pairMu            sync.Mutex
 	pairCode          string
@@ -91,6 +92,7 @@ type Server struct {
 	// applied only when a protocol-v2 peer opts into pointer geometry.
 	pointerCalibration   *input.PointerGeometry
 	pointerGeometryOptIn bool
+	directPointerOptIn   bool
 }
 
 const maxActionOperations = 128
@@ -175,6 +177,7 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 	s.mux.HandleFunc("/api/file-batches", s.handleFileBatches)
 	s.mux.HandleFunc("/api/file-transfers", s.handleFileTransfers)
 	s.mux.HandleFunc("/api/input", s.handleInput)
+	s.mux.HandleFunc("/api/clipboard", s.handleClipboardText)
 	s.mux.HandleFunc(nativeUpdateRoute, s.handleNativeUpdate)
 	s.mux.HandleFunc("/share", s.handleShare(webFS))
 	// Vista de pairing (SPEC §12): página + QR + canal SSE + metadata.
@@ -289,7 +292,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 
 	c.SetReadLimit(maxFrameBytes)
 	geometryOptIn := protocol == protocolVersion && r.URL.Query().Get("pointerGeometry") == "1"
-	gen, err := s.setCurrent(c, r.UserAgent(), protocol, geometryOptIn)
+	gen, err := s.setCurrent(c, r.UserAgent(), protocol, geometryOptIn, r.URL.Query().Get("directPointer") == "1")
 	if err != nil {
 		// The websocket handshake already happened, so report the reason on
 		// the wire instead of sending a v2 hello with an empty epoch. Keep the
@@ -347,7 +350,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 // a la vista pairing: en un reemplazo emite un solo client_connected con el
 // cliente nuevo (no parpadea disconnect+connect; ver SPEC §12).
 
-func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int, geometryOptIn bool) (uint64, error) {
+func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int, geometryOptIn bool, directOptIn ...bool) (uint64, error) {
 	// Unlock explícito (no defer) a propósito: no sostener el mutex durante el
 	// I/O de red de abajo (old.Close / hub). mutationGate ordena el reset físico
 	// sin retener el mutex usado por status y la coordinación de cierre.
@@ -378,6 +381,7 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int, geometry
 	s.currentProtocol = protocol
 	s.sessionEpoch = epoch
 	s.pointerGeometryOptIn = geometryOptIn
+	s.directPointerOptIn = protocol == protocolVersion && len(directOptIn) > 0 && directOptIn[0]
 	s.actionOps = make(map[string]actionOperation)
 	s.capabilityRevision++
 	s.newInputLease()
@@ -417,6 +421,7 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 		s.current = nil
 		s.currentProtocol = 0
 		s.pointerGeometryOptIn = false
+		s.directPointerOptIn = false
 		// A permit captured by the disconnected control session must not become
 		// a mutation after the connection is gone. The next connection receives
 		// a fresh random epoch in setCurrent.
@@ -902,6 +907,10 @@ func (s *Server) routeInjector(m Msg) {
 		return
 	}
 	switch m.Type {
+	case "p":
+		if d, ok := s.inj.(input.DirectPointer); ok && d.SupportsDirectPointer() {
+			d.MoveNormalized(m.Dx, m.Dy)
+		}
 	case "m":
 		s.inj.Move(m.Dx, m.Dy)
 	case "b":

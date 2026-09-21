@@ -20,7 +20,7 @@ for name, digest in manifest['files'].items():
     if hashlib.sha256((runtime/name).read_bytes()).hexdigest() != digest:
         raise SystemExit('Runtime checksum failed: ' + name)
 destination.mkdir(parents=True, exist_ok=False)
-for name in ('capture.py', 'rtc.py', 'rate_control.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'media_contract.py'):
+for name in ('capture.py', 'rtc.py', 'rate_control.py', 'frame_freshness.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'cursor_lease.py', 'media_contract.py'):
     shutil.copyfile(source/name, destination/name)
 shutil.copytree(runtime, destination/'hfr', symlinks=True)
 hashes = {str(p.relative_to(destination)):hashlib.sha256(p.read_bytes()).hexdigest()

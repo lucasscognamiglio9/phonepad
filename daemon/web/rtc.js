@@ -3,9 +3,11 @@
 window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
   const pc = new RTCPeerConnection({iceServers: []});
   let id, timer, previous, stopped = false, failures = 0, stalled = 0;
+  const epoch=window.PhonepadNet?.capabilities?.sessionEpoch;
   const call = async data => {
+    if (epoch && epoch!==window.PhonepadNet?.capabilities?.sessionEpoch) throw Error('stale-control-session');
     const response = await fetch('/api/preview/rtc', {method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify(data), signal});
+      headers:{'Content-Type':'application/json',...(epoch?{'X-PhonePad-Session':epoch}:{})}, body:JSON.stringify(data), signal});
     if (!response.ok) throw Error('rtc-signalling');
     return response.json();
   };
@@ -25,7 +27,7 @@ window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
   if (signal.aborted) { abort(); throw new DOMException('Stopped', 'AbortError'); }
   signal.addEventListener('abort', abort, {once:true});
   try {
-    const offer = await call({op:'start', codec, width:Math.max(320, Math.min(1920, Math.round(width)))});
+    const offer = await call({op:'start', codec, cursorSize:Math.max(24,Math.min(128,Math.ceil(28*1920/Math.max(1,video.clientWidth)))), width:Math.max(320, Math.min(1920, Math.round(width)))});
     id = offer.id;
     const firstFrame = new Promise((resolve, reject) => {
       const timeout = setTimeout(()=>{cleanup();reject(Error('rtc-first-frame-timeout'));}, 8000);

@@ -6,9 +6,10 @@ const path=require('node:path');
 function client(options={}){
  const elements=new Map(),timers=new Map(),events=[],requests=[],removed=[],docEvents={},winEvents={},styles={}; let next=0;
  const on=(map,n,f)=>{(map[n]??=[]).push(f)};
- function element(id){if(!elements.has(id))elements.set(id,{textContent:'',classList:{add(){},remove(){},toggle(){}},listeners:{},addEventListener(n,f){this.listeners[n]=f},contains(){return false},getBoundingClientRect(){return {left:0,top:0,width:300,height:400}},value:"",focus(){},blur(){},setSelectionRange(){},setAttribute(){},setPointerCapture(){},releasePointerCapture(){}});return elements.get(id)}
+ function element(id){if(!elements.has(id))elements.set(id,{dataset:{phonepadBuild:'23'},textContent:'',classList:{add(){},remove(){},toggle(){}},listeners:{},addEventListener(n,f){this.listeners[n]=f},contains(){return false},getBoundingClientRect(){return {left:0,top:0,width:300,height:400}},value:"",focus(){},blur(){},setSelectionRange(){},setAttribute(){},setPointerCapture(){},releasePointerCapture(){}});return elements.get(id)}
  class Socket {static OPEN=1;static instances=[];constructor(url){this.url=url;this.readyState=0;this.bufferedAmount=0;this.sent=[];Socket.instances.push(this)} send(s){this.sent.push(JSON.parse(s))} close(){this.readyState=3;this.onclose?.({code:1000})} open(){this.readyState=1;this.onopen?.()} message(t){this.onmessage?.({data:JSON.stringify({t})})}}
- const context=vm.createContext({URL,URLSearchParams,AbortController,Intl,Map,Set,WebSocket:Socket,fetch:async(url,init)=>{requests.push({url,init});return {status:204}},location:{search:options.cookieOnly?'':'?token=test',hash:options.hash||'',protocol:'https:',host:'localhost',href:'https://localhost/?token=test',reload:options.reload||(()=>{})},history:{replaceState(){}},localStorage:{setItem(){},getItem(){return options.cookieOnly?'':'test'},removeItem(key){removed.push(key)}},document:{readyState:'loading',hidden:false,body:element('body'),documentElement:{style:{setProperty(k,v){styles[k]=v}}},querySelectorAll(){return []},getElementById:element,addEventListener(n,f){on(docEvents,n,f)}},window:{SpeechRecognition:options.SR,isSecureContext:true,innerHeight:852,visualViewport:options.viewport,addEventListener(n,f){on(winEvents,n,f)},dispatchEvent(e){events.push(e.type);for(const f of winEvents[e.type]||[])f(e)}},navigator:options.navigator||{},Event:class{constructor(type){this.type=type}},setTimeout(f){timers.set(++next,f);return next},clearTimeout(id){timers.delete(id)},setInterval(){return ++next},clearInterval(){},requestAnimationFrame(){return ++next},cancelAnimationFrame(){},console});
+ const context=vm.createContext({TextEncoder,TextDecoder,Uint8Array,queueMicrotask:fn=>fn(),CustomEvent:class {constructor(type,init={}){this.type=type;this.detail=init.detail}},URL,URLSearchParams,AbortController,Intl,Map,Set,WebSocket:Socket,fetch:async(url,init)=>{requests.push({url,init});return {status:204}},location:{search:options.cookieOnly?'':'?token=test',hash:options.hash||'',protocol:'https:',host:'localhost',href:'https://localhost/?token=test',reload:options.reload||(()=>{})},history:{replaceState(){}},localStorage:{setItem(){},getItem(){return options.cookieOnly?'':'test'},removeItem(key){removed.push(key)}},document:{readyState:'loading',hidden:false,body:element('body'),documentElement:{style:{setProperty(k,v){styles[k]=v}}},querySelectorAll(){return []},getElementById:element,addEventListener(n,f){on(docEvents,n,f)}},window:{SpeechRecognition:options.SR,isSecureContext:true,innerHeight:852,visualViewport:options.viewport,addEventListener(n,f){on(winEvents,n,f)},dispatchEvent(e){events.push(e.type);for(const f of winEvents[e.type]||[])f(e)}},navigator:options.navigator||{},Event:class{constructor(type){this.type=type}},setTimeout(f){timers.set(++next,f);return next},clearTimeout(id){timers.delete(id)},setInterval(){return ++next},clearInterval(){},requestAnimationFrame(){return ++next},cancelAnimationFrame(){},console});
+ vm.runInContext(fs.readFileSync(path.join(__dirname,'../daemon/web/phonepad-core.js'),'utf8'),context);context.PhonepadCore=context.window.PhonepadCore;
  vm.runInContext(fs.readFileSync(path.join(__dirname,'../daemon/web/app.js'),'utf8'),context);
  return {run:s=>vm.runInContext(s,context),Socket,elements,timers,events,requests,removed,styles,context,fireDoc:(n,e={})=>(docEvents[n]||[]).forEach(f=>f(e)),fireWin:(n,e={})=>(winEvents[n]||[]).forEach(f=>f(e))};
 }
@@ -35,13 +36,13 @@ test('backpressure closes stale control transport instead of buffering gestures'
 
 test('cookie-only session reconnects without credentials in WebSocket URL',async()=>{
  const c=client({cookieOnly:true});await c.run('Net.connect()');
- assert.equal(c.requests[0].url,'/api/auth');assert.equal(c.Socket.instances[0].url,'wss://localhost/ws');
+ assert.equal(c.requests[0].url,'/api/auth');assert.equal(c.Socket.instances[0].url,'wss://localhost/ws?protocol=2&directPointer=1');
 });
 test('invitation is claimed once; subsequent authentication uses cookie',async()=>{
  const code='a'.repeat(32),c=client({cookieOnly:true,hash:'#pair='+code});await c.run('Net.connect()');
  assert.equal(c.requests[0].url,'/api/claim');assert.equal(c.requests[0].init.method,'POST');assert.equal(JSON.parse(c.requests[0].init.body).code,code);
  c.run('Net.pause()');await c.run('Net.resume()');assert.equal(c.requests[1].url,'/api/auth');
- assert.ok(c.removed.length>0);assert.equal(c.Socket.instances.at(-1).url,'wss://localhost/ws');
+ assert.ok(c.removed.length>0);assert.equal(c.Socket.instances.at(-1).url,'wss://localhost/ws?protocol=2&directPointer=1');
 });
 
 
@@ -117,4 +118,16 @@ test('explicit recovery revalidates authorization after an earlier rejection',as
  await c.run('Net.connect()');assert.equal(c.Socket.instances.length,0);
  await c.run('Net.connect()');assert.equal(attempts,1);
  await c.run('Net.resume()');assert.equal(attempts,2);assert.equal(c.Socket.instances.length,1);
+});
+
+test('same shell version and pending drafts never reload',async()=>{
+ const listeners={};let reloads=0;
+ const serviceWorker={addEventListener(n,f){listeners[n]=f},register:async()=>({update:async()=>{}})};
+ const c=client({navigator:{serviceWorker},reload(){reloads++}});
+ c.context.document.body.dataset.phonepadBuild='23';
+ c.run('Updates.init()');await new Promise(setImmediate);
+ listeners.message({data:{type:'PHONEPAD_VERSION',build:'23'}});
+ for(const callback of [...c.timers.values()])callback();assert.equal(reloads,0);
+ c.context.window.PhonepadHasPendingWork=()=>true;
+ listeners.controllerchange();[...c.timers.values()].at(-1)();assert.equal(reloads,0);
 });

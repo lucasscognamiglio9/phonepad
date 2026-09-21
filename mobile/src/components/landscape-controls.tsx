@@ -62,6 +62,7 @@ export function LandscapeControls({
   exitPreview,
   disabled,
   insets,
+  optionsLabel,
 }: {
   visible: boolean;
   show: () => void;
@@ -71,6 +72,7 @@ export function LandscapeControls({
   exitPreview: () => void;
   disabled: boolean;
   insets: LandscapeControlsInsets;
+  optionsLabel?: string;
 }) {
   const { height } = useWindowDimensions();
   const frame = getLandscapeControlsFrame(height, insets);
@@ -98,7 +100,7 @@ export function LandscapeControls({
         >
           <GlassButton compact label="Ocultar controles" action="hideControls" onPress={hide} />
           <GlassButton compact label="Teclado" action="keyboard" disabled={disabled} onPress={openKeyboard} />
-          <GlassButton compact label="Reconectar" action="reconnect" onPress={reconnect} />
+          <GlassButton compact label={optionsLabel ?? "Reconectar"} action={optionsLabel ? "shortcuts" : "reconnect"} onPress={reconnect} />
           <GlassButton compact label="Ocultar pantalla" action="screen" onPress={exitPreview} />
         </ScrollView>
       </GlassSurface>

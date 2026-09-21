@@ -125,6 +125,8 @@ func validMsg(m Msg) bool {
 		return false
 	}
 	switch m.Type {
+	case "p":
+		return m.Dx >= 0 && m.Dx <= 65535 && m.Dy >= 0 && m.Dy <= 65535
 	case "m":
 		return absBound(m.Dx, maxDelta) && absBound(m.Dy, maxDelta)
 	case "b":

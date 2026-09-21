@@ -161,3 +161,15 @@ func TestSetCurrentNegotiatesProfileBeforeSendingSessionHello(t *testing.T) {
 		t.Fatalf("legacy reconnect profile = %+v, ok=%v, want legacy epoch 3", got, ok)
 	}
 }
+
+func TestWrappedDemoRetainsLegacySession(t *testing.T) {
+	inj := input.NewAsyncText(&input.Demo{}, 8)
+	defer inj.Close()
+	s := New(staticAuth("tok"), inj, nil, "")
+	if err := s.applyPointerGeometry(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.applyPointerGeometry(context.Background(), true); err != nil {
+		t.Fatal(err)
+	}
+}

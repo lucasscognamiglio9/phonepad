@@ -109,6 +109,11 @@ type SerializedInjector interface {
 // captura de pantalla, no de deltas relativos como en el touchpad del celular.
 // El resto de los métodos (Button, Scroll, Text, Special, Combo) se comparten
 // con el camino relativo sin cambios.
+type DirectPointer interface {
+	SupportsDirectPointer() bool
+	MoveNormalized(x, y int) // normalized integer range 0..65535
+}
+
 type AbsInjector interface {
 	Injector
 	// MoveTo ubica el cursor en (x,y), en el rango [0,w]x[0,h] declarado en

@@ -7,7 +7,7 @@ export type ActionCommand =
   | { t: 'k'; a: 'cancel'; operationId: string; phase: 'cancel' };
 
 export type Command =
-  | { t: 'm' | 's'; dx: number; dy: number }
+  | { t: 'm' | 's' | 'p'; dx: number; dy: number }
   | { t: 'b'; btn: 'l' | 'r'; a: 'down' | 'up' }
   | { t: 'k'; a: 'text'; text: string }
   | { t: 'k'; a: 'special'; key: string }

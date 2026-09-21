@@ -112,12 +112,14 @@ test('executed and rejected receipts remain distinct for separate actions', () =
   assert.match(statusText(h), /rechazada/);
 });
 
-test('arrow hold sends ordered repeats, cancels on release, and does not duplicate onPress', async () => {
+test('arrow hold sends ordered repeats, cancels on release, and does not duplicate onPress', t => {
+  t.mock.timers.enable({apis: ['setTimeout', 'setInterval']});
   const h = harness();
   h.click('Teclas extra');
   const button = h.find('GlassButton', 'Arriba');
   button.props.onPressIn();
-  await new Promise(resolve => setTimeout(resolve, 430));
+  t.mock.timers.tick(350);
+  t.mock.timers.tick(80);
   const beforeRelease = h.sent.filter(item => item.phase === 'repeat').length;
   assert.ok(beforeRelease > 0, 'hold should produce repeat frames after the initial delay');
   button.props.onPressOut();

@@ -36,12 +36,13 @@ const ACTION_REPEAT_INITIAL_DELAY_MS = 350;
 const ACTION_REPEAT_INTERVAL_MS = 70;
 
 // Keep text state here: typing must not rerender the video or restart its stream.
-export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange,
+export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange, onOcclusionChange,
   canReview = !disabled, allowAttachments = !disabled }: {
   connection: Connection; active: boolean; open: () => void; close: () => void;
   disabled: boolean; choosing: boolean; choose: (source: AttachmentSource) => void;
   visible?: boolean;
   onPendingChange?: (pending: boolean) => void;
+  onOcclusionChange?: (height: number) => void;
   canReview?: boolean;
   allowAttachments?: boolean;
 }) {
@@ -78,6 +79,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [contentHeight, setContentHeight] = useState(24);
   const [actionBarHeight, setActionBarHeight] = useState(0);
   const preKeyboardHeight = useRef(height);
+  const preKeyboardWidth = useRef(width);
+  if (preKeyboardWidth.current !== width) { preKeyboardWidth.current = width; preKeyboardHeight.current = height; }
   const previousActive = useRef(active);
   const addButton = useRef<View>(null);
   const menuInteraction = useRef(false);
@@ -464,7 +467,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     <KeyboardStickyView pointerEvents="box-none" enabled={followsKeyboard}
       offset={{ closed: 0, opened: keyboardStickyOpenedOffset(windowResize, closedBottom, COMPOSER_OPEN_GAP) }}
       style={{ position: 'absolute', bottom: closedBottom, alignSelf: 'center' }}>
-      <Animated.View pointerEvents="box-none" style={[{ gap: 8 }, style]}>
+      <Animated.View pointerEvents="box-none" onLayout={event => onOcclusionChange?.(event.nativeEvent.layout.height + COMPOSER_OPEN_GAP)} style={[{ gap: 8 }, style]}>
       {lateDraft && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
           {lateDraft.duplicate

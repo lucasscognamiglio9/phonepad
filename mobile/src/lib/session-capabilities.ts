@@ -4,7 +4,7 @@ export type PermissionState = 'granted' | 'revoked' | 'unavailable';
 export type PermissionScope = 'view' | 'input' | 'files' | 'clipboard';
 export type Permission = { state: PermissionState; reason?: string };
 export type CapabilityState = 'available' | 'unavailable' | 'unsupported' | 'unknown';
-export type InputAction = 'm' | 'b' | 's' | 'k' | 'g' | 't';
+export type InputAction = 'm' | 'b' | 's' | 'k' | 'g' | 't' | 'p';
 export type PointerGeometryKind = 'legacy-aspect-fit' | 'square-centered';
 export type PointerGeometryProfile = {
   id: string;
@@ -115,8 +115,8 @@ export function parseSessionCapabilities(message: unknown): SessionCapabilities 
   }
   const {input, literal, video} = message.capabilities;
   if (!record(input) || !capabilityStates.includes(String(input.state)) || typeof input.effective !== 'boolean'
-    || !Array.isArray(input.actions) || input.actions.length > actions.length
-    || input.actions.some(action => !actions.includes(action as InputAction))
+    || !Array.isArray(input.actions) || input.actions.length > actions.length + 1
+    || input.actions.some(action => ![...actions, 'p'].includes(action as InputAction))
     || new Set(input.actions).size !== input.actions.length
     || !record(literal) || !capabilityStates.includes(String(literal.state))
     || !record(video) || !capabilityStates.includes(String(video.state))) throw invalid();

@@ -43,7 +43,7 @@ test('help sheet is accessible, describes visible controls, and closes without s
   assert.equal(modal.props.supportedOrientations.join(','), 'portrait,landscape');
   assert.equal(all.find(node => node.type === 'ScrollView').props.accessibilityLabel, 'Ayuda de PhonePad');
   const text = all.filter(node => node.type === 'Text').map(node => node.props.children).filter(value => typeof value === 'string').join(' ');
-  assert.match(text, /Trackpad Mode/);
+  assert.match(text, /Modos y zoom/);
   assert.match(text, /Escribir y pegar/);
   const close = all.find(node => node.props.accessibilityLabel === 'Cerrar ayuda');
   close.props.onPress();

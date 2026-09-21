@@ -46,6 +46,7 @@ const (
 	opLiteralFocus
 	opSpecialAction
 	opComboAction
+	opMoveNormalized
 )
 
 // asyncText es un serializador de todas las operaciones del Injector. El nombre
@@ -99,6 +100,10 @@ func (a *asyncText) loop() {
 			continue
 		}
 		switch op.kind {
+		case opMoveNormalized:
+			if d, ok := a.inner.(DirectPointer); ok {
+				d.MoveNormalized(op.dx, op.dy)
+			}
 		case opMove:
 			a.inner.Move(op.dx, op.dy)
 		case opButton:
@@ -226,6 +231,12 @@ func (a *asyncText) submit(op asyncOp) bool {
 	}
 }
 
+func (a *asyncText) SupportsDirectPointer() bool {
+	d, ok := a.inner.(DirectPointer)
+	return ok && d.SupportsDirectPointer()
+}
+func (a *asyncText) MoveNormalized(x, y int) { a.submit(asyncOp{kind: opMoveNormalized, dx: x, dy: y}) }
+
 func (a *asyncText) Move(dx, dy int) { a.submit(asyncOp{kind: opMove, dx: dx, dy: dy}) }
 func (a *asyncText) Button(btn string, down bool) {
 	a.submit(asyncOp{kind: opButton, btn: btn, down: down})
@@ -290,6 +301,11 @@ func (a *asyncText) PointerGeometry() (PointerGeometry, bool) {
 // ApplyPointerGeometry is a lifecycle/configuration transition. It is kept
 // outside the action FIFO because the controller itself cancels contacts and
 // recreates the sealed uinput node atomically under its device lock.
+func (a *asyncText) SupportsPointerGeometryConfiguration() bool {
+	_, ok := a.inner.(PointerGeometryController)
+	return ok
+}
+
 func (a *asyncText) ApplyPointerGeometry(ctx context.Context, profile PointerGeometry) error {
 	if ctx == nil {
 		ctx = context.Background()

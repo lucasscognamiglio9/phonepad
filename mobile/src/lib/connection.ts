@@ -114,7 +114,7 @@ export class Connection {
       // Geometry is an explicit v2 opt-in. Older daemons ignore the additive
       // query parameter and keep their legacy 100x70 mapper; newer daemons
       // apply a persisted calibrated profile before sending the hello.
-      const socket = new WebSocket(this.origin.replace('https:', 'wss:') + '/ws?protocol=2&pointerGeometry=1');
+      const socket = new WebSocket(this.origin.replace('https:', 'wss:') + '/ws?protocol=2&pointerGeometry=1&directPointer=1');
       this.socket = socket;
       this.handshake = setTimeout(() => this.disconnect(socket), 5000);
       socket.onmessage = event => {
@@ -173,6 +173,7 @@ export class Connection {
   private acceptActionReceipt(receipt: ActionReceipt) {
     if (receipt.sessionEpoch && receipt.sessionEpoch !== this.capabilities?.sessionEpoch) return;
     this.actionReceipts.set(receipt.operationId, receipt);
+    if (this.actionReceipts.size > 256) { const oldest = this.actionReceipts.keys().next().value; if (oldest) this.actionReceipts.delete(oldest); }
     const operation = this.actionOps.get(receipt.operationId);
     if (operation && (receipt.phase === 'cancel' || receipt.state === 'rejected'
       || receipt.state === 'uncertain' || receipt.state === 'cancelled')) operation.active = false;
@@ -204,6 +205,8 @@ export class Connection {
   // command was not admitted locally and no retry identity was created.
   pressAction = (command: ActionIntent): string | null => {
     if (!this.ready || this.capabilities?.protocolVersion !== 2 || !allowsInput(this.capabilities, 'k')) return null;
+    for (const [id, op] of this.actionOps) if (!op.active) this.actionOps.delete(id);
+    if (this.actionOps.size >= 256) return null;
     const operationId = newActionOperationId();
     const action = { ...command, operationId, phase: 'press' as const, actionSequence: 1 } as ActionCommand;
     if (!this.send(action)) return null;

@@ -40,10 +40,11 @@ export function selectedPair(stats: Stat[]): Stat | undefined {
 }
 
 // Encoded frames stay in native WebRTC/VideoToolbox. JS only signals and samples stats.
-export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void) {
+export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void, controlEpoch?: () => string | null, receiverWidth?: () => number) {
   const peer = new RTCPeerConnection({ iceServers: [] });
   const lifetime = new AbortController();
-  const headers = { 'Content-Type': 'application/json', Origin: origin };
+  const sessionEpoch = controlEpoch?.();
+  const headers = { 'Content-Type': 'application/json', Origin: origin, ...(sessionEpoch ? { 'X-PhonePad-Session': sessionEpoch } : {}) };
   let suspended = false, suspendedAt = 0;
   let activity = Promise.resolve();
   let phase = 'status';
@@ -65,7 +66,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     const timeout = setTimeout(abort, 5000);
     lifetime.signal.addEventListener('abort', abort, { once: true });
     try {
-      if (lifetime.signal.aborted) throw Error('Cancelado');
+      if (lifetime.signal.aborted || (controlEpoch && sessionEpoch !== controlEpoch())) throw Error('Cancelado');
       const response = await fetch(origin + path, {
         method: data ? 'POST' : 'GET', headers,
         body: data ? JSON.stringify(data) : undefined, signal: controller.signal,
@@ -128,7 +129,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // physical desktop resolution independent of screen orientation and zoom.
     phase = 'offer';
     const codec = selectVideoCodec(advertised);
-    const offer = await call({ op: 'start', width: 1920, codec, ...(advertised ? {codecs: [codec]} : {}) });
+    const offer = await call({ op: 'start', width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
