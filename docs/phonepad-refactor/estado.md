@@ -1,10 +1,17 @@
-# Estado de ejecución: P00–P06 autorizadas; P07–P12 diferidas, 20/09/2026
+# Estado de ejecución: P00–P06 autorizadas; P07–P12 diferidas, checkpoint 20/09/2026
 
-## Ejecución vigente: P00.6 candidato nativo y preparación de release
+## Ejecución vigente: P00.6, P03.2, P01A receipts y P06 layout
 
-La ejecución actual está autorizada por el usuario y la coordina `/root`; los workers Luna xhigh trabajan por paquetes y rutas exclusivas. El checkout vigente es `refactor/p00-baseline` en HEAD `ef10bf44851f53c52958283caa82464c2873bea1` (`ef10bf4`). El alcance ejecutable es P00–P06 según el [roadmap canónico](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md`; P07–P12 siguen diferidas y no se reabren en este pase.
+La ejecución actual está autorizada por el usuario y la coordina `/root`; los workers Luna xhigh trabajan por paquetes y rutas exclusivas. El checkout vigente es `refactor/p00-baseline` en el checkpoint integrado `0a8d882`, con P06 UI/layout serializado en `bf0c8f1`. El alcance ejecutable es P00–P06 según el [roadmap canónico](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md`; P07–P12 siguen diferidas y no se reabren en este pase.
 
-Al iniciar este bloque se preservaron HEAD, rama y diff existente. El árbol ya contenía cambios documentales de la consolidación (`docs/phonepad-refactor/{estado.md,continuation-2026-09-20.md}` y el roadmap no versionado); no se sobrescriben cambios de otros workers. P01A y P03 mantienen ownership de sus rutas; este worker solo toca configuración/scripts/documentación de P00.6.
+Los checkpoints recientes son `e6cc7b8` (preparación P00.6), `591ccf9` (instrumentación P03.2), `0a8d882` (contrato de receipts P01A) y `bf0c8f1` (geometría P06 de teclado/preview). El árbol puede contener cambios no staged de otros workers; no se incorporan en este checkpoint.
+
+### Ledger de owners activos
+
+- `/root`: coordinación, orden de integración y release.
+- Core input: backend de texto/clipboard y contrato de receipts P01A; sus rutas no son ownership de UI.
+- `map_video_pointer`: correlación P03 y laboratorio; `591ccf9` conserva un blocker de PTS/receptor pendiente de corrección.
+- Worker UI: `mobile/src/components/native-keyboard.tsx`, `mobile/src/screens/control.tsx`, `keyboard-layout.ts` y pruebas; `bf0c8f1` cubre geometría residual con `KeyboardStickyView`. La integración de receipts queda para el siguiente checkpoint.
 
 P00.6 está en preparación concreta: `mobile/app.json` fija el paquete Android `app.phonepad.mobile`, habilita iPad y elimina el permiso explícito redundante de micrófono en el receptor; `mobile/eas.json` solicita APK para el perfil personal; `mobile/scripts/build-ios-personal.sh` exige Node compatible con Expo 57 antes de Xcode. Estas modificaciones cambian el fingerprint, por lo que el hash definitivo se debe generar desde el checkpoint integrado limpio, no desde este árbol mientras otros workers editan en paralelo.
 

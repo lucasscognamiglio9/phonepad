@@ -1,8 +1,10 @@
-# Continuación de PhonePad: ejecución P00–P06 autorizada; P07–P12 diferidas, 20/09/2026
+# Continuación de PhonePad: ejecución P00–P06 autorizada; P07–P12 diferidas, checkpoint 20/09/2026
 
-## Ejecución vigente: P00.6 candidato nativo
+## Ejecución vigente: P00.6, P03.2, P01A receipts y P06 layout
 
-El usuario autorizó implementar P00–P06 y `/root` coordina el trabajo; los workers Luna xhigh conservan ownership por paquete y rutas exclusivas. La base vigente es `refactor/p00-baseline` en HEAD `ef10bf44851f53c52958283caa82464c2873bea1` (`ef10bf4`). El [roadmap canónico P00–P06](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md` son las fuentes de alcance y criterios; P07–P12 quedan fuera del trabajo activo.
+El usuario autorizó implementar P00–P06 y `/root` coordina el trabajo; los workers Luna xhigh conservan ownership por paquete y rutas exclusivas. La base vigente es `refactor/p00-baseline` en el checkpoint integrado `0a8d882`, con la entrega UI P06 en `bf0c8f1`. El [roadmap canónico P00–P06](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md` son las fuentes de alcance y criterios; P07–P12 quedan fuera del trabajo activo.
+
+Checkpoints: `e6cc7b8` prepara P00.6; `591ccf9` añade instrumentación P03.2, con correlación por PTS y receptor de laboratorio todavía pendientes; `0a8d882` fija el contrato de receipts P01A; `bf0c8f1` implementa geometría P06 de teclado/preview, baseline previo al foco, overlap residual y pruebas integradas. Owners activos: `/root` coordina; core input mantiene backend texto/clipboard/receipts; `map_video_pointer` mantiene P03 correlación/lab; este worker mantiene UI teclado/layout. No se mezclan rutas entre estos paquetes.
 
 Este bloque prepara P00.6 en `mobile/app.json`, `mobile/eas.json`, `mobile/plugins/` y scripts de build: paquete Android explícito, soporte de iPad, APK interno y preflight Node para Expo 57. El fingerprint se debe regenerar desde el checkpoint integrado limpio porque el árbol comparte cambios de otros workers. La configuración pública y el fingerprint previo se verifican localmente; no hay Java/JDK, Android SDK/adb, EAS CLI, Xcode ni CocoaPods en este Linux. La IPA requiere Mac/Xcode 26.4+ y firma; el APK requiere SDK/JDK o builder autorizado. No se inicia build cloud de pago, no se usan credenciales y no se afirma candidato instalable hasta tener archive/fingerprint, instalación, arranque y reconexión.
 
