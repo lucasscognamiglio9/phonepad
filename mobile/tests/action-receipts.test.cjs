@@ -86,3 +86,22 @@ test('malformed or stale receipts never become local success', async () => {
     assert.equal(h.connection.getActionReceipt(operationId), null);
   } finally { h.connection.stop(); }
 });
+
+test('disconnect clears action receipts and never replays an old operation', async () => {
+  const h = harness();
+  const ws = await h.start();
+  const operationId = h.connection.pressAction({t:'k', a:'special', key:'ArrowLeft'});
+  ws.receive({t:'receipt', operationId, phase:'press', state:'executed', repeatCount:0,
+    detail:'uinput_keypress_complete', sessionEpoch:'fixture-epoch'});
+  assert.equal(h.connection.getActionReceipt(operationId).state, 'executed');
+
+  h.connection.stop();
+  assert.equal(h.connection.getActionReceipt(operationId), null);
+  assert.equal(await h.connection.waitActionReceipt(operationId, 0), null);
+  assert.equal(h.connection.repeatAction(operationId), false);
+  assert.equal(h.connection.cancelAction(operationId), false);
+
+  const fresh = await h.start();
+  assert.deepEqual(fresh.sent, []);
+  h.connection.stop();
+});

@@ -4,6 +4,9 @@ Fecha: 2026-09-20
 Checkout: `work/phonepad-refactor`, rama `refactor/p00-baseline`
 Alcance: implementación de contratos de entrada, recibos de acciones especiales/combos y transporte móvil. No incluye UI, build nativo, instalación, pruebas físicas, push ni deploy.
 
+Actualización de cierre dirigida: 2026-09-21. Se revisó el corte y la reconexión
+de las acciones de teclado sin reabrir el trabajo P04/P05 del árbol compartido.
+
 ## IDs atendidos
 
 Este bloque implementa el tramo de P01A.2 y P01A.7 que faltaba en el código, y deja soporte de contrato para P01A.3, P01A.4 y P01A.5. Los subbloques `p01a-01` a `p01a-05` no se consideran equivalentes a cerrar las tareas maestras.
@@ -28,6 +31,24 @@ Este bloque implementa el tramo de P01A.2 y P01A.7 que faltaba en el código, y 
 
 - `mobile/src/lib/protocol.ts`: tipos `ActionCommand`, `ActionReceipt` y validación estricta de recibos.
 - `mobile/src/lib/connection.ts`: `pressAction`, `repeatAction`, `cancelAction`, `getActionReceipt` y `waitActionReceipt`. Los repeats usan la siguiente secuencia, cancelación puede cruzar una revocación de input mientras siga la sesión, y `stop`/desconexión limpia operaciones y esperas para impedir replay incierto.
+
+### Corte de conexión y recuperación
+
+Las acciones de teclado no tienen una consulta remota después de cambiar de
+`sessionEpoch`: el daemon descarta `actionOps` al reemplazar la conexión y la
+conexión móvil descarta recibos, operaciones y esperas al desconectarse. Un
+recibo tardío de la sesión anterior se ignora y un `repeat`/`cancel` posterior
+no se emite. Esto satisface el requisito de no replay incierto sin afirmar que
+una tecla ya enviada pueda deshacerse. La consulta persistente de recibos que
+define P01A.2 pertenece a la transacción `/api/input` de texto literal; no se
+extiende artificialmente a acciones de teclado.
+
+La regresión `disconnect clears action receipts and never replays an old
+operation` comprueba que un recibo `executed` se pierde al corte, que las
+esperas resuelven `null`, que `repeat` y `cancel` quedan bloqueados y que una
+sesión nueva no reenvía el comando anterior. La recuperación física y la
+observación de un recibo en el proveedor siguen pendientes del candidato
+instalado.
 
 ### Corrección de orden y cancelación tardía
 
@@ -74,7 +95,7 @@ npm test -- tests/action-receipts.test.cjs tests/core.test.cjs tests/session-cap
 3 archivos, todas las pruebas aprobadas
 ```
 
-Los casos nuevos cubren proveedor demorado, espera interrumpida, `KeyDown` fallido con limpieza, proveedor legacy admitido, press duplicado, repeat duplicado, hueco de secuencia, cancelación y repeat tardío. `action-receipts.test.cjs` cubre envelope v2, recibo válido, recibo malformado, epoch ajeno y cancelación después de revocar input.
+Los casos nuevos cubren proveedor demorado, espera interrumpida, `KeyDown` fallido con limpieza, proveedor legacy admitido, press duplicado, repeat duplicado, hueco de secuencia, cancelación y repeat tardío. `action-receipts.test.cjs` cubre envelope v2, recibo válido, recibo malformado, epoch ajeno, cancelación después de revocar input y corte sin replay de una operación anterior.
 
 La corrida completa `npm test` tiene un fallo ajeno a este bloque: los tests de `composer` y `control-layout` cargan `native-keyboard.tsx` y el fixture no ofrece `useKeyboardState`. Es un cambio concurrente de UI (`mobile/src/components/native-keyboard.tsx` y tests asociados), no una regresión de `connection.ts` o `protocol.ts`. Los otros 16 archivos de esa corrida pasaron.
 
