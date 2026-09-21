@@ -64,6 +64,7 @@ from media_contract import (MediaContractError, MediaTracker, dimensions_from_ca
 from rate_control import RateController
 from gcc_controller import (GCCController, GCCControllerError, controller_name,
                             require_runtime)
+from frame_freshness import FrameFreshness, memory_descriptor
 
 
 def available_codecs():
@@ -102,6 +103,22 @@ def _caps_from_pipeline(pipeline, element_name, pad_name):
         return None
 
 
+def _max_frame_age_ms():
+    """Read an opt-in pre-encode freshness threshold.
+
+    Zero keeps the existing pipeline behavior.  A future experiment can set a
+    bounded threshold after observing the reported age distribution; no value
+    is guessed into the default path.
+    """
+
+    raw = os.environ.get('PHONEPAD_MAX_FRAME_AGE_MS', '0')
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return 0
+    return value if math.isfinite(value) and 0 < value <= 10_000 else 0
+
+
 class Session:
     def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None):
         self.id = secrets.token_urlsafe(24)
@@ -136,18 +153,18 @@ class Session:
         size_caps = (f'width={output_size[0]},height={output_size[1]},pixel-aspect-ratio=1/1'
                      if output_size else f'width=[2,{width}],height=[2,{height}]')
         processing = (
-            '! vapostproc '
+            '! vapostproc name=converter '
             f'! video/x-raw(memory:VAMemory),format=NV12,{size_caps},colorimetry=bt709 '
             f'! vah264enc name=encoder rate-control=vbr bitrate={initial_kbps} '
             'b-frames=0 ref-frames=1 key-int-max=60 cpb-size=720 target-usage=5 '
         ) if self.modern else (
-            '! vaapipostproc '
+            '! vaapipostproc name=converter '
             f'! video/x-raw(memory:VASurface),format=NV12,{size_caps} '
             f'! {encoder} name=encoder rate-control=vbr bitrate={initial_kbps} '
             f'max-bframes=0 keyframe-period=30 cpb-length=120 quality-level={7 if hevc else 5} '
         )
         self.pipeline = Gst.parse_launch(
-            f'{source} ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream '
+            f'{source} ! queue name=frame_queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream '
             '! valve name=flow drop-mode=transform-to-gap '
             + processing +
             f'! {profile} '
@@ -159,6 +176,9 @@ class Session:
             if factory and factory.get_name() == 'nicesink':
                 element.set_property('sync', False)
                 element.set_property('async', False)
+        # All local stage timestamps use this one clock.  Buffer PTS values are
+        # converted from running-time by adding the same pipeline base time.
+        self.pipeline.use_clock(Gst.SystemClock.obtain())
         self.handlers = [(self.pipeline, self.pipeline.connect('deep-element-added', configure_transport))]
         self.probes = []
         self.peer = self.pipeline.get_by_name('peer')
@@ -176,33 +196,84 @@ class Session:
         self.flow = self.pipeline.get_by_name('flow')
         self.counts = {'source':0,'input':0,'encoded':0}
         self.last_counts = self.counts.copy()
-        self.encode_started = {}
+        self.freshness = FrameFreshness(
+            max_age_ms=_max_frame_age_ms(),
+            clock_domain='gst-pipeline-clock',
+        )
         self.encode_ms = []
         self.sample_time = time.monotonic()
         self.last_diagnostic = 0
         self.last_keyframe = 0
-        def count(pad, info, key):
-            self.counts[key] += 1
+        def queue_depth():
+            queue = self.pipeline.get_by_name('frame_queue')
+            if queue is None:
+                return None
+            try:
+                return int(queue.get_property('current-level-buffers'))
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                return None
+
+        def clock_time_ns():
+            try:
+                clock = self.pipeline.get_clock()
+                if clock is not None:
+                    return int(clock.get_time())
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                pass
+            return time.monotonic_ns()
+
+        def buffer_timestamp_ns(buffer):
+            if buffer is None:
+                return None
+            try:
+                pts = int(buffer.pts)
+                if pts < 0 or pts >= (1 << 63):
+                    return None
+                base_time = int(self.pipeline.get_base_time())
+                if base_time <= 0:
+                    return None
+                return base_time + pts
+            except (AttributeError, TypeError, ValueError, RuntimeError):
+                return None
+
+        def observe(pad, info, stage):
             buffer = info.get_buffer()
-            if buffer and key == 'input':
-                if len(self.encode_started) > 120:
-                    self.encode_started.clear()
-                self.encode_started[buffer.pts] = time.monotonic()
-            elif buffer and key == 'encoded':
-                started = self.encode_started.pop(buffer.pts, None)
-                if started is not None:
-                    self.encode_ms.append((time.monotonic() - started) * 1000)
+            if buffer is None:
+                return Gst.PadProbeReturn.OK
+            key = {'capture': 'source', 'encoder_input': 'input', 'encoded': 'encoded'}.get(stage)
+            if key is not None:
+                self.counts[key] += 1
+            result = self.freshness.record(
+                stage,
+                buffer_timestamp_ns(buffer),
+                clock_time_ns(),
+                descriptor=memory_descriptor(buffer),
+                queue_depth=queue_depth(),
+            )
+            if stage == 'encoded':
+                encode_ms = result.get('latencyMs', {}).get('encoderInputToEncoded')
+                if encode_ms is not None:
+                    self.encode_ms.append(encode_ms)
                     self.encode_ms = self.encode_ms[-120:]
+            if result.get('drop'):
+                return Gst.PadProbeReturn.DROP
             return Gst.PadProbeReturn.OK
         if self.pipeline.get_by_name('capture'):
             # PipeWire is damage-driven: a still desktop may send only one frame
             # before ICE completes. Keep it alive at 2 fps only while unchanged.
             self.pipeline.get_by_name('capture').set_property('keepalive-time', 500)
             pad = self.pipeline.get_by_name('capture').get_static_pad('src')
-            self.probes.append((pad, pad.add_probe(Gst.PadProbeType.BUFFER, count, 'source')))
-        for direction, key in [('sink', 'input'), ('src', 'encoded')]:
+            self.probes.append((pad, pad.add_probe(Gst.PadProbeType.BUFFER, observe, 'capture')))
+        converter = self.pipeline.get_by_name('converter')
+        if converter is not None:
+            for direction, stage in [('sink', 'converter_input'), ('src', 'converter_output')]:
+                pad = converter.get_static_pad(direction)
+                self.probes.append((pad, pad.add_probe(Gst.PadProbeType.BUFFER, observe, stage)))
+        for direction, stage in [('sink', 'encoder_input'), ('src', 'encoded')]:
             pad = self.encoder.get_static_pad(direction)
-            self.probes.append((pad, pad.add_probe(Gst.PadProbeType.BUFFER, count, key)))
+            self.probes.append((pad, pad.add_probe(Gst.PadProbeType.BUFFER, observe, stage)))
+        payloader_src = self.payloader.get_static_pad('src')
+        self.probes.append((payloader_src, payloader_src.add_probe(Gst.PadProbeType.BUFFER, observe, 'packetized')))
         self.bus = self.pipeline.get_bus()
         self.bus.add_signal_watch()
         for owner, signal, callback in [
@@ -215,7 +286,6 @@ class Session:
         self.offering = False
         # Explicit real-time clock/latency prevents the transport pipeline from
         # throttling PipeWire (measured ~18 fps before, ~43-48 fps after locally).
-        self.pipeline.use_clock(Gst.SystemClock.obtain())
         self.pipeline.set_latency(0)
         self.pipeline.set_state(Gst.State.PLAYING)
         self.refresh_media()
@@ -359,10 +429,13 @@ class Session:
         if data.get('client') == 'native' and now-self.last_diagnostic >= 1:
             self.last_diagnostic = now
             metrics = {key: data.get(key) for key in ('frames','fps','width','height','bytes') if isinstance(data.get(key),(int,float)) and math.isfinite(data[key])}
+            freshness = getattr(self, 'freshness', None)
             print('rtc ' + json.dumps({'receiver': metrics, 'sender': rates, 'controller': reported_controller,
-                                       'decision': decision, 'gcc': controller.snapshot() if controller else None}), flush=True)
+                                       'decision': decision, 'gcc': controller.snapshot() if controller else None,
+                                       'freshness': freshness.snapshot() if freshness is not None else None}), flush=True)
         samples = sorted(self.encode_ms)
-        response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'media': self.media_snapshot()}
+        freshness = getattr(self, 'freshness', None)
+        response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'freshness': freshness.snapshot() if freshness is not None else None, 'media': self.media_snapshot()}
         if controller is not None:
             response['gcc'] = controller.snapshot()
         return response
@@ -370,7 +443,10 @@ class Session:
     def close(self):
         if not self.closed:
             self.closed = True
-            print('rtc closed encoded=' + str(self.counts['encoded']), flush=True)
+            freshness = getattr(self, 'freshness', None)
+            print('rtc closed encoded=' + str(self.counts['encoded']) +
+                  ' freshness=' + json.dumps(freshness.snapshot() if freshness is not None else None),
+                  flush=True)
             controller = getattr(self, 'controller', None)
             if controller is not None:
                 controller.close()
