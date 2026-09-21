@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -263,7 +264,7 @@ func (d *uinputDevice) pasteUnicode(frag string) {
 	// recognizing the attachment. Empty clipboard and unavailable wl-clipboard
 	// are both ordinary no-op cases here.
 	saved, haveSaved := snapshotClipboard()
-	cp := exec.Command("wl-copy")
+	cp := clipboardLiteralCopyCommand()
 	cp.Stdin = strings.NewReader(frag)
 	if err := runClipboardCommand(cp); err != nil {
 		log.Printf("wl-copy: %v (¿está instalado wl-clipboard?)", err)
@@ -274,12 +275,15 @@ func (d *uinputDevice) pasteUnicode(frag string) {
 	d.keyUp(uinput.KeyLeftctrl)
 	// Dar tiempo a la app a consumir el paste antes de restaurar el clip.
 	time.Sleep(40 * time.Millisecond)
-	if haveSaved {
-		rp := exec.Command("wl-copy", "--type", saved.mime)
+	current, currentOK := snapshotClipboard()
+	if haveSaved && currentOK && string(current.data) == frag {
+		rp := clipboardLiteralRestoreCommand(saved.mime)
 		rp.Stdin = bytes.NewReader(saved.data)
 		if err := runClipboardCommand(rp); err != nil {
 			log.Printf("restaurar clipboard: %v", err)
 		}
+	} else if haveSaved && currentOK {
+		log.Printf("no se restaura clipboard: otra selección reemplazó el paste")
 	}
 }
 
@@ -298,7 +302,17 @@ type clipboardSnapshot struct {
 // one of these known MIME types is offered. The size cap keeps restoring an
 // unexpectedly large selection bounded.
 func snapshotClipboard() (clipboardSnapshot, bool) {
-	types, err := commandOutputLimited(exec.Command("wl-paste", "--list-types"), 64<<10)
+	typesCommand := exec.Command("wl-paste", "--list-types")
+	dataCommand := func(mime string) *exec.Cmd {
+		return exec.Command("wl-paste", "--type", mime, "--no-newline")
+	}
+	if os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != "" {
+		typesCommand = exec.Command("xclip", "-selection", "clipboard", "-o", "-t", "TARGETS")
+		dataCommand = func(mime string) *exec.Cmd {
+			return exec.Command("xclip", "-selection", "clipboard", "-o", "-t", mime)
+		}
+	}
+	types, err := commandOutputLimited(typesCommand, 64<<10)
 	if err != nil {
 		return clipboardSnapshot{}, false
 	}
@@ -316,7 +330,7 @@ func snapshotClipboard() (clipboardSnapshot, bool) {
 		return clipboardMimeRank(candidates[i]) < clipboardMimeRank(candidates[j])
 	})
 	for _, mime := range candidates {
-		data, err := commandOutputLimited(exec.Command("wl-paste", "--type", mime, "--no-newline"), maxClipboardSnapshotBytes)
+		data, err := commandOutputLimited(dataCommand(mime), maxClipboardSnapshotBytes)
 		if err == nil {
 			return clipboardSnapshot{mime: mime, data: data}, true
 		}

@@ -29,6 +29,32 @@ Este bloque implementa el tramo de P01A.2 y P01A.7 que faltaba en el código, y 
 - `mobile/src/lib/protocol.ts`: tipos `ActionCommand`, `ActionReceipt` y validación estricta de recibos.
 - `mobile/src/lib/connection.ts`: `pressAction`, `repeatAction`, `cancelAction`, `getActionReceipt` y `waitActionReceipt`. Los repeats usan la siguiente secuencia, cancelación puede cruzar una revocación de input mientras siga la sesión, y `stop`/desconexión limpia operaciones y esperas para impedir replay incierto.
 
+### Corrección de orden y cancelación tardía
+
+El primer diseño reservaba dos repeticiones bajo el mutex, pero permitía que
+un proveedor rápido entrara antes de una pulsación inicial aún bloqueada. Ahora
+cada secuencia espera el cierre de la anterior antes de llamar al proveedor y
+una compuerta de admisión serializa esa decisión con `cancel`;
+un duplicado que llega mientras esa secuencia está pendiente espera el mismo
+recibo y se marca `replayed`. `cancel` cierra las esperas de las secuencias
+futuras y deja la operación en estado terminal `cancelled`, que ningún callback
+tardío puede sobrescribir.
+
+Si la pulsación o repetición ya estaba dentro del proveedor cuando llegó
+`cancel`, el recibo conserva el resultado observado y añade
+`executed_after_cancel`, `admitted_after_cancel` o `uncertain_after_cancel`.
+Eso describe un efecto que pudo ocurrir; no afirma que la cancelación lo haya
+deshecho. Las repeticiones encoladas reciben `rejected/operation_cancelled` y
+no llaman al proveedor.
+
+La evidencia determinista está en
+`daemon/internal/server/action_receipts_test.go`:
+`TestActionReceiptConcurrentRepeatWaitsForPressProvider` y
+`TestActionReceiptCancelStopsQueuedRepeatButPreservesLatePressResult` cubren
+proveedor bloqueado/liberado, secuencia FIFO, duplicado pendiente, cancelación
+terminal y callback tardío. `go test -race -mod=vendor ./internal/input ./internal/server
+-count=1` pasó con el runtime Go privado y listener local habilitado.
+
 ## Pruebas y evidencia
 
 Pruebas ejecutadas con el Go privado y cache fuera del checkout:
@@ -66,6 +92,11 @@ La suite Go completa no se usa como criterio en este entorno porque sus tests de
 - Integrar estos métodos en UI y comprobar manualmente flechas, combos, focus/blur, release, hide, rotación y reconexión.
 - Ejecutar con proveedor uinput real para obtener `executed`, y con un candidato compatible instalado para probar rechazo, desconexión y resultado incierto en el equipo físico.
 - Repetir la matriz literal `?`, `_`, layouts US/es/latam, límites 2047/2048/2049 y bytes UTF-8, pegado largo íntegro, dictado/revisiones, múltiples fotos, borradores y recuperación. El contrato no sustituye esas pruebas de aplicación.
+- El fallback literal para destinos sin `EditableText` queda separado y opt-in;
+  su laboratorio GTK/XWayland, lector lento y copia externa están documentados
+  en `p01a-clipboard-execution-2026-09-20.md` y en
+  `outputs/p01a/clipboard-fallback-2026-09-21`. Siempre devuelve `uncertain`,
+  no restaura por igualdad de bytes y no asume Ctrl+V para terminales.
 - Construir e instalar un candidato nativo con fingerprint y firma comprobados. Ubuntu+iPhone es la pareja prevista; Mac y Android siguen sin toolchain/firma comprobados.
 
 No se afirma cierre físico, de distribución ni de producción desde estos fixtures.

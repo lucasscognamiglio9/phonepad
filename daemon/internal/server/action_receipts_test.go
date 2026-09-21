@@ -2,11 +2,67 @@ package server
 
 import (
 	"context"
+	"runtime"
+	"sync"
 	"testing"
 	"time"
 
 	"phonepad/daemon/internal/input"
 )
+
+type orderedReceiptInjector struct {
+	fakeInjector
+	mu      sync.Mutex
+	started chan struct{}
+	release chan struct{}
+	calls   []string
+}
+
+func (i *orderedReceiptInjector) SpecialAction(ctx context.Context, key string) input.ActionResult {
+	i.mu.Lock()
+	call := len(i.calls)
+	i.calls = append(i.calls, key)
+	i.mu.Unlock()
+	if call == 0 {
+		close(i.started)
+		select {
+		case <-i.release:
+		case <-ctx.Done():
+			return input.ActionResult{State: "uncertain", Detail: "provider_context_done"}
+		}
+	}
+	return input.ActionResult{State: "executed", Detail: "provider_complete"}
+}
+
+func (i *orderedReceiptInjector) ComboAction(context.Context, []string, string) input.ActionResult {
+	return input.ActionResult{State: "executed", Detail: "provider_complete"}
+}
+
+func (i *orderedReceiptInjector) callCount() int {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return len(i.calls)
+}
+
+func waitForActionSequence(t *testing.T, s *Server, operationID string, sequence uint64) {
+	t.Helper()
+	// The test observes the reservation itself, rather than sleeping for an
+	// arbitrary interval. This makes the race deterministic while retaining a
+	// bounded failure if admission regresses.
+	for attempts := 0; attempts < 100000; attempts++ {
+		s.mu.Lock()
+		op, found := s.actionOps[operationID]
+		_, reserved := op.sequenceDone[sequence]
+		s.mu.Unlock()
+		if found && reserved {
+			return
+		}
+		runtime.Gosched()
+	}
+	t.Fatalf("operation %q sequence %d was not reserved", operationID, sequence)
+}
+
+var _ input.ActionExecutor = (*orderedReceiptInjector)(nil)
 
 type receiptInjector struct {
 	fakeInjector
@@ -162,5 +218,102 @@ func TestActionReceiptLegacyProviderIsAdmissionOnly(t *testing.T) {
 	}
 	if len(inj.specials) != 1 || inj.specials[0] != "Enter" {
 		t.Fatalf("legacy provider calls = %v, want one Enter", inj.specials)
+	}
+}
+
+func TestActionReceiptConcurrentRepeatWaitsForPressProvider(t *testing.T) {
+	inj := &orderedReceiptInjector{started: make(chan struct{}), release: make(chan struct{})}
+	s := New(staticAuth("tok"), inj, nil, "")
+	permit := actionPermit(s, "epoch-order")
+	pressDone := make(chan actionReceipt, 1)
+	go func() {
+		pressDone <- s.routeKeyOperation(context.Background(), permit, Msg{
+			Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-order", Phase: "press", ActionSequence: 1, SessionEpoch: "epoch-order",
+		})
+	}()
+	<-inj.started
+	repeatDone := make(chan actionReceipt, 1)
+	go func() {
+		repeatDone <- s.routeKeyOperation(context.Background(), permit, Msg{
+			Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-order", Phase: "repeat", ActionSequence: 2, SessionEpoch: "epoch-order",
+		})
+	}()
+	duplicateDone := make(chan actionReceipt, 1)
+	go func() {
+		duplicateDone <- s.routeKeyOperation(context.Background(), permit, Msg{
+			Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-order", Phase: "repeat", ActionSequence: 2, SessionEpoch: "epoch-order",
+		})
+	}()
+	waitForActionSequence(t, s, "op-order", 2)
+	if got := inj.callCount(); got != 1 {
+		t.Fatalf("provider calls while press blocked = %d, want 1", got)
+	}
+	select {
+	case got := <-repeatDone:
+		t.Fatalf("repeat overtook blocked press: %+v", got)
+	default:
+	}
+	close(inj.release)
+	press := <-pressDone
+	repeat := <-repeatDone
+	duplicate := <-duplicateDone
+	if press.State != "executed" || repeat.State != "executed" || repeat.RepeatCount != 1 {
+		t.Fatalf("press=%+v repeat=%+v, want ordered executed receipts", press, repeat)
+	}
+	if duplicate.State != "executed" || repeat.Replayed == duplicate.Replayed {
+		t.Fatalf("repeat=%+v duplicate=%+v, want one provider receipt and one replay", repeat, duplicate)
+	}
+	if got := inj.callCount(); got != 2 {
+		t.Fatalf("provider calls = %d, want press then one repeat", got)
+	}
+}
+
+func TestActionReceiptCancelStopsQueuedRepeatButPreservesLatePressResult(t *testing.T) {
+	inj := &orderedReceiptInjector{started: make(chan struct{}), release: make(chan struct{})}
+	s := New(staticAuth("tok"), inj, nil, "")
+	permit := actionPermit(s, "epoch-cancel")
+	pressDone := make(chan actionReceipt, 1)
+	go func() {
+		pressDone <- s.routeKeyOperation(context.Background(), permit, Msg{
+			Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-cancel", Phase: "press", ActionSequence: 1, SessionEpoch: "epoch-cancel",
+		})
+	}()
+	<-inj.started
+	repeatDone := make(chan actionReceipt, 1)
+	go func() {
+		repeatDone <- s.routeKeyOperation(context.Background(), permit, Msg{
+			Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-cancel", Phase: "repeat", ActionSequence: 2, SessionEpoch: "epoch-cancel",
+		})
+	}()
+	waitForActionSequence(t, s, "op-cancel", 2)
+	cancel := s.routeKeyOperation(context.Background(), permit, Msg{
+		Type: "k", Action: "cancel", OperationID: "op-cancel", Phase: "cancel", SessionEpoch: "epoch-cancel",
+	})
+	if cancel.State != "cancelled" {
+		t.Fatalf("cancel = %+v, want cancelled", cancel)
+	}
+	queued := <-repeatDone
+	if queued.State != "rejected" || queued.Detail != "operation_cancelled" {
+		t.Fatalf("queued repeat after cancel = %+v", queued)
+	}
+	close(inj.release)
+	press := <-pressDone
+	if press.State != "executed" || press.Detail != "executed_after_cancel" {
+		t.Fatalf("late press receipt = %+v, want executed provider result", press)
+	}
+	if got := inj.callCount(); got != 1 {
+		t.Fatalf("provider calls after cancel = %d, want no late repeat", got)
+	}
+	s.mu.Lock()
+	op := s.actionOps["op-cancel"]
+	s.mu.Unlock()
+	if !op.cancelled || op.active || op.state != "cancelled" {
+		t.Fatalf("operation terminal state overwritten: %+v", op)
+	}
+	late := s.routeKeyOperation(context.Background(), permit, Msg{
+		Type: "k", Action: "special", Key: "ArrowUp", OperationID: "op-cancel", Phase: "repeat", ActionSequence: 3, SessionEpoch: "epoch-cancel",
+	})
+	if late.State != "rejected" || late.Detail != "operation_cancelled" {
+		t.Fatalf("late repeat = %+v", late)
 	}
 }

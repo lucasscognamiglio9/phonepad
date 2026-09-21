@@ -17,7 +17,7 @@ for name, folder in [('HOME', 'home'), ('XDG_RUNTIME_DIR', 'run'), ('XDG_CONFIG_
 env.update(GSETTINGS_BACKEND='memory', GTK_A11Y='none', NO_AT_BRIDGE='1',
            PHONEPAD_HFR_ROOT=str(root), WAYLAND_DISPLAY='phonepad-lab')
 env['DEBUGINFOD_URLS'] = ''
-if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
+if os.environ.get('PHONEPAD_LAB_INPUT') == '1' or os.environ.get('PHONEPAD_LAB_FALLBACK') == '1':
     env['GTK_A11Y'] = 'atspi'
     env.pop('NO_AT_BRIDGE', None)
 if os.environ.get('PHONEPAD_LAB_SCALE', '1') != '1':
@@ -58,7 +58,7 @@ try:
     env['DBUS_SESSION_BUS_ADDRESS'] = bus.stdout.readline().decode().strip()
     if not env['DBUS_SESSION_BUS_ADDRESS'].startswith('unix:path=' + str(root)):
         raise RuntimeError('Private bus verification failed')
-    if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
+    if os.environ.get('PHONEPAD_LAB_INPUT') == '1' or os.environ.get('PHONEPAD_LAB_FALLBACK') == '1':
         start(['/usr/libexec/at-spi-bus-launcher', '--launch-immediately'], 'accessibility')
     start(['pipewire'], 'pipewire')
     start(['wireplumber', '--profile=policy'], 'wireplumber')
@@ -97,6 +97,26 @@ try:
     if os.environ.get('PHONEPAD_LAB_SCALE', '1') != '1':
         configure = start(['/usr/bin/python3', str(here / 'initial_layout.py')], 'initial-layout')
         if configure.wait(timeout=10): raise RuntimeError('Lab scale configuration failed')
+    if os.environ.get('PHONEPAD_LAB_FALLBACK') == '1':
+        fixture = start(['/usr/bin/python3', str(here / 'fallback_lab.py')], 'fallback')
+        go = os.environ.get('PHONEPAD_GO', 'go')
+        repo = here.parents[1]
+        test_env = env.copy()
+        test_env.update(GOPROXY='off', GOSUMDB='off',
+                        GOCACHE=os.environ.get('PHONEPAD_GOCACHE', '/tmp/phonepad-go-cache'))
+        test = subprocess.run(
+            [go, 'test', '-v', '-mod=vendor', '-tags=phonepad_lab',
+             '-run', '^TestLiteralClipboardFallbackLab$', './internal/input'],
+            cwd=repo / 'daemon', env=test_env, capture_output=True, text=True, timeout=50)
+        (root / 'fallback-go-test.log').write_text(test.stdout + test.stderr)
+        if fixture.wait(timeout=20):
+            raise RuntimeError('Fallback GTK fixture failed; inspect fallback.log')
+        print((root / 'fallback-go-test.log').read_text(), flush=True)
+        if test.returncode:
+            raise RuntimeError('Fallback Go fixture failed; inspect fallback-go-test.log')
+        for result in sorted(root.glob('fallback-result-*.json')):
+            print(result.read_text(), flush=True)
+        raise SystemExit(0)
     if os.environ.get('PHONEPAD_LAB_INPUT') == '1':
         editor = start(['/usr/bin/python3', str(here / 'input_lab.py')], 'input')
         if editor.wait(timeout=35): raise RuntimeError('Input fixture failed; inspect input-result.json')
