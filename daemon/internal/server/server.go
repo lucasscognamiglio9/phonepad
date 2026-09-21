@@ -93,6 +93,8 @@ type Server struct {
 	pointerCalibration   *input.PointerGeometry
 	pointerGeometryOptIn bool
 	directPointerOptIn   bool
+	controlCtx           context.Context
+	controlCancel        context.CancelFunc
 }
 
 const maxActionOperations = 128
@@ -377,6 +379,10 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int, geometry
 	s.mu.Lock()
 	old := s.current
 	s.current = c
+	if s.controlCancel != nil {
+		s.controlCancel()
+	}
+	s.controlCtx, s.controlCancel = context.WithCancel(context.Background())
 	s.gen++
 	s.currentProtocol = protocol
 	s.sessionEpoch = epoch
@@ -420,6 +426,11 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 	if s.current == c && s.gen == gen {
 		s.current = nil
 		s.currentProtocol = 0
+		if s.controlCancel != nil {
+			s.controlCancel()
+			s.controlCancel = nil
+			s.controlCtx = nil
+		}
 		s.pointerGeometryOptIn = false
 		s.directPointerOptIn = false
 		// A permit captured by the disconnected control session must not become

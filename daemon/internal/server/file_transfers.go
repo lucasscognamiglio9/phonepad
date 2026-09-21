@@ -74,21 +74,21 @@ func (s *Server) handleFileTransfers(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == "PUT" && action == "":
 		var permitted bool
-		filesPermit, permitted = s.captureMutationPermit(mutationScopeFiles)
+		filesPermit, permitted = s.captureRequestMutationPermit(r, mutationScopeFiles)
 		if !permitted {
 			http.Error(w, "file permission revoked", http.StatusForbidden)
 			return
 		}
 	case r.Method == "POST" && (action == "begin" || action == "commit"):
 		var permitted bool
-		filesPermit, permitted = s.captureMutationPermit(mutationScopeFiles)
+		filesPermit, permitted = s.captureRequestMutationPermit(r, mutationScopeFiles)
 		if !permitted {
 			http.Error(w, "file permission revoked", http.StatusForbidden)
 			return
 		}
 	case r.Method == "POST" && action == "clipboard":
 		var permitted bool
-		clipboardPermit, permitted = s.captureMutationPermit(mutationScopeClipboard)
+		clipboardPermit, permitted = s.captureRequestMutationPermit(r, mutationScopeClipboard)
 		if !permitted {
 			http.Error(w, "clipboard permission revoked", http.StatusForbidden)
 			return

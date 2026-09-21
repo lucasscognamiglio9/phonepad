@@ -149,8 +149,12 @@ func (s *Server) mediaSnapshotLocked() mediaSnapshot {
 	return s.media.snapshot
 }
 
-func (s *Server) observeMedia(sequence uint64, next mediaSnapshot) error {
+func (s *Server) observeMedia(sequence uint64, next mediaSnapshot, sessionEpoch ...string) error {
 	s.mu.Lock()
+	if len(sessionEpoch) > 0 && sessionEpoch[0] != "" && sessionEpoch[0] != s.sessionEpoch {
+		s.mu.Unlock()
+		return nil
+	}
 	if sequence <= s.media.applied {
 		s.mu.Unlock()
 		return nil

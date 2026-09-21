@@ -65,6 +65,15 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	if operation != "stop" {
+		bound, release, valid := s.requestSessionContext(r)
+		if !valid {
+			http.Error(w, "stale control session", http.StatusConflict)
+			return
+		}
+		defer release()
+		ctx = bound
+	}
 	var observation uint64
 	if path != "/video" {
 		var cancel context.CancelFunc
@@ -81,7 +90,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	resp, err := previewClient.Do(req)
 	if err != nil {
 		if observation != 0 {
-			_ = s.observeMedia(observation, unknownMedia("preview_unavailable"))
+			_ = s.observeMedia(observation, unknownMedia("preview_unavailable"), r.Header.Get("X-PhonePad-Session"))
 		}
 		http.Error(w, `{"state":"unavailable"}`, 503)
 		return
@@ -108,14 +117,14 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 				snapshot, err = parseMediaSnapshot(envelope.Media)
 			}
 			if err == nil {
-				err = s.observeMedia(observation, snapshot)
+				err = s.observeMedia(observation, snapshot, r.Header.Get("X-PhonePad-Session"))
 			}
 			if err != nil {
 				http.Error(w, "invalid media capabilities", http.StatusBadGateway)
 				return
 			}
 		} else if observation != 0 && resp.StatusCode >= 500 {
-			_ = s.observeMedia(observation, unknownMedia("preview_unavailable"))
+			_ = s.observeMedia(observation, unknownMedia("preview_unavailable"), r.Header.Get("X-PhonePad-Session"))
 		}
 		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
 		w.WriteHeader(resp.StatusCode)
