@@ -24,6 +24,7 @@ function harness(options = {}) {
   const alerts = [];
   const uploads = [];
   const dimensions = { width: 390, height: 844 };
+  const keyboardState = options.keyboardState ?? { isVisible: false, height: 0 };
   const absoluteFill = { __style: 'absoluteFill' };
   const keyboard = { dismissCount: 0, dismiss: () => { keyboard.dismissCount++; } };
   const videoStarts = [];
@@ -143,6 +144,8 @@ function harness(options = {}) {
     fetchUpdateAsync: () => Promise.resolve({}),
     reloadAsync: () => Promise.resolve(),
   };
+  const keyboardLayout = {};
+  vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout });
   const modules = {
     react,
     'react/jsx-runtime': {
@@ -172,13 +175,17 @@ function harness(options = {}) {
       fetchUpdateAsync: updatePort.fetchUpdateAsync,
       reloadAsync: updatePort.reloadAsync,
     },
-    'react-native-keyboard-controller': { KeyboardAvoidingView: 'KeyboardAvoidingView' },
+    'react-native-keyboard-controller': {
+      KeyboardAvoidingView: 'KeyboardAvoidingView',
+      useKeyboardState: selector => selector(keyboardState),
+    },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, right: 12, bottom: 34, left: 10 }) },
     '@livekit/react-native-webrtc': { RTCView: 'RTCView' },
     '../components/glass-button': { GlassButton: 'GlassButton' },
     '../components/landscape-controls': { LandscapeControls: 'LandscapeControls' },
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
     '../components/native-keyboard': { NativeKeyboard: 'NativeKeyboard' },
+    '../components/keyboard-layout': keyboardLayout,
     '../lib/attachments': {
       chooseAttachments: () => options.choicePromise ?? Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
       attachmentBatch: items => ({ id: 'fixture-batch', items }),
@@ -299,6 +306,7 @@ function harness(options = {}) {
     updates,
     videoStarts,
     absoluteFill,
+    keyboardState,
   };
 }
 
@@ -358,6 +366,41 @@ test('landscape preview hides portrait controls, and rail show/hide does not res
   assert.equal(lifecycle.restartCount, 0);
   assert.equal(lifecycle.updateCalls.length, updateCount);
   assert.equal(h.startVideoCount(), 1);
+});
+
+test('landscape preview reserves only the keyboard overlap and avoids Android double resize', () => {
+  const h = harness({ keyboardState: { isVisible: false, height: 0 } });
+  h.reportConnection('connected');
+  h.find('GlassButton', 'Ver pantalla').props.onPress();
+  h.render();
+  h.setDimensions(844, 390);
+  h.find('LandscapeControls').props.show();
+  h.render();
+  h.find('LandscapeControls').props.openKeyboard();
+  h.render();
+  h.keyboardState.isVisible = true;
+  h.keyboardState.height = 260;
+  h.render();
+  assert.equal(h.find('RTCView').props.style.bottom, 260, 'iOS full-window layout clips the preview above the keyboard');
+
+  h.setDimensions(844, 130);
+  assert.equal(h.find('RTCView').props.style, h.absoluteFill, 'Android resize is already reflected by the window');
+});
+
+test('landscape preview handles resize-first and keyboard-state-first event ordering', () => {
+  for (const order of ['resize-first', 'keyboard-first']) {
+    const keyboardState = { isVisible: false, height: 0 };
+    const h = harness({ keyboardState });
+    h.reportConnection('connected');
+    h.find('GlassButton', 'Ver pantalla').props.onPress(); h.render();
+    h.setDimensions(844, 390);
+    h.find('LandscapeControls').props.show(); h.render();
+    h.find('LandscapeControls').props.openKeyboard(); h.render();
+    if (order === 'resize-first') h.setDimensions(844, 130);
+    keyboardState.isVisible = true; keyboardState.height = 260; h.render();
+    if (order === 'keyboard-first') h.setDimensions(844, 130);
+    assert.equal(h.find('RTCView').props.style, h.absoluteFill, `${order} must not double clip Android resize`);
+  }
 });
 
 test('landscape rail keyboard opens the explicit input and showing or hiding the rail hides it again', () => {

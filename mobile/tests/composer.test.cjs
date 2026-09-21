@@ -12,7 +12,7 @@ function harness() {
   const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
   const focusCount = { value: 0 };
   const dimensions = { width: 390, height: 844 };
-  const keyboardHeight = { value: 0 };
+  const keyboardState = { isVisible: false, height: 0 };
   const measurement = { x: 24, y: 720, width: 44, height: 44 };
   const useRef = initial => { const at = index++; return slots[at] ??= { current: initial }; };
   const react = {
@@ -23,6 +23,7 @@ function harness() {
       if (!old || deps.some((d, i) => d !== old[i])) { slots[at] = deps; effects.push(fn); } },
   };
   const protocol = {}; vm.runInNewContext(compile('lib/protocol.ts'), { exports: protocol });
+  const keyboardLayout = {}; vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout });
   const jsx = (type, props) => {
     if (type === 'View' && props?.ref && typeof props.ref === 'object') {
       props.ref.current = { measureInWindow: callback => callback(
@@ -48,12 +49,15 @@ function harness() {
       View: 'View',
       useWindowDimensions: () => dimensions,
     },
-    'react-native-keyboard-controller': { useReanimatedKeyboardAnimation: () => ({ height: keyboardHeight }) },
+    'react-native-keyboard-controller': {
+      KeyboardStickyView: 'KeyboardStickyView',
+      useKeyboardState: selector => selector(keyboardState),
+    },
     'react-native-reanimated': { __esModule: true, default: { View: 'AnimatedView' }, ReduceMotion: { System: 'system' },
       useSharedValue: v => useRef({ value: v }).current, useAnimatedStyle: fn => fn(), withTiming: v => v },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, bottom: 34, left: 0, right: 0 }) },
     './glass-surface': { GlassSurface: 'GlassSurface' }, './glass-button': { GlassButton: 'GlassButton' },
-    './action-menu': { ActionMenu: 'ActionMenu' }, '../lib/protocol': protocol,
+    './action-menu': { ActionMenu: 'ActionMenu' }, './keyboard-layout': keyboardLayout, '../lib/protocol': protocol,
   };
   const exports = {}; vm.runInNewContext(compile('components/native-keyboard.tsx'), { exports, require: name => modules[name] });
   const props = { connection: { send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted && sent.length <= rejectAfter; } },
@@ -66,7 +70,7 @@ function harness() {
   const type = value => { find('TextInput').props.onChangeText(value); render(); };
   render(); render();
   return {
-    props, sent, chosen, alerts, focusCount: () => focusCount.value, keyboardHeight, render, tree: () => tree, nodes, find, click, type,
+    props, sent, chosen, alerts, focusCount: () => focusCount.value, keyboardState, render, tree: () => tree, nodes, find, click, type,
     keyboard: (event, payload = {}) => (keyboardListeners[event] ?? []).forEach(callback => callback(payload)),
     measure: next => Object.assign(measurement, next),
     resize: next => Object.assign(dimensions, next),
@@ -194,20 +198,40 @@ test('immersive mode hides the field and any popup without deleting remote text'
 });
 
 
-test('stale keyboard height is explicitly zeroed for closed and rotated composers', () => {
+test('keyboard sticky state follows visibility, rotation and disabled composer state', () => {
   const h = harness();
-  const transform = () => h.find('AnimatedView').props.style[1].transform[0].translateY;
-  h.props.active = true; h.keyboardHeight.value = -336; h.render();
-  assert.equal(transform(), -336);
+  const sticky = () => h.find('KeyboardStickyView');
+  assert.equal(sticky().props.enabled, false);
+  h.props.active = true; h.keyboardState.isVisible = true; h.keyboardState.height = 336; h.render();
+  assert.equal(sticky().props.enabled, true);
+  assert.equal(sticky().props.offset.closed, 0);
+  assert.ok(sticky().props.offset.opened > 0);
   h.props.active = false; h.render();
-  assert.equal(transform(), 0, 'the native hide event may never arrive');
+  assert.equal(sticky().props.enabled, false, 'closing must disable stale native keyboard movement');
   h.resize({ width: 844, height: 390 }); h.props.visible = false; h.render();
-  assert.equal(transform(), 0);
-  h.resize({ width: 390, height: 844 }); h.props.visible = true; h.render();
-  assert.equal(transform(), 0);
-  h.props.active = true; h.keyboardHeight.value = -280; h.render();
-  assert.equal(transform(), -280);
-  h.props.disabled = true; h.render(); assert.equal(transform(), 0);
+  assert.equal(sticky().props.enabled, false);
+  h.resize({ width: 390, height: 844 }); h.props.visible = true; h.props.active = true; h.render();
+  assert.equal(sticky().props.enabled, true);
+  h.props.disabled = true; h.render();
+  assert.equal(sticky().props.enabled, false, 'disabled input must not follow the keyboard');
+});
+
+test('composer uses residual keyboard overlap when Android resizes before visibility state', () => {
+  const h = harness();
+  h.props.active = true; h.render();
+  const sticky = () => h.find('KeyboardStickyView');
+  const closedBottom = 46;
+  assert.equal(sticky().props.offset.opened, closedBottom - 8);
+
+  h.resize({ height: 508 }); h.render();
+  h.keyboardState.isVisible = true; h.keyboardState.height = 336; h.render();
+  assert.equal(sticky().props.offset.opened, closedBottom - 8 + 336, 'sticky cancels the root resize before applying its gap');
+  assert.ok(h.find('TextInput').props.style.height <= 508, 'editor budget follows the resized viewport');
+
+  h.props.active = false; h.render();
+  h.resize({ height: 844 }); h.render();
+  h.props.active = true; h.keyboardState.isVisible = true; h.keyboardState.height = 336; h.render();
+  assert.equal(sticky().props.offset.opened, closedBottom - 8, 'full-window mode uses only the keyboard overlap');
 });
 
 test('phone Return adds a line; only composer Enter submits even with a modifier armed', () => {

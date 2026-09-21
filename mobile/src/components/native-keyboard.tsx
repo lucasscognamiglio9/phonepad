@@ -1,11 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Keyboard, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import { KeyboardStickyView, useKeyboardState } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassSurface } from './glass-surface';
 import { GlassButton } from './glass-button';
 import { ActionMenu } from './action-menu';
+import {
+  COMPOSER_CLOSED_MARGIN,
+  COMPOSER_OPEN_GAP,
+  editorMaxHeight,
+  extrasMaxHeight,
+  keyboardAvailableHeight,
+  keyboardOverlap,
+  keyboardStickyOpenedOffset,
+  keyboardWindowResize,
+  MIN_TOUCH_TARGET,
+} from './keyboard-layout';
 import type { Connection } from '../lib/connection';
 import type { AttachmentSource } from '../lib/attachments';
 import type { LateDraft } from '../lib/literal-transfer';
@@ -13,14 +24,6 @@ import { textCommands } from '../lib/protocol';
 
 type MenuAnchor = { x: number; y: number; width: number; height: number };
 type MenuAction = AttachmentSource | 'keyboard';
-
-export function composerKeyboardOffset(active: boolean, keyboardHeight: number, viewportHeight: number) {
-  'worklet';
-  // Always write zero on close. Removing an animated style (or returning {})
-  // can leave its previous value applied to the native view after rotation.
-  return active && Number.isFinite(keyboardHeight)
-    ? -Math.min(Math.max(0, -keyboardHeight), Math.max(0, viewportHeight - 104)) : 0;
-}
 
 // Keep text state here: typing must not rerender the video or restart its stream.
 export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange,
@@ -34,7 +37,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
 }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
-  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+  const keyboardHeight = useKeyboardState(state => state.isVisible ? state.height : 0);
   const input = useRef<TextInput>(null);
   const literal = connection.literal;
   const literalMode = connection.capabilities?.protocolVersion === 2 || !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft || !!literal?.lateDraft;
@@ -55,27 +58,39 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [mods, setMods] = useState<string[]>([]);
   const [contentHeight, setContentHeight] = useState(24);
+  const [actionBarHeight, setActionBarHeight] = useState(0);
+  const preKeyboardHeight = useRef(height);
+  const previousActive = useRef(active);
   const addButton = useRef<View>(null);
   const menuInteraction = useRef(false);
   const menuWasActive = useRef(false);
   const menuRequest = useRef(0);
   const menuAnchorRef = useRef<MenuAnchor | null>(null);
   const measureAnchorRef = useRef<() => void>(() => {});
-  const available = width - insets.left - insets.right - 24;
+  const available = Math.max(0, width - insets.left - insets.right - 24);
   const compactWidth = Math.min(available, Math.max(240, available * .72));
   const targetWidth = active ? available : compactWidth;
   const animatedWidth = useSharedValue(targetWidth);
-  const bottom = active ? 8 : insets.bottom + 12;
-  const maxTextHeight = width > height ? 56 : 116;
+  const closedBottom = insets.bottom + COMPOSER_CLOSED_MARGIN;
   const followsKeyboard = active && visible && !disabled;
-  const style = useAnimatedStyle(() => ({
-    width: Math.min(available, animatedWidth.value),
-    transform: [{ translateY: composerKeyboardOffset(followsKeyboard, keyboardHeight.value, height) }],
-  }));
-  const extrasStyle = useAnimatedStyle(() => ({ maxHeight: Math.max(0,
-    height - insets.top - bottom - maxTextHeight - 68
-      + composerKeyboardOffset(followsKeyboard, keyboardHeight.value, height)),
-  }));
+  const keyboardVisible = followsKeyboard && keyboardHeight > 0;
+  const windowResize = keyboardWindowResize(preKeyboardHeight.current, height, keyboardVisible);
+  const residualKeyboardOverlap = keyboardOverlap(keyboardHeight, height, windowResize);
+  const availableHeight = keyboardAvailableHeight({
+    viewportHeight: height,
+    safeAreaTop: insets.top,
+    keyboardHeight: residualKeyboardOverlap,
+    closedBottomInset: closedBottom,
+  });
+  const maxTextHeight = editorMaxHeight(availableHeight, actionBarHeight);
+  const extrasHeight = extrasMaxHeight(availableHeight, Math.max(MIN_TOUCH_TARGET, contentHeight), actionBarHeight);
+  const style = useAnimatedStyle(() => ({ width: Math.min(available, animatedWidth.value) }));
+  const extrasStyle = useAnimatedStyle(() => ({ maxHeight: extrasHeight }));
+  useEffect(() => {
+    if (!active) preKeyboardHeight.current = height;
+    else if (!previousActive.current) preKeyboardHeight.current = height;
+    previousActive.current = active;
+  }, [active, height]);
   const measureMenuAnchor = () => {
     const request = menuRequest.current;
     addButton.current?.measureInWindow((x, y, measuredWidth, measuredHeight) => {
@@ -302,7 +317,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
     <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss}
       keyboardAllowed={!disabled} attachmentsAllowed={allowAttachments} />
-    <Animated.View pointerEvents="box-none" style={[{ position: 'absolute', bottom, alignSelf: 'center', gap: 8 }, style]}>
+    <KeyboardStickyView pointerEvents="box-none" enabled={followsKeyboard}
+      offset={{ closed: 0, opened: keyboardStickyOpenedOffset(windowResize, closedBottom, COMPOSER_OPEN_GAP) }}
+      style={{ position: 'absolute', bottom: closedBottom, alignSelf: 'center' }}>
+      <Animated.View pointerEvents="box-none" style={[{ gap: 8 }, style]}>
       {lateDraft && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>
           {lateDraft.duplicate
@@ -402,7 +420,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               height: active ? Math.min(maxTextHeight, Math.max(44, contentHeight)) : 44,
               width: '100%', flexGrow: 0, flexShrink: 0,
               textAlignVertical: active ? 'top' : 'center' }} />
-          <View pointerEvents="box-none" style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 44,
+        <View pointerEvents="box-none" onLayout={event => {
+          const next = event.nativeEvent.layout.height;
+          if (next > 0 && next !== actionBarHeight) setActionBarHeight(next);
+        }} style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 44,
             flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             <View ref={addButton} collapsable={false}
               onLayout={() => { if (menuInteraction.current) measureAnchorRef.current(); }}
@@ -421,6 +442,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
           </View>
         </View>
       </GlassSurface>
-    </Animated.View>
+      </Animated.View>
+    </KeyboardStickyView>
   </View>;
 }

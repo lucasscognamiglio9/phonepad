@@ -21,6 +21,7 @@
         "foregroundImage": "./assets/phonepad-icon.png",
         "backgroundColor": "#090b0e"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"

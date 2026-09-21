@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardState } from 'react-native-keyboard-controller';
 import { RTCView, type MediaStream } from '@livekit/react-native-webrtc';
 import { GlassButton } from '../components/glass-button';
 import { LandscapeControls } from '../components/landscape-controls';
@@ -13,6 +14,7 @@ import { Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
 import { UpdateLifecycle } from '../lib/updates';
 import { PreviewLifecycle } from '../lib/preview-lifecycle';
+import { keyboardOverlap, keyboardWindowResize } from '../components/keyboard-layout';
 
 const messages: Record<ConnectionState, string> = {
   connecting: 'Conectando…', connected: '', offline: 'Esperando a tu computadora…',
@@ -22,9 +24,12 @@ const messages: Record<ConnectionState, string> = {
 export function Control({ origin, onChangeHost }: { origin: string; onChangeHost: () => void }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
+  const keyboardHeight = useKeyboardState(state => state.isVisible ? state.height : 0);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [preview, setPreview] = useState(false), [keyboard, setKeyboard] = useState(false);
+  const preKeyboardHeight = useRef(height);
+  const previousKeyboard = useRef(keyboard);
   const [pendingText, setPendingText] = useState(false);
   const [, refreshCapabilities] = useState(0);
   const [landscapeControls, setLandscapeControls] = useState(false);
@@ -48,6 +53,19 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   }), [connection]);
   const landscape = width > height;
   const landscapePreview = preview && landscape;
+  const keyboardVisible = keyboard && keyboardHeight > 0;
+  const windowResize = keyboardWindowResize(preKeyboardHeight.current, height, keyboardVisible);
+  // Android may resize the root window while iOS keeps its full height. Use
+  // only the portion not already reflected by the current window dimensions.
+  const residualKeyboardOverlap = keyboardOverlap(keyboardHeight, height, windowResize);
+  const previewStyle = landscapePreview && residualKeyboardOverlap > 0
+    ? { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: residualKeyboardOverlap }
+    : StyleSheet.absoluteFill;
+  useEffect(() => {
+    if (!keyboard) preKeyboardHeight.current = height;
+    else if (!previousKeyboard.current) preKeyboardHeight.current = height;
+    previousKeyboard.current = keyboard;
+  }, [keyboard, height]);
   useEffect(() => { if (!inputReady) setKeyboard(false); }, [inputReady]);
   useEffect(() => {
     updater.start(AppState.currentState);
@@ -80,12 +98,12 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
     ? 'Solo visualización. El control no está disponible en este equipo.'
     : state === 'connected' && connection.lastRejection ? 'El equipo rechazó la acción. Revisá los permisos y el contenido pendiente.' : '';
   const status = <View accessibilityLabel={state === 'connected' ? 'Conectado' : messages[state]} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: state === 'connected' ? '#70dbab' : '#b7bbc4' }} />;
-  // The video owns a stable full-screen layout. Only the floating composer
-  // follows the keyboard; cached keyboard frames cannot resize the RTC view.
+  // Keep the RTC view mounted while its visible rectangle follows the actual
+  // free window area. The stream/decoder never changes when the keyboard opens.
   return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: '#090b0e' }}>
     <StatusBar style="light" hidden={landscapePreview} />
     <TouchSurface connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}>
-      {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={StyleSheet.absoluteFill} onDimensionsChange={event => {
+      {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={previewStyle} onDimensionsChange={event => {
         // The native renderer has received a sized frame; an SDP/track alone
         // isn't evidence of a working preview.
         if (event.nativeEvent.width > 0 && event.nativeEvent.height > 0) setVideoError('');
