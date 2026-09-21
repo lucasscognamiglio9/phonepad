@@ -31,6 +31,7 @@ class FreshnessTests(unittest.TestCase):
         self.assertEqual(snapshot['latencyMs']['conversion']['p50Ms'], 0.1)
         self.assertEqual(snapshot['latencyMs']['encoderInputToEncoded']['p50Ms'], 0.8)
         self.assertEqual(snapshot['latencyMs']['captureToPacketized']['p50Ms'], 1.4)
+        self.assertEqual(snapshot['latencyMs']['captureToPacketized']['p99Ms'], 1.4)
         self.assertEqual(snapshot['frameAgeMs']['packetized']['p50Ms'], 1.5)
         self.assertGreaterEqual(snapshot['counters']['memoryDescriptorChanges'], 1)
         self.assertIsNone(snapshot['memory']['copyCount'])

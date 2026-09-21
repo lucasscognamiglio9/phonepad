@@ -88,7 +88,7 @@ def _descriptor_key(descriptor):
 
 def _summary(values):
     if not values:
-        return {"count": 0, "p50Ms": None, "p95Ms": None, "maxMs": None}
+        return {"count": 0, "p50Ms": None, "p95Ms": None, "p99Ms": None, "maxMs": None}
     ordered = sorted(float(value) for value in values)
 
     def percentile(fraction):
@@ -99,6 +99,7 @@ def _summary(values):
         "count": len(ordered),
         "p50Ms": percentile(0.50),
         "p95Ms": percentile(0.95),
+        "p99Ms": percentile(0.99),
         "maxMs": round(ordered[-1], 3),
     }
 

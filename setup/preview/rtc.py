@@ -119,6 +119,47 @@ def _max_frame_age_ms():
     return value if math.isfinite(value) and 0 < value <= 10_000 else 0
 
 
+def _lab_h264_config(default_keyint):
+    """Read H264 matrix knobs only inside the disposable lab."""
+
+    if not os.environ.get('PHONEPAD_HFR_ROOT'):
+        return None
+    profiles = {
+        'baseline': 'constrained-baseline',
+        'constrained-baseline': 'constrained-baseline',
+        'high': 'high',
+    }
+    raw_profile = os.environ.get('PHONEPAD_LAB_H264_PROFILE', 'constrained-baseline').strip().lower()
+    if raw_profile not in profiles:
+        raise ValueError('unsupported PHONEPAD_LAB_H264_PROFILE')
+    try:
+        bitrate_kbps = int(os.environ.get('PHONEPAD_LAB_H264_BITRATE_KBPS', '6000'))
+    except (TypeError, ValueError):
+        raise ValueError('invalid PHONEPAD_LAB_H264_BITRATE_KBPS')
+    if bitrate_kbps not in (6000, 12000, 18000, 24000, 32000):
+        raise ValueError('unsupported PHONEPAD_LAB_H264_BITRATE_KBPS')
+    try:
+        keyint = int(os.environ.get('PHONEPAD_LAB_H264_KEYINT', str(default_keyint)))
+    except (TypeError, ValueError):
+        raise ValueError('invalid PHONEPAD_LAB_H264_KEYINT')
+    if not 1 <= keyint <= 600:
+        raise ValueError('invalid PHONEPAD_LAB_H264_KEYINT')
+    try:
+        fps = int(float(os.environ.get('PHONEPAD_MIRROR_HZ', '120')))
+    except (TypeError, ValueError):
+        raise ValueError('invalid PHONEPAD_MIRROR_HZ')
+    if fps not in (60, 90, 120):
+        raise ValueError('unsupported PHONEPAD_MIRROR_HZ')
+    return {
+        'profile': profiles[raw_profile],
+        'requestedProfile': raw_profile,
+        'bitrateKbps': bitrate_kbps,
+        'keyint': keyint,
+        'fps': fps,
+        'fixedBitrate': os.environ.get('PHONEPAD_LAB_FIXED_BITRATE', '0') == '1',
+    }
+
+
 class Session:
     def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None):
         self.id = secrets.token_urlsafe(24)
@@ -139,15 +180,20 @@ class Session:
             require_runtime()
         print('rtc start codec=' + codec + ' controller=' + self.controller_name, flush=True)
         hevc = codec == 'H265'
-        self.rate = (RateController(8000 if hevc else 12000, 4000 if hevc else 6000,
-                                    policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
-                     if self.controller_name == 'legacy' else None)
-        initial_kbps = self.rate.target if self.rate is not None else (4000 if hevc else 6000)
         encoder = 'vaapih265enc' if hevc else 'vaapih264enc'
-        profile = 'video/x-h265,profile=main' if hevc else 'video/x-h264,profile=constrained-baseline'
-        parser, payloader = ('h265parse', 'rtph265pay') if hevc else ('h264parse', 'rtph264pay')
         # Modern VA imports PipeWire DMA-BUF; selection never changes monitors.
         self.modern = codec == 'H264' and os.environ.get('PHONEPAD_ENCODER') == 'va' and Gst.ElementFactory.find('vah264enc') is not None
+        self.lab_config = _lab_h264_config(60 if self.modern else 30) if codec == 'H264' else None
+        default_kbps = 4000 if hevc else 6000
+        requested_kbps = self.lab_config['bitrateKbps'] if self.lab_config else None
+        maximum_kbps = max(8000 if hevc else 12000, requested_kbps or default_kbps)
+        initial_kbps = requested_kbps or default_kbps
+        self.rate = (RateController(maximum_kbps, initial_kbps,
+                                    policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
+                     if self.controller_name == 'legacy' else None)
+        profile = ('video/x-h265,profile=main' if hevc else
+                   'video/x-h264,profile=' + (self.lab_config['profile'] if self.lab_config else 'constrained-baseline'))
+        parser, payloader = ('h265parse', 'rtph265pay') if hevc else ('h264parse', 'rtph264pay')
         # A virtual source with validated physical dimensions can choose an
         # exact square-pixel output. Portal logical sizes are not such proof.
         size_caps = (f'width={output_size[0]},height={output_size[1]},pixel-aspect-ratio=1/1'
@@ -156,12 +202,12 @@ class Session:
             '! vapostproc name=converter '
             f'! video/x-raw(memory:VAMemory),format=NV12,{size_caps},colorimetry=bt709 '
             f'! vah264enc name=encoder rate-control=vbr bitrate={initial_kbps} '
-            'b-frames=0 ref-frames=1 key-int-max=60 cpb-size=720 target-usage=5 '
+            f'b-frames=0 ref-frames=1 key-int-max={self.lab_config["keyint"] if self.lab_config else 60} cpb-size=720 target-usage=5 '
         ) if self.modern else (
             '! vaapipostproc name=converter '
             f'! video/x-raw(memory:VASurface),format=NV12,{size_caps} '
             f'! {encoder} name=encoder rate-control=vbr bitrate={initial_kbps} '
-            f'max-bframes=0 keyframe-period=30 cpb-length=120 quality-level={7 if hevc else 5} '
+            f'max-bframes=0 keyframe-period={self.lab_config["keyint"] if self.lab_config else 30} cpb-length=120 quality-level={7 if hevc else 5} '
         )
         self.pipeline = Gst.parse_launch(
             f'{source} ! queue name=frame_queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream '
@@ -445,7 +491,16 @@ class Session:
                 'appliedKbps': applied_kbps,
             }
         else:
-            target = self.rate.update(data.get('loss'), data.get('delay'), data.get('rtt'), route=data.get('route'), sequence=data.get('sequence'))
+            if getattr(self, 'lab_config', None) and self.lab_config['fixedBitrate']:
+                target = self.lab_config['bitrateKbps']
+                self.rate.target = target
+                self.rate.decision = {
+                    'policy': 'lab_fixed',
+                    'reason': 'fixed_matrix_rate',
+                    'requestedKbps': target,
+                }
+            else:
+                target = self.rate.update(data.get('loss'), data.get('delay'), data.get('rtt'), route=data.get('route'), sequence=data.get('sequence'))
             self.encoder.set_property('bitrate', target)
             applied_kbps = int(self.encoder.get_property('bitrate'))
             decision = {**self.rate.decision, 'appliedKbps': applied_kbps}
@@ -467,6 +522,8 @@ class Session:
         response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'freshness': freshness.snapshot() if freshness is not None else None, 'media': self.media_snapshot()}
         if controller is not None:
             response['gcc'] = controller.snapshot()
+        if getattr(self, 'lab_config', None) is not None:
+            response['labConfig'] = self.lab_config
         return response
 
     def close(self):

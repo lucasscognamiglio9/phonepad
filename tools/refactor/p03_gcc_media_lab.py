@@ -23,6 +23,13 @@ controller_name = os.environ.get('PHONEPAD_RTC_CONTROLLER', 'gcc')
 if controller_name not in ('gcc', 'legacy'):
     raise RuntimeError('This experiment requires PHONEPAD_RTC_CONTROLLER=gcc or legacy')
 gcc_mode = controller_name == 'gcc'
+try:
+    receiver_seconds = float(os.environ.get('PHONEPAD_LAB_RECEIVER_SECONDS', '12'))
+except (TypeError, ValueError):
+    raise RuntimeError('Invalid PHONEPAD_LAB_RECEIVER_SECONDS')
+if not 1 <= receiver_seconds <= 60:
+    raise RuntimeError('PHONEPAD_LAB_RECEIVER_SECONDS must be 1..60')
+full_duration = os.environ.get('PHONEPAD_LAB_FULL_DURATION', '0') == '1'
 
 preview = Path(__file__).resolve().parents[2] / 'setup/preview'
 sys.path.insert(0, str(preview))
@@ -58,6 +65,8 @@ receiver.emit('add-transceiver', GstWebRTC.WebRTCRTPTransceiverDirection.RECVONL
 ready = threading.Event()
 result = {'scope': 'production HFR/VA sender and local decoded H264 receiver; no physical presentation measurement',
           'controller': controller_name,
+          'receiverDurationRequestedSeconds': receiver_seconds,
+          'fullDuration': full_duration,
           'maxFrameAgeMs': os.environ.get('PHONEPAD_MAX_FRAME_AGE_MS', '0'),
           'decoder': decoder, 'decodedBuffers': 0, 'samples': [], 'errors': []}
 
@@ -137,7 +146,8 @@ try:
     result['answerTwcc'] = twcc in answer
     backend.handle({'op': 'answer', 'id': offer['id'], 'sdp': answer})
     checkpoint('sender answer applied')
-    deadline = time.monotonic() + 12
+    receiver_started = time.monotonic()
+    deadline = receiver_started + receiver_seconds
     while time.monotonic() < deadline:
         time.sleep(.5)
         if result['errors']:
@@ -146,13 +156,15 @@ try:
         # not fabricated loss/RTT values sent over the HTTP-style RPC.
         sample = backend.handle({'op': 'feedback', 'id': offer['id']})
         result['samples'].append(sample)
-        if result['decodedBuffers'] >= 60 and sample.get('gcc', {}).get('encoderSetterCount', 0) > 0:
+        if not full_duration and result['decodedBuffers'] >= 60 and (not gcc_mode or sample.get('gcc', {}).get('encoderSetterCount', 0) > 0):
             break
+    result['receiverDurationSeconds'] = round(time.monotonic() - receiver_started, 3)
     result['receiverConnection'] = receiver.get_property('connection-state').value_nick
     result['receiverICE'] = receiver.get_property('ice-connection-state').value_nick
     last = result['samples'][-1]
     result['freshness'] = last.get('freshness')
     result['reportedController'] = last.get('controller')
+    result['labConfig'] = last.get('labConfig')
     assert (not gcc_mode) or (result['offerTwcc'] and result['answerTwcc']), 'TWCC negotiation missing'
     assert result['receiverConnection'] == 'connected' and result['decodedBuffers'] >= 60, 'No decoded H264 flow'
     if gcc_mode:

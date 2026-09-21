@@ -1,9 +1,10 @@
 """Run with the isolated video runtime and system Python GI."""
+import os
 import sys
 import unittest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'setup/preview'))
-from rtc import RateController, Session, Manager, GstVideo, Gst
+from rtc import RateController, Session, Manager, GstVideo, Gst, _lab_h264_config
 from unittest.mock import patch
 from types import SimpleNamespace
 
@@ -30,6 +31,44 @@ class StartupTests(unittest.TestCase):
             session.request_keyframe()
         self.assertEqual(len(events), 2)
 
+
+class LabMatrixConfigTests(unittest.TestCase):
+    def test_lab_matrix_defaults_and_aliases_are_explicit(self):
+        with patch.dict(os.environ, {'PHONEPAD_HFR_ROOT': '/tmp/phonepad-hfr-test',
+                                     'PHONEPAD_MIRROR_HZ': '120'}, clear=False):
+            config = _lab_h264_config(60)
+        self.assertEqual(config['profile'], 'constrained-baseline')
+        self.assertEqual(config['bitrateKbps'], 6000)
+        self.assertEqual(config['keyint'], 60)
+        self.assertEqual(config['fps'], 120)
+        with patch.dict(os.environ, {'PHONEPAD_HFR_ROOT': '/tmp/phonepad-hfr-test',
+                                     'PHONEPAD_MIRROR_HZ': '90',
+                                     'PHONEPAD_LAB_H264_PROFILE': 'baseline',
+                                     'PHONEPAD_LAB_H264_BITRATE_KBPS': '18000',
+                                     'PHONEPAD_LAB_H264_KEYINT': '45',
+                                     'PHONEPAD_LAB_FIXED_BITRATE': '1'}, clear=False):
+            config = _lab_h264_config(60)
+        self.assertEqual(config, {'profile': 'constrained-baseline',
+                                  'requestedProfile': 'baseline',
+                                  'bitrateKbps': 18000,
+                                  'keyint': 45, 'fps': 90,
+                                  'fixedBitrate': True})
+
+    def test_production_ignores_lab_matrix_environment(self):
+        with patch.dict(os.environ, {'PHONEPAD_HFR_ROOT': '',
+                                     'PHONEPAD_LAB_H264_PROFILE': 'high',
+                                     'PHONEPAD_LAB_H264_BITRATE_KBPS': '32000'}, clear=False):
+            self.assertIsNone(_lab_h264_config(30))
+
+    def test_lab_matrix_rejects_unsupported_capacity_requests(self):
+        for key, value in (('PHONEPAD_LAB_H264_PROFILE', 'main'),
+                           ('PHONEPAD_LAB_H264_BITRATE_KBPS', '17000'),
+                           ('PHONEPAD_MIRROR_HZ', '75')):
+            with self.subTest(key=key):
+                env = {'PHONEPAD_HFR_ROOT': '/tmp/phonepad-hfr-test', key: value}
+                with patch.dict(os.environ, env, clear=False):
+                    with self.assertRaises(ValueError):
+                        _lab_h264_config(60)
 class WarmTests(unittest.TestCase):
     def session(self):
         states=[]
