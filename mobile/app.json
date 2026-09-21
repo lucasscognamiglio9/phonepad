@@ -7,7 +7,7 @@
     "icon": "./assets/phonepad-icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": false,
+      "supportsTablet": true,
       "bundleIdentifier": "app.phonepad.mobile",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -16,6 +16,7 @@
       "buildNumber": "4"
     },
     "android": {
+      "package": "app.phonepad.mobile",
       "adaptiveIcon": {
         "foregroundImage": "./assets/phonepad-icon.png",
         "backgroundColor": "#090b0e"
@@ -29,7 +30,6 @@
         "android.permission.CAMERA",
         "android.permission.INTERNET",
         "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH"

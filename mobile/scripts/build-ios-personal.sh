@@ -11,14 +11,22 @@ for tool in xcodebuild xcrun pod node python3 ditto; do
   command -v "$tool" >/dev/null || { echo "Falta $tool en el builder." >&2; exit 1; }
 done
 
+node - <<'NODE'
+const [major, minor] = process.versions.node.split('.').map(Number);
+if (major < 22 || (major === 22 && minor < 13)) {
+  console.error(`Se requiere Node.js >=22.13 para Expo SDK 57; se encontró ${process.version}.`);
+  process.exit(1);
+}
+NODE
+
 # iOS 26's native glass must be compiled with a supporting SDK.
 python3 - <<'PY'
 import re, subprocess
 version = subprocess.check_output(['xcodebuild', '-version'], text=True)
 print(version.strip())
-match = re.search(r'Xcode (\d+)', version)
-if not match or int(match.group(1)) < 26:
-    raise SystemExit('Se requiere Xcode 26 o posterior para Liquid Glass.')
+match = re.search(r'Xcode (\d+)(?:\.(\d+))?', version)
+if not match or (int(match.group(1)), int(match.group(2) or 0)) < (26, 4):
+    raise SystemExit('Se requiere Xcode 26.4 o posterior para Liquid Glass y Expo SDK 57.')
 PY
 
 export CI=1 EXPO_NO_TELEMETRY=1 RCT_NO_LAUNCH_PACKAGER=1

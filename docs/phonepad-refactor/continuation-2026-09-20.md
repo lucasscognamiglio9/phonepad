@@ -1,6 +1,14 @@
-# Continuación de PhonePad: 20/09/2026
+# Continuación de PhonePad: ejecución P00–P06 autorizada; P07–P12 diferidas, 20/09/2026
 
-## Estado de entrada
+## Ejecución vigente: P00.6 candidato nativo
+
+El usuario autorizó implementar P00–P06 y `/root` coordina el trabajo; los workers Luna xhigh conservan ownership por paquete y rutas exclusivas. La base vigente es `refactor/p00-baseline` en HEAD `ef10bf44851f53c52958283caa82464c2873bea1` (`ef10bf4`). El [roadmap canónico P00–P06](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md` son las fuentes de alcance y criterios; P07–P12 quedan fuera del trabajo activo.
+
+Este bloque prepara P00.6 en `mobile/app.json`, `mobile/eas.json`, `mobile/plugins/` y scripts de build: paquete Android explícito, soporte de iPad, APK interno y preflight Node para Expo 57. El fingerprint se debe regenerar desde el checkpoint integrado limpio porque el árbol comparte cambios de otros workers. La configuración pública y el fingerprint previo se verifican localmente; no hay Java/JDK, Android SDK/adb, EAS CLI, Xcode ni CocoaPods en este Linux. La IPA requiere Mac/Xcode 26.4+ y firma; el APK requiere SDK/JDK o builder autorizado. No se inicia build cloud de pago, no se usan credenciales y no se afirma candidato instalable hasta tener archive/fingerprint, instalación, arranque y reconexión.
+
+La nota de ejecución y preflight está en `p00-candidate-execution-2026-09-20.md`; los logs de candidato se guardan en `outputs/p00/candidate/` (ignorado por Git). El estado actual es preparación reproducible con recurso externo pendiente.
+
+## Historial de entrada archivado
 
 La reanudación está autorizada en `refactor/p00-baseline`. P01A-04 está implementado en `f7ea113`; P02-02 en `12aa1d7`, P02-01 en `ba45a00` y P02-03 en `e3e7fff`. `e8132e8` completó P02-04/05/07 con media observada, cierre coordinado y compatibilidad. `ce3fe20` incorpora GCC opcional con H264/VA real y 56 pruebas Python; `a14291d` registra la medición inicial de libinput y `c5624bf` añade el candidato cuadrado. `4639ce0` corrige el estado visible de los atajos bloqueados. La cápsula vertical y los iconos están en `4850177`. El trabajo conserva el alcance de 14 fases, 115 tareas y 32 requisitos.
 
@@ -44,17 +52,17 @@ La primera medición real de libinput está en `p04-02-motion-lab.md`. La geomet
 
 P05 puede avanzar sobre esa geometría: Directo/Trackpad, pinch/pan/scroll, ayuda, transferencia explícita y controles. Integrar P01A antes de cerrar teclado, clipboard y adjuntos. El prototipo Liquid Glass, menú, hojas, catálogo de iconos, `KeyboardStickyView` y pantalla activa pueden prepararse antes del binario nativo; su aceptación visual, accesibilidad y rendimiento sobre Metal esperan el candidato.
 
-### 5. P06, P07 y P08
+### Histórico 5. P06, P07 y P08
 
 P06.2 y P06.6 pueden prepararse temprano. La instrumentación P06.7 debe identificar primero el build/runtime ejecutado y la causa de la barra desplazada; P06.8, P06.10–P06.14 pueden desarrollarse con fixtures y receptor web, pero P06.9/P06.12 no cierran sin build nativo.
 
 P07 puede implementar identidad, QR, permisos, revocación, prioridad y LAN/loopback con P02. NAT, TURN, IPv4/IPv6, UDP bloqueado y la matriz móvil son aceptación externa. P08 puede avanzar con el proveedor GNOME disponible, portal, clipboard y EIS; KDE, Wayland sin XWayland y permisos residuales quedan como comprobaciones de entorno.
 
-### 6. P09 y P10
+### Histórico 6. P09 y P10
 
 P09 requiere Android SDK/JDK o build equivalente, Xcode para iOS y dispositivos con permisos de captura/control. Mantener ReplayKit como ruta iOS compatible y no presentar captura como control global de otras apps. P10 requiere macOS, Windows, sus SDK y permisos propios. Se pueden preparar contratos y módulos aislados, pero no declarar compatibilidad por compilar código inicial.
 
-### 7. P11 y P12
+### Histórico 7. P11 y P12
 
 P11 puede preparar bootstrap, documentación, onboarding y el servicio opcional de señalización/TURN. Los paquetes firmados, notarización, Play/App Store, instalación limpia y primera conexión requieren los proveedores y cuentas correspondientes. P12 ejecuta la matriz final, las sesiones prolongadas, integridad P01A, autorización, licencias, migración y rollback.
 

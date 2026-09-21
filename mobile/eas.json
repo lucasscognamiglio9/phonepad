@@ -36,6 +36,9 @@
         "config": "ios-personal.yml",
         "applicationArchivePath": "build/Phonepad-unsigned.ipa"
       },
+      "android": {
+        "buildType": "apk"
+      },
       "channel": "personal"
     }
   },

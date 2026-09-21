@@ -1,8 +1,20 @@
-# Estado de ejecución: 20/09/2026
+# Estado de ejecución: P00–P06 autorizadas; P07–P12 diferidas, 20/09/2026
 
-## P02 implementado y verificado en Linux; matriz física pendiente
+## Ejecución vigente: P00.6 candidato nativo y preparación de release
 
-La ejecución sigue autorizada. Base de esta entrega: `1a43331` en `refactor/p00-baseline`. P01A-04 incorpora lotes reanudables, checksum de origen, selección revisable, limpieza y cancelación durable. También corrige las rutas del gateway y eventos tardíos del teclado. Ver `p01a-04.md` y `file-transfer-contract.md`.
+La ejecución actual está autorizada por el usuario y la coordina `/root`; los workers Luna xhigh trabajan por paquetes y rutas exclusivas. El checkout vigente es `refactor/p00-baseline` en HEAD `ef10bf44851f53c52958283caa82464c2873bea1` (`ef10bf4`). El alcance ejecutable es P00–P06 según el [roadmap canónico](roadmap-p00-p06.md) y `../../outputs/PHONEPAD-PLAN-MAESTRO.md`; P07–P12 siguen diferidas y no se reabren en este pase.
+
+Al iniciar este bloque se preservaron HEAD, rama y diff existente. El árbol ya contenía cambios documentales de la consolidación (`docs/phonepad-refactor/{estado.md,continuation-2026-09-20.md}` y el roadmap no versionado); no se sobrescriben cambios de otros workers. P01A y P03 mantienen ownership de sus rutas; este worker solo toca configuración/scripts/documentación de P00.6.
+
+P00.6 está en preparación concreta: `mobile/app.json` fija el paquete Android `app.phonepad.mobile`, habilita iPad y elimina el permiso explícito redundante de micrófono en el receptor; `mobile/eas.json` solicita APK para el perfil personal; `mobile/scripts/build-ios-personal.sh` exige Node compatible con Expo 57 antes de Xcode. Estas modificaciones cambian el fingerprint, por lo que el hash definitivo se debe generar desde el checkpoint integrado limpio, no desde este árbol mientras otros workers editan en paralelo.
+
+Preflight local: Node `24.20.0`, npm `11.19.0`, dependencias instaladas y Expo `57.0.21` están disponibles. La configuración pública y el fingerprint previo se pueden calcular localmente; el fingerprint previo `6171551c95c6c2fe265aaf80c66eeba6657799a7` coincide con la referencia guardada. No hay Java/JDK, Android SDK/adb, EAS CLI, Xcode ni CocoaPods disponibles en este Linux. El candidato instalable requiere un Mac con Xcode 26.4+ y firma, o un builder remoto autorizado; Android requiere SDK/JDK. No se lanza build cloud de pago, no se firma, no se instala y no se promueve OTA desde este bloque.
+
+La nota reproducible de ejecución es [`p00-candidate-execution-2026-09-20.md`](p00-candidate-execution-2026-09-20.md); los logs candidatos quedan bajo `outputs/p00/candidate/`, ignorados por Git. El estado P00.6 sigue `preparación bloqueada por toolchain externo`, no `completo`.
+
+## Contexto vigente de evidencia: P02 implementado y verificado en Linux; matriz física pendiente
+
+Base de esta entrega: `ef10bf4` en `refactor/p00-baseline`. P01A-04 incorpora lotes reanudables, checksum de origen, selección revisable, limpieza y cancelación durable. También corrige las rutas del gateway y eventos tardíos del teclado. Ver `p01a-04.md` y `file-transfer-contract.md`.
 
 Verificación de P01A-04: pruebas de cliente y almacenamiento, gateway real a través de RemoteHandler, Go completo con detector de carreras y bundle iOS/Hermes. Los logs se guardan en `outputs/p01a-04`; el cierre de validación se registra en el documento del bloque. Un bundle Hermes no es un IPA ni aceptación física.
 
@@ -28,15 +40,18 @@ P00.1–P00.5 y P01.1–P01.5 conservan su evidencia. P00.6/P01.6 siguen esperan
 
 La pareja principal es Ubuntu+iPhone. El usuario tiene acceso a un Mac de un amigo y un Android de otro. Aún debemos verificar toolchains, firma, permisos y disponibilidad. Expo Crypto y Expo FileSystem requieren un nuevo binario compatible.
 
-### Continuación
+### Siguiente trabajo vigente P00–P06
 
-1. P02-01/P02-02 integrados. Conservar los logs en `outputs/p02` y comprobar selector/persistencia en el candidato físico.
-2. P02-04/05/07 verificados en Linux. Conservar la aceptación física pendiente y continuar P01A con acciones y proveedores sin pérdida de contenido.
-3. P01.6/P03.1–P03.4 para medición y camino principal Linux; después P04/P05.
-4. P06/P07/P08 por tareas independientes; P09/P10 con herramientas y equipos disponibles.
-5. P11 bootstrap/instalación y distribución; P12 cierre de matriz y rollback.
+1. Cerrar la preparación documental y de configuración de P00.6, registrar el fingerprint posterior al merge y preservar el fingerprint/runtime del candidato como artefacto del checkpoint.
+2. Obtener el recurso mínimo externo: Mac con Xcode/firma para IPA iPhone; Android SDK/JDK y dispositivo o builder autorizado para APK. Verificar primero disponibilidad y permisos, sin subir secretos.
+3. Generar candidato de desarrollo/release desde un árbol integrado limpio, ejecutar el verificador de archive y registrar instalación, arranque y reconexión solo cuando exista el binario.
+4. Continuar P01A, P03, P04, P05 y P06 en sus rutas propias con el candidato o fixtures correspondientes; no promover ningún cambio nativo sin runtime/fingerprint.
 
 Cada checkpoint distingue código, compilación, laboratorio, aceptación física y distribución. Una espera física no detiene tareas Linux independientes. El runbook completo está en `continuation-2026-09-20.md`.
+
+### Historial de la continuación anterior, archivado
+
+Las referencias anteriores a P07/P08, P09/P10, P11 y P12 se conservan como historial de planificación y no son trabajo vigente de este pase. El alcance activo se rige por el roadmap P00–P06 enlazado arriba.
 
 ## Historial archivado: checkpoint de cierre por cuota P01A-03, 17/09/2026
 
