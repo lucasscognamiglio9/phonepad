@@ -20,10 +20,20 @@ import {
 import type { Connection } from '../lib/connection';
 import type { AttachmentSource } from '../lib/attachments';
 import type { LateDraft } from '../lib/literal-transfer';
+import type { ActionReceipt } from '../lib/protocol';
 import { textCommands } from '../lib/protocol';
 
 type MenuAnchor = { x: number; y: number; width: number; height: number };
 type MenuAction = AttachmentSource | 'keyboard';
+type ActionDispatch = { accepted: boolean; receiptAware: boolean; operationId: string | null };
+type HeldAction = { operationId: string; key: string; initialTimer?: ReturnType<typeof setTimeout>; repeatTimer?: ReturnType<typeof setInterval> };
+
+// Only the visible navigation arrows have a reliable press-in/press-out pair.
+// Enter, Escape, Tab, clipboard shortcuts, and modifier combinations stay
+// single-shot so an accidental hold cannot repeat a destructive shortcut.
+const REPEATABLE_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+const ACTION_REPEAT_INITIAL_DELAY_MS = 350;
+const ACTION_REPEAT_INTERVAL_MS = 70;
 
 // Keep text state here: typing must not rerender the video or restart its stream.
 export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange,
@@ -57,6 +67,14 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [shortcuts, setShortcuts] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<MenuAnchor | null>(null);
   const [mods, setMods] = useState<string[]>([]);
+  const [actionOperationId, setActionOperationId] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState('');
+  const heldAction = useRef<HeldAction | null>(null);
+  const repeatTouchGesture = useRef(false);
+  const suppressRepeatPress = useRef(false);
+  const lastActionReceipt = useRef('');
+  const cancelledOperations = useRef(new Set<string>());
+  const previousViewport = useRef({ width, height });
   const [contentHeight, setContentHeight] = useState(24);
   const [actionBarHeight, setActionBarHeight] = useState(0);
   const preKeyboardHeight = useRef(height);
@@ -148,6 +166,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   const canSend = () => !disabled && visible && !interrupted.current && !sending && !literal?.busy;
   const canSendKey = () => canSend() && !(literalMode && (draft.current || literal?.pending));
+  const preserveActionContext = () => {
+    // A key receipt can be rejected after a native edit callback has already
+    // populated the editor. Preserve that local text, but do not manufacture
+    // an interruption banner when there was no draft to protect.
+    if (draft.current || value) preserveDraft();
+  };
   const keysDisabled = disabled || !visible || deliveryIssue || sending || !!literal?.busy
     || (literalMode && (!!value || !!literal?.pending));
   const shortcutHint = shortcuts && literalMode && !sending && !deliveryIssue
@@ -197,21 +221,141 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       setTextStatus('No se pudo consultar el envío. Revisá la computadora antes de continuar.');
     });
   };
+  const cancelHeldAction = () => {
+    const held = heldAction.current;
+    if (!held) return;
+    clearTimeout(held.initialTimer);
+    clearInterval(held.repeatTimer);
+    heldAction.current = null;
+    // A cancel can race a provider receipt for the press or a repeat. Keep
+    // the identity quarantined so an old executed receipt cannot reset a new
+    // local draft/context after the user has released the control.
+    cancelledOperations.current.add(held.operationId);
+    const sent = connection.cancelAction?.(held.operationId) ?? false;
+    setActionStatus(sent
+      ? 'Cancelando la repetición…'
+      : 'Repetición detenida; no se reanudará al reconectar.');
+  };
+  const dispatchAction = (key: string, selectedMods = mods): ActionDispatch => {
+    if (!canSendKey()) return { accepted: false, receiptAware: false, operationId: null };
+    const action = selectedMods.length
+      ? { t: 'k' as const, a: 'combo' as const, mods: [...selectedMods], key }
+      : { t: 'k' as const, a: 'special' as const, key };
+    const operationId = connection.pressAction?.(action) ?? null;
+    if (operationId) {
+      setActionOperationId(operationId);
+      setActionStatus('Esperando confirmación de tecla…');
+      setMods([]);
+      return { accepted: true, receiptAware: true, operationId };
+    }
+    if (!connection.send(action)) return { accepted: false, receiptAware: false, operationId: null };
+    setMods([]); resetContext();
+    return { accepted: true, receiptAware: false, operationId: null };
+  };
   const special = (key: string) => {
     if (!canSendKey()) return;
-    if (!connection.send(mods.length ? { t: 'k', a: 'combo', mods, key } : { t: 'k', a: 'special', key })) { preserveDraft(); return; }
-    setMods([]); resetContext();
+    const result = dispatchAction(key);
+    if (!result.accepted) preserveActionContext();
   };
   const clipboard = (key: string) => {
     if (!canSendKey()) return;
-    if (!connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key })) { preserveDraft(); return; }
-    setMods([]); resetContext();
+    const result = dispatchAction(key, ['ctrl']);
+    if (!result.accepted) preserveActionContext();
   };
   const submit = () => {
     if (!canSendKey()) return;
-    if (!connection.send({ t: 'k', a: 'special', key: 'Enter' })) { preserveDraft(); return; }
-    setMods([]); resetContext();
+    // Enter is the composer submit action; armed modifiers apply to explicit
+    // shortcut keys, never to this dedicated button.
+    const result = dispatchAction('Enter', []);
+    if (!result.accepted) preserveActionContext();
   };
+  const startRepeat = (key: string) => {
+    if (!REPEATABLE_KEYS.has(key) || mods.length) return;
+    const result = dispatchAction(key, []);
+    if (!result.accepted || !result.operationId) return;
+    const held: HeldAction = { operationId: result.operationId, key };
+    heldAction.current = held;
+    held.initialTimer = setTimeout(() => {
+      if (heldAction.current !== held) return;
+      held.repeatTimer = setInterval(() => {
+        if (heldAction.current !== held) return;
+        if (!connection.repeatAction?.(held.operationId)) cancelHeldAction();
+      }, ACTION_REPEAT_INTERVAL_MS);
+    }, ACTION_REPEAT_INITIAL_DELAY_MS);
+  };
+  const beginRepeatGesture = (key: string) => {
+    // With modifiers armed, keep the arrow a one-shot combo. Native
+    // accessibility activation calls onPress without this touch pair.
+    repeatTouchGesture.current = REPEATABLE_KEYS.has(key) && mods.length === 0;
+    if (repeatTouchGesture.current) startRepeat(key);
+  };
+  const endRepeatGesture = () => {
+    if (!repeatTouchGesture.current) return;
+    repeatTouchGesture.current = false;
+    suppressRepeatPress.current = true;
+    cancelHeldAction();
+  };
+  const pressRepeatable = (key: string) => {
+    if (suppressRepeatPress.current) {
+      suppressRepeatPress.current = false;
+      return;
+    }
+    if (heldAction.current) return;
+    if (!canSendKey()) return;
+    const result = dispatchAction(key);
+    if (!result.accepted) preserveActionContext();
+  };
+  const actionReceipt: ActionReceipt | null = actionOperationId
+    ? connection.getActionReceipt?.(actionOperationId) ?? null : null;
+  const receiptKey = actionReceipt
+    ? `${actionReceipt.operationId}:${actionReceipt.phase}:${actionReceipt.state}:${actionReceipt.repeatCount}:${actionReceipt.detail ?? ''}:${actionReceipt.replayed ? 'replayed' : ''}` : '';
+  useEffect(() => {
+    if (!actionReceipt || !actionOperationId || lastActionReceipt.current === receiptKey) return;
+    lastActionReceipt.current = receiptKey;
+    if (cancelledOperations.current.has(actionOperationId) && actionReceipt.phase !== 'cancel') {
+      // The provider may have crossed the cancel boundary before it emitted
+      // the final press/repeat receipt. Keep the new local context intact and
+      // surface the possibility instead of presenting a false success or
+      // replaying the old action. `*_after_cancel` is the server's explicit
+      // boundary marker; an unmarked late receipt remains quarantined.
+      if (actionReceipt.detail?.endsWith('_after_cancel')) {
+        preserveActionContext();
+        setActionStatus(actionReceipt.state === 'uncertain'
+          ? 'Resultado incierto al cancelar. Conservé el borrador; revisá la computadora.'
+          : actionReceipt.state === 'admitted'
+            ? 'Tecla posiblemente admitida al cancelar. Conservé el borrador; revisá la computadora.'
+            : 'Tecla posiblemente ejecutada al cancelar. Conservé el borrador; revisá la computadora.');
+      }
+      return;
+    }
+    const replayed = actionReceipt.replayed === true;
+    if (replayed || actionReceipt.state === 'uncertain' || actionReceipt.state === 'rejected' || actionReceipt.state === 'cancelled') {
+      cancelHeldAction();
+      preserveActionContext();
+      setActionStatus(replayed || actionReceipt.state === 'uncertain'
+        ? 'Resultado incierto. Conservé el borrador y no repetí la tecla.'
+        : actionReceipt.state === 'rejected' ? 'Tecla rechazada. Conservé el borrador y no la repetí.'
+          : 'Repetición cancelada. Conservé el borrador.');
+      return;
+    }
+    if (actionReceipt.state === 'admitted') {
+      setActionStatus('Tecla admitida; todavía no se confirmó el resultado.');
+      return;
+    }
+    if (actionReceipt.state === 'executed') {
+      if (actionReceipt.phase === 'press') resetContext();
+      setActionStatus(actionReceipt.phase === 'repeat' ? 'Tecla repetida.' : 'Tecla ejecutada.');
+    }
+  }, [actionOperationId, receiptKey]);
+  useEffect(() => {
+    // Release a held operation when the composer disappears, loses focus,
+    // rotates, or loses input permission. After Connection.clearActionState
+    // on disconnect there may be no socket left for a cancel frame; stopping
+    // locally is still safe because the operation identity is never replayed.
+    const rotated = previousViewport.current.width !== width || previousViewport.current.height !== height;
+    previousViewport.current = { width, height };
+    if (rotated || !active || !visible || disabled || connection.canInput === false) cancelHeldAction();
+  }, [active, visible, disabled, width, height, connection.canInput]);
   const applyReceipt = (state: string, sentText: string) => {
     if (state === 'dispatched') {
       // Replacing the native editor makes callbacks from the old editor
@@ -346,6 +490,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{shortcutHint || textStatus || 'Escribí o dictá acá. Tocá Escribir para pasarlo a la computadora.'}</Text>
         {literal?.pending && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
       </GlassSurface>}
+      {!!actionStatus && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
+        <Text accessibilityLiveRegion="polite" style={{ color: '#f4f5f7', fontSize: 14 }}>{actionStatus}</Text>
+      </GlassSurface>}
       {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
@@ -360,11 +507,15 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
           <View style={{ width: 64 }}><GlassButton compact label="Copiar" disabled={keysDisabled}
             onPress={() => clipboard('c')} /></View>
           <View style={{ width: 140 }}>
-            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" disabled={keysDisabled} onPress={() => special('ArrowUp')} /></View>
+            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" disabled={keysDisabled}
+              onPressIn={() => beginRepeatGesture('ArrowUp')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowUp')} /></View>
             <View style={{ flexDirection: 'row', gap: 4 }}>
-              <GlassButton compact label="Izquierda" action="left" disabled={keysDisabled} onPress={() => special('ArrowLeft')} />
-              <GlassButton compact label="Abajo" action="down" disabled={keysDisabled} onPress={() => special('ArrowDown')} />
-              <GlassButton compact label="Derecha" action="right" disabled={keysDisabled} onPress={() => special('ArrowRight')} />
+              <GlassButton compact label="Izquierda" action="left" disabled={keysDisabled}
+                onPressIn={() => beginRepeatGesture('ArrowLeft')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowLeft')} />
+              <GlassButton compact label="Abajo" action="down" disabled={keysDisabled}
+                onPressIn={() => beginRepeatGesture('ArrowDown')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowDown')} />
+              <GlassButton compact label="Derecha" action="right" disabled={keysDisabled}
+                onPressIn={() => beginRepeatGesture('ArrowRight')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowRight')} />
             </View>
           </View>
           <View style={{ width: 64 }}><GlassButton compact label="Pegar" disabled={keysDisabled}
@@ -387,9 +538,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                   return;
                 }
                 if (mods.length && !draft.current && Array.from(text).length === 1 && !/[\r\n]/.test(text) && canSendKey()) {
-                  if (connection.send({ t: 'k', a: 'combo', mods, key: text })) {
-                    setMods([]); resetContext(); return;
-                  }
+                  const result = dispatchAction(text, mods);
+                  if (result.accepted) return;
                   preserveDraft(text);
                 }
                 draft.current = text; literal.draft = text; setValue(text); return;
@@ -397,8 +547,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               if (!canSend()) { preserveDraft(text); return; }
               const extra = text.startsWith(previous.current) ? Array.from(text.slice(previous.current.length)) : [];
               if (mods.length && extra.length === 1 && !/[\r\n]/.test(extra[0])) {
-                if (!connection.send({ t: 'k', a: 'combo', mods, key: extra[0] })) { preserveDraft(text); return; }
-                setMods([]); resetContext();
+                const result = dispatchAction(extra[0], mods);
+                if (!result.accepted) { preserveDraft(text); return; }
               } else {
                 for (const command of textCommands(previous.current, text)) {
                   if (!connection.send(command)) { preserveDraft(text); return; }
@@ -410,7 +560,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             maxLength={literalMode ? undefined : 2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
             placeholder="Escribir…" placeholderTextColor="#b7bbc4" accessibilityLabel="Escribir en la computadora"
             onFocus={() => { if (visible && !menuInteraction.current) open(); }}
-            onBlur={() => { if (!menuInteraction.current) close(); }}
+            onBlur={() => { cancelHeldAction(); if (!menuInteraction.current) close(); }}
             submitBehavior="newline" returnKeyType="default"
             onKeyPress={event => { if (!literalMode && event.nativeEvent.key === 'Backspace' && !previous.current) special('Backspace'); }}
             onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
