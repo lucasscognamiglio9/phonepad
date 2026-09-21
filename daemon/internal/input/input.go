@@ -36,6 +36,25 @@ type uinputDevice struct {
 	btns  map[string]bool  // botones del mouse actualmente abajo
 }
 
+// PointerGeometry reports only the established mobile touchpad geometry. The
+// absolute computer-use device has a different coordinate contract and is
+// intentionally omitted. Unknown fixture geometries are omitted as well until
+// their mapper and persistence contract are promoted together.
+func (d *uinputDevice) PointerGeometry() (PointerGeometry, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.mt == nil || d.mt.state == nil || d.mt.res <= 0 ||
+		d.mt.state.maxX != devMaxX || d.mt.state.maxY != devMaxY || d.mt.res != devRes {
+		return PointerGeometry{}, false
+	}
+	return PointerGeometry{
+		ID: "legacy-100x70", Kind: "legacy-aspect-fit",
+		WidthMM:       float64(d.mt.state.maxX) / float64(d.mt.res),
+		HeightMM:      float64(d.mt.state.maxY) / float64(d.mt.res),
+		GeometryEpoch: 1,
+	}, true
+}
+
 // New crea los devices del camino del celular: un teclado virtual (para el
 // actionbar) y un touchpad de precisión multitouch (ADR 0005). NO crea mouse
 // REL: tap/click/click-derecho/scroll los sintetiza libinput desde los contactos

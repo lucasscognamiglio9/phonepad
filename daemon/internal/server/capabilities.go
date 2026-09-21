@@ -108,16 +108,49 @@ type geometryCapability struct {
 
 var inputActions = []string{"m", "b", "s", "k", "g", "t"}
 
-// legacyPointerGeometry is the production-safe capability until a calibrated
-// device-local square profile is selected. The square candidate remains an
-// opt-in fixture and is therefore deliberately absent from this advertisement.
-func legacyPointerGeometry() *pointerGeometryCapability {
+// pointerGeometryForInjector converts only a provider-confirmed mapper into
+// the wire capability. A server-side default would be unsafe for a different
+// injector (for example the absolute computer-use provider), so unknown
+// providers omit this optional extension and the client keeps its legacy path.
+func pointerGeometryForInjector(inj input.Injector) *pointerGeometryCapability {
+	provider, ok := inj.(input.PointerGeometryProvider)
+	if !ok {
+		return nil
+	}
+	profile, ok := provider.PointerGeometry()
+	if !ok || profile.GeometryEpoch == 0 || profile.ID == "" || profile.Kind == "" {
+		return nil
+	}
+	wire := pointerGeometryProfile{
+		ID: profile.ID, Kind: profile.Kind, WidthMM: profile.WidthMM,
+		HeightMM: profile.HeightMM, SideMM: profile.SideMM,
+		GainMMPerPoint: profile.GainMMPerPoint, GainSource: profile.GainSource,
+		GainMinMMPerPoint: profile.GainMinMMPerPoint,
+		GainMaxMMPerPoint: profile.GainMaxMMPerPoint,
+	}
+	// Keep validation conservative at this boundary. The mobile parser applies
+	// the same shape checks, but the daemon must not publish malformed values
+	// even to a newer client.
+	switch wire.Kind {
+	case "legacy-aspect-fit":
+		if wire.WidthMM <= 0 || wire.HeightMM <= 0 || wire.SideMM != 0 ||
+			wire.GainMMPerPoint != 0 || wire.GainSource != "" ||
+			wire.GainMinMMPerPoint != 0 || wire.GainMaxMMPerPoint != 0 {
+			return nil
+		}
+	case "square-centered":
+		if wire.SideMM <= 0 || wire.GainMMPerPoint <= 0 || wire.GainSource != "calibrated" ||
+			wire.GainMinMMPerPoint <= 0 || wire.GainMaxMMPerPoint < wire.GainMinMMPerPoint ||
+			wire.GainMMPerPoint < wire.GainMinMMPerPoint || wire.GainMMPerPoint > wire.GainMaxMMPerPoint ||
+			wire.WidthMM != 0 || wire.HeightMM != 0 {
+			return nil
+		}
+	default:
+		return nil
+	}
 	return &pointerGeometryCapability{
-		Version: 1,
-		SupportedProfiles: []pointerGeometryProfile{{
-			ID: "legacy-100x70", Kind: "legacy-aspect-fit", WidthMM: 100, HeightMM: 70,
-		}},
-		Applied: pointerGeometryApplied{ID: "legacy-100x70", GeometryEpoch: 1},
+		Version: 1, SupportedProfiles: []pointerGeometryProfile{wire},
+		Applied: pointerGeometryApplied{ID: wire.ID, GeometryEpoch: profile.GeometryEpoch},
 	}
 }
 
@@ -257,7 +290,7 @@ func (s *Server) capabilitiesPayloadLocked() map[string]any {
 	}
 	var pointerGeometry *pointerGeometryCapability
 	if s.inputAllowedLocked() {
-		pointerGeometry = legacyPointerGeometry()
+		pointerGeometry = pointerGeometryForInjector(s.inj)
 	}
 
 	literal := literalCapability{State: "unsupported", Reason: "no_literal_adapter"}

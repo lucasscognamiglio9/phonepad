@@ -76,6 +76,7 @@ type inputEvent struct {
 type mtTouchpad struct {
 	fd       int
 	state    *mtState
+	res      int32
 	desynced bool // last frame failed; next frame performs a release recovery
 }
 
@@ -161,7 +162,7 @@ func newMTTouchpadWithGeometry(maxX, maxY, res int32) (*mtTouchpad, error) {
 	if err := ioctl(ufd, uiDevCreate, 0); err != nil {
 		return failClose(fd, "UI_DEV_CREATE", err)
 	}
-	return &mtTouchpad{fd: fd, state: newMTState(maxX, maxY)}, nil
+	return &mtTouchpad{fd: fd, state: newMTState(maxX, maxY), res: res}, nil
 }
 
 func failClose(fd int, what string, err error) (*mtTouchpad, error) {

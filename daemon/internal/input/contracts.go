@@ -55,6 +55,31 @@ type TouchCanceler interface {
 	CancelTouch()
 }
 
+// PointerGeometry describes the physical mapper that an injector has already
+// applied to its touch device. It is deliberately optional: legacy providers
+// and non-touch injectors must not advertise a geometry they cannot prove.
+// GeometryEpoch changes only when the mapper/device profile changes; clients
+// cancel active contacts before accepting a new epoch.
+type PointerGeometry struct {
+	ID                string
+	Kind              string
+	WidthMM           float64
+	HeightMM          float64
+	SideMM            float64
+	GainMMPerPoint    float64
+	GainSource        string
+	GainMinMMPerPoint float64
+	GainMaxMMPerPoint float64
+	GeometryEpoch     uint64
+}
+
+// PointerGeometryProvider lets the server expose the geometry actually
+// configured on the native provider. A false result means that the provider
+// cannot make a safe claim; the server then omits the optional extension.
+type PointerGeometryProvider interface {
+	PointerGeometry() (PointerGeometry, bool)
+}
+
 // ClipboardMu serializes the daemon's short-lived Unicode paste with the
 // server's attachment clipboard provider. Both paths temporarily become the
 // desktop clipboard owner; without one process-wide gate, an upload can race

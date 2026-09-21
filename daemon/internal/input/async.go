@@ -276,6 +276,17 @@ func (a *asyncText) Touch(contacts []Contact) {
 	a.submit(asyncOp{kind: opTouch, touch: append([]Contact(nil), contacts...)})
 }
 
+// PointerGeometry is metadata, not an input operation. Forward it through the
+// FIFO wrapper so the server can describe the native touchpad after the real
+// provider has been wrapped for serialized dispatch.
+func (a *asyncText) PointerGeometry() (PointerGeometry, bool) {
+	provider, ok := a.inner.(PointerGeometryProvider)
+	if !ok {
+		return PointerGeometry{}, false
+	}
+	return provider.PointerGeometry()
+}
+
 // CancelTouch is queued in the same FIFO as touch frames, so a cancellation
 // cannot overtake a preceding movement or touch-down frame.
 func (a *asyncText) CancelTouch() { a.submit(asyncOp{kind: opTouchCancel}) }

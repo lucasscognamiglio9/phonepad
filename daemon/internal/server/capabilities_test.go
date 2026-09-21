@@ -31,6 +31,11 @@ func (p *capabilityProbe) Touch([]input.Contact)  {}
 func (p *capabilityProbe) Close()                 {}
 func (p *capabilityProbe) Reset()                 { p.resets.Add(1) }
 
+func (p *capabilityProbe) PointerGeometry() (input.PointerGeometry, bool) {
+	return input.PointerGeometry{ID: "legacy-100x70", Kind: "legacy-aspect-fit",
+		WidthMM: 100, HeightMM: 70, GeometryEpoch: 1}, true
+}
+
 var _ input.Injector = (*capabilityProbe)(nil)
 
 func readWSJSON(t *testing.T, c *websocket.Conn) map[string]any {
@@ -125,6 +130,18 @@ func TestCapabilitiesPayloadUsesPermissionAndCapabilityStates(t *testing.T) {
 	}
 	if got := demoCapabilities["roles"].([]string); len(got) != 2 || got[1] != "controller" {
 		t.Fatalf("demo roles = %v", got)
+	}
+}
+
+func TestCapabilitiesOmitUnconfirmedPointerGeometry(t *testing.T) {
+	plain := New(staticAuth("tok"), &fakeInjector{}, nil, "")
+	plain.mu.Lock()
+	plain.currentProtocol = protocolVersion
+	plain.sessionEpoch = "epoch"
+	payload := plain.capabilitiesPayloadLocked()
+	plain.mu.Unlock()
+	if got := payload["capabilities"].(capabilitySet).Input.PointerGeometry; got != nil {
+		t.Fatalf("provider without geometry metadata = %+v, want omitted", got)
 	}
 }
 
