@@ -124,12 +124,12 @@ func (s *Server) RemoteHandler(publicOrigin string) http.Handler {
 			return
 		}
 		p := r.URL.Path
-		allowed := p == "/" || p == "/index.html" || p == "/app.js" || p == "/preview.js" || p == "/rtc.js" || p == "/desktop.js" || p == "/style.css" || p == "/sw.js" || p == "/manifest.webmanifest" || p == "/icon-180.png" || p == "/icon-192.png" || p == "/icon-512.png" || (strings.HasPrefix(p, "/fonts/") && strings.HasSuffix(p, ".woff2")) || (p == "/api/preview/status" || p == "/api/preview/video" || p == "/api/preview/rtc") || p == "/api/files" || p == "/api/file-batches" || p == "/api/file-transfers" || p == "/api/input" || p == nativeUpdateRoute || p == "/api/auth" || p == "/api/claim" || p == "/api/mode" || p == "/ws" || (p == "/api/desktop" && r.URL.Query().Get("role") == "viewer")
+		allowed := p == "/" || p == "/index.html" || p == "/app.js" || p == "/phonepad-core.js" || p == "/receiver-controls.js" || p == "/preview.js" || p == "/rtc.js" || p == "/desktop.js" || p == "/style.css" || p == "/sw.js" || p == "/manifest.webmanifest" || p == "/icon-180.png" || p == "/icon-192.png" || p == "/icon-512.png" || (strings.HasPrefix(p, "/fonts/") && strings.HasSuffix(p, ".woff2")) || (p == "/api/preview/status" || p == "/api/preview/video" || p == "/api/preview/rtc") || p == "/api/files" || p == "/api/file-batches" || p == "/api/file-transfers" || p == "/api/input" || p == "/api/clipboard" || p == nativeUpdateRoute || p == "/api/auth" || p == "/api/claim" || p == "/api/mode" || p == "/ws" || (p == "/api/desktop" && r.URL.Query().Get("role") == "viewer")
 		if !allowed {
 			http.Error(w, "operator route unavailable", 403)
 			return
 		}
-		control := (p == "/api/preview/status" || p == "/api/preview/video" || p == "/api/preview/rtc") || p == "/api/files" || p == "/api/file-batches" || p == "/api/file-transfers" || p == "/api/input" || p == nativeUpdateRoute || p == "/api/auth" || p == "/api/claim" || p == "/ws" || p == "/api/desktop"
+		control := (p == "/api/preview/status" || p == "/api/preview/video" || p == "/api/preview/rtc") || p == "/api/files" || p == "/api/file-batches" || p == "/api/file-transfers" || p == "/api/input" || p == "/api/clipboard" || p == nativeUpdateRoute || p == "/api/auth" || p == "/api/claim" || p == "/ws" || p == "/api/desktop"
 		if control && s.trustedPeer != nil {
 			if r.Header.Get("Sec-Fetch-Site") == "cross-site" || (r.Header.Get("Origin") != "" && !sameOrigin(r)) {
 				http.Error(w, "origin", 403)

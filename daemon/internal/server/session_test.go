@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 )
 
@@ -113,6 +114,8 @@ func TestGatewayAllowsInputAndFileTransferRoutes(t *testing.T) {
 		body   string
 		type_  string
 	}{
+		{method: http.MethodGet, path: "/api/clipboard", type_: "application/json"},
+		{method: http.MethodPost, path: "/api/clipboard", body: `{}`, type_: "application/json"},
 		{method: http.MethodPost, path: "/api/input", body: `{}`, type_: "application/json"},
 		{method: http.MethodGet, path: "/api/file-batches?id=bad", type_: "application/json"},
 		{method: http.MethodPost, path: "/api/file-batches", body: `{}`, type_: "application/json"},
@@ -132,7 +135,7 @@ func TestGatewayAllowsInputAndFileTransferRoutes(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"/api/input", "/api/file-batches", "/api/file-transfers"} {
+	for _, path := range []string{"/api/input", "/api/file-batches", "/api/file-transfers", "/api/clipboard"} {
 		r := httptest.NewRequest(http.MethodPost, "https://phone.example"+path, strings.NewReader(`{}`))
 		r.RemoteAddr = "127.0.0.1:12"
 		r.Header.Set("Origin", "https://evil.example")
@@ -152,5 +155,22 @@ func TestGatewayAllowsInputAndFileTransferRoutes(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("file transfer without session reached unexpected status %d", w.Code)
+	}
+}
+
+func TestGatewayServesIntegratedReceiverAssets(t *testing.T) {
+	assets := fstest.MapFS{
+		"phonepad-core.js":     &fstest.MapFile{Data: []byte("shared core")},
+		"receiver-controls.js": &fstest.MapFile{Data: []byte("receiver controls")},
+	}
+	s := New(staticAuth("secret"), &fakeInjector{}, assets, "https://phone.example/")
+	for path, asset := range assets {
+		r := httptest.NewRequest("GET", "https://phone.example/"+path+"?v=23", nil)
+		r.RemoteAddr = "127.0.0.1:12"
+		w := httptest.NewRecorder()
+		s.RemoteHandler("https://phone.example").ServeHTTP(w, r)
+		if w.Code != http.StatusOK || w.Body.String() != string(asset.Data) {
+			t.Errorf("asset %s: status %d", path, w.Code)
+		}
 	}
 }
