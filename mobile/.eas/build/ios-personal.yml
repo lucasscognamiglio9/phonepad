@@ -11,9 +11,14 @@ build:
           python3 -m unittest discover -s tests -p '*_test.py'
     - run:
         name: Build for a real iPhone without Apple signing credentials
-        command: bash scripts/build-ios-personal.sh
+        id: archive
+        outputs: [ipa_path]
+        command: |
+          bash scripts/build-ios-personal.sh
+          test -s "$PWD/build/Phonepad-unsigned.ipa"
+          set-output ipa_path "$PWD/build/Phonepad-unsigned.ipa"
     - eas/upload_artifact:
         name: IPA for local signing with iloader (not a TestFlight build)
         inputs:
           type: application-archive
-          path: build/Phonepad-unsigned.ipa
+          path: ${ steps.archive.ipa_path }
