@@ -58,7 +58,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
   const cleanups = [];
   const gestures = [];
   const appStateListeners = [];
-  const calls = [];
+  const calls = [], directCommands = [];
   const cancelCalls = [];
   const queue = [];
   let hookIndex = 0;
@@ -108,6 +108,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
   };
   const jsx = (type, nodeProps) => ({ type, props: nodeProps });
   const connection = {
+    send: command => { directCommands.push(command); return true; },
     get inputEpoch() { return epoch; },
     touch: (inputEpoch, contacts) => {
       const copy = contacts.map(contact => ({ ...contact }));
@@ -172,11 +173,12 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
     return [node, ...nodes(node.props?.children)];
   };
   const root = () => nodes(tree).find(node => node.type === 'View' && node.props?.onLayout);
-  const manual = () => gestures.find(value => value.kind === 'Manual');
+  const manual = () => gestures.findLast(value => value.kind === 'Manual');
   const layout = (width, height) => root().props.onLayout({ nativeEvent: { layout: { width, height } } });
   renderAgain();
   return {
     calls,
+    directCommands,
     cancelCalls,
     gestures,
     manual,
@@ -385,10 +387,30 @@ test('pinch cancellation leaves the next touch sequence usable',()=>{
  const h=render();h.rerender({preview:true});
  const down={allTouches:[point(1,20,20)],changedTouches:[point(1,20,20)]};
  h.manual().handlers.onTouchesDown(down);
- const pinch=h.gestures.find(g=>g.kind==='Pinch');
+ const pinch=h.gestures.findLast(g=>g.kind==='Pinch');
  pinch.handlers.onBegin();pinch.handlers.onUpdate({scale:2});
  h.manual().handlers.onTouchesUp(down);
  const count=h.calls.length;
  h.manual().handlers.onTouchesDown({allTouches:[point(2,30,30)],changedTouches:[point(2,30,30)]});
  assert.equal(h.calls.length,count+1);
+});
+
+test('pinch movement cancels before forwarding the frame to the host',()=>{
+ const h=render();h.rerender({preview:true});h.layout(100,70);
+ const initial=[point(1,20,30),point(2,60,30)];
+ h.manual().handlers.onTouchesDown({allTouches:initial,changedTouches:initial});
+ const before=h.calls.length,cancelled=h.cancelCalls.length;
+ h.manual().handlers.onTouchesMove({allTouches:[point(1,10,30),point(2,70,30)],changedTouches:initial});
+ assert.equal(h.calls.length,before);assert.equal(h.cancelCalls.length,cancelled+1);
+});
+
+
+test('direct touches outside the image and leaving letterboxes never commit a click',()=>{
+ const h=render();h.rerender({preview:true,mode:'direct',videoSize:{width:1600,height:900}});h.layout(100,200);
+ const frame=(id,y)=>({allTouches:[point(id,50,y)],changedTouches:[point(id,50,y)]});
+ h.manual().handlers.onTouchesDown(frame(1,10));h.manual().handlers.onTouchesUp(frame(1,10));
+ h.manual().handlers.onTouchesDown(frame(2,100));h.manual().handlers.onTouchesMove(frame(2,10));h.manual().handlers.onTouchesUp(frame(2,10));
+ assert.equal(h.directCommands.length,0);
+ h.manual().handlers.onTouchesDown(frame(3,100));h.manual().handlers.onTouchesUp(frame(3,100));
+ assert.equal(h.directCommands.filter(c=>c.a==='down').length,1);assert.equal(h.directCommands.filter(c=>c.a==='up').length,1);
 });

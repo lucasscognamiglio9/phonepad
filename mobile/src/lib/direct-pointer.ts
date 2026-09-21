@@ -26,11 +26,11 @@ export class DirectPointerSequence {
   if(!points.length){
    this.clearHold();
    if(this.pressed)this.release();
-   else if(!this.moved&&!this.held&&(this.start||this.multi))this.click(this.multi?'r':'l');
+   else if(!this.moved&&!this.held&&this.start){this.send({t:'p',dx:this.start.x,dy:this.start.y});this.click(this.multi?'r':'l');}
    this.reset();return;
   }
   if(points.length>1){
-   this.clearHold();this.release();this.multi=true;
+   this.clearHold();this.release();this.multi=true;this.start??=points[0];
    const center={x:(points[0].x+points[1].x)/2,y:(points[0].y+points[1].y)/2};
    if(this.last){const dx=Math.round((center.x-this.last.x)/256),dy=Math.round((center.y-this.last.y)/256);if(dx||dy){this.moved=true;this.send({t:'s',dx:Math.max(-1000,Math.min(1000,-dx)),dy:Math.max(-1000,Math.min(1000,-dy))});}}
    this.last=center;return;
@@ -39,8 +39,7 @@ export class DirectPointerSequence {
   const p=points[0];
   if(!this.start){
    this.start=p;
-   this.send({t:'p',dx:p.x,dy:p.y});
-   this.hold=setTimeout(()=>{this.hold=undefined;if(this.start&&!this.multi&&!this.moved){this.held=true;this.click('r');}},DIRECT_HOLD_MS);
+   this.hold=setTimeout(()=>{this.hold=undefined;if(this.start&&!this.multi&&!this.moved){this.held=true;this.send({t:'p',dx:this.start.x,dy:this.start.y});this.click('r');}},DIRECT_HOLD_MS);
    return;
   }
   const distance=p.logicalX!==undefined&&this.start.logicalX!==undefined

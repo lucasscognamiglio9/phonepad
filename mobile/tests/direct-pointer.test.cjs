@@ -23,5 +23,5 @@ test('two-finger tap is right click and scroll never also clicks right',()=>{
 test('adding a second finger and canceling never commits the pending left tap',()=>{
  const sent=[],d=new mod.DirectPointerSequence(c=>(sent.push(c),true));
  d.frame([{x:10,y:20}]);assert.equal(sent.some(c=>c.t==='b'),false);
- d.frame([{x:10,y:20},{x:40,y:20}]);d.cancel();assert.equal(sent.some(c=>c.t==='b'),false);
+ d.frame([{x:10,y:20},{x:40,y:20}]);d.cancel();assert.equal(sent.length,0,'a cancelled pinch does not move or click the host');
 });

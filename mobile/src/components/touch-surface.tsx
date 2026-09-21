@@ -105,6 +105,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
   const zoomOwns = useSharedValue(false);
+  const initialSpan = useSharedValue(0);
   const direct = useMemo(() => new DirectPointerSequence(command => inputEpoch.current === connection.inputEpoch && connection.send(command)), [connection]);
   const inputEpoch = useRef<number | null>(null);
   const inputBlocked = useRef(false);
@@ -216,7 +217,8 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       .onTouchesDown((event: GestureTouchEvent) => {
         'worklet';
         if (disabled) return;
-        if (event.allTouches.length === 1) zoomOwns.value = false;
+        if (event.allTouches.length === 1) { zoomOwns.value = false; initialSpan.value = 0; }
+        if (event.allTouches.length === 2) { const [a,b]=event.allTouches; initialSpan.value=Math.hypot(a.x-b.x,a.y-b.y); }
         if (zoomOwns.value) return;
         if (dismissKeyboard) {
           if (!keyboardConsumed.value) {
@@ -225,22 +227,30 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
           }
           return;
         }
+        const contacts = map(event.allTouches);
+        if (mode === 'direct' && contacts.length === 0) return;
         if (!sequenceActive.value) {
           sequenceGeneration.value += 1;
           sequenceActive.value = true;
-          const contacts = map(event.allTouches);
           activeContacts.value = contacts;
           scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, true, false, false);
           return;
         }
-        const contacts = map(event.allTouches);
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
       .onTouchesMove((event: GestureTouchEvent) => {
         'worklet';
         if (disabled || zoomOwns.value || dismissKeyboard || !sequenceActive.value) return;
+        if (preview && event.allTouches.length === 2 && initialSpan.value > 0) {
+          const [a,b]=event.allTouches;
+          if (previewScale.value > 1 || Math.abs(Math.hypot(a.x-b.x,a.y-b.y)/initialSpan.value - 1) >= .08) { claimZoom(); return; }
+        }
         const contacts = map(event.allTouches);
+        if (mode === 'direct' && contacts.length === 0) {
+          sequenceActive.value = false; activeContacts.value = [];
+          scheduleOnRN(sendTouchFrame, [], sequenceGeneration.value, false, false, true); return;
+        }
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
@@ -267,6 +277,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       })
       .onTouchesCancelled(() => {
         'worklet';
+        zoomOwns.value = false; initialSpan.value = 0;
         if (!sequenceActive.value) return;
         sequenceGeneration.value += 1;
         sequenceActive.value = false;
