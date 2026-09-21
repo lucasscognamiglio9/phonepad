@@ -1,8 +1,10 @@
 """Production HFR/VA sender and a real local H264 WebRTC receiver.
 
-Run only via isolated.py with PHONEPAD_LAB_GCC=1. Uses a private compositor
-and the optional private rsrtp plugin. Counts decoded buffers, not distinct
-presented frames or physical display latency. No external signaling/STUN.
+Run only via isolated.py with PHONEPAD_LAB_GCC=1. Select the sender controller
+with PHONEPAD_RTC_CONTROLLER=gcc or legacy. Uses a private compositor and the
+optional private GCC plugin only in GCC mode. Counts decoded buffers, not
+distinct presented frames or physical display latency. No external
+signaling/STUN.
 """
 
 import faulthandler
@@ -17,8 +19,10 @@ faulthandler.enable()
 root = Path(os.environ['PHONEPAD_HFR_ROOT'])
 if not str(root).startswith('/tmp/phonepad-hfr-') or str(root) not in os.environ.get('DBUS_SESSION_BUS_ADDRESS', ''):
     raise RuntimeError('Refusing to access a non-lab compositor')
-if os.environ.get('PHONEPAD_RTC_CONTROLLER') != 'gcc':
-    raise RuntimeError('This experiment requires explicit GCC selection')
+controller_name = os.environ.get('PHONEPAD_RTC_CONTROLLER', 'gcc')
+if controller_name not in ('gcc', 'legacy'):
+    raise RuntimeError('This experiment requires PHONEPAD_RTC_CONTROLLER=gcc or legacy')
+gcc_mode = controller_name == 'gcc'
 
 preview = Path(__file__).resolve().parents[2] / 'setup/preview'
 sys.path.insert(0, str(preview))
@@ -45,10 +49,16 @@ pipeline.add(receiver)
 decode = Gst.parse_bin_from_description(
     'rtph264depay ! h264parse ! ' + decoder + ' ! fakesink name=decoded sync=false async=false signal-handoffs=true', True)
 pipeline.add(decode)
-caps = Gst.Caps.from_string('application/x-rtp,media=video,encoding-name=H264,clock-rate=90000,payload=96,rtcp-fb-transport-cc=(boolean)true,extmap-3=(string)' + twcc)
+receiver_feedback = ',rtcp-fb-transport-cc=(boolean)true,extmap-3=(string)' + twcc if gcc_mode else ''
+caps = Gst.Caps.from_string(
+    'application/x-rtp,media=video,encoding-name=H264,clock-rate=90000,payload=96'
+    + receiver_feedback
+)
 receiver.emit('add-transceiver', GstWebRTC.WebRTCRTPTransceiverDirection.RECVONLY, caps)
 ready = threading.Event()
 result = {'scope': 'production HFR/VA sender and local decoded H264 receiver; no physical presentation measurement',
+          'controller': controller_name,
+          'maxFrameAgeMs': os.environ.get('PHONEPAD_MAX_FRAME_AGE_MS', '0'),
           'decoder': decoder, 'decodedBuffers': 0, 'samples': [], 'errors': []}
 
 
@@ -141,12 +151,17 @@ try:
     result['receiverConnection'] = receiver.get_property('connection-state').value_nick
     result['receiverICE'] = receiver.get_property('ice-connection-state').value_nick
     last = result['samples'][-1]
-    assert result['offerTwcc'] and result['answerTwcc'], 'TWCC negotiation missing'
+    result['freshness'] = last.get('freshness')
+    result['reportedController'] = last.get('controller')
+    assert (not gcc_mode) or (result['offerTwcc'] and result['answerTwcc']), 'TWCC negotiation missing'
     assert result['receiverConnection'] == 'connected' and result['decodedBuffers'] >= 60, 'No decoded H264 flow'
-    assert last['controller'] == 'gcc', 'GCC was not selected'
-    assert last['gcc']['encoderSetterCount'] > 0, 'GCC never adjusted the VA encoder'
-    assert last['gcc']['estimatedBitrateNotifications'] > 0, 'No estimate notification'
-    assert last['gcc']['twccEventCount'] > 0, 'No actual TWCC feedback reached GCC'
+    if gcc_mode:
+        assert last['controller'] == 'gcc', 'GCC was not selected'
+        assert last['gcc']['encoderSetterCount'] > 0, 'GCC never adjusted the VA encoder'
+        assert last['gcc']['estimatedBitrateNotifications'] > 0, 'No estimate notification'
+        assert last['gcc']['twccEventCount'] > 0, 'No actual TWCC feedback reached GCC'
+    else:
+        assert 'gcc' not in last, 'GCC diagnostics appeared in legacy mode'
     assert last['media']['geometry']['encodedWidth'] == 1280
     assert last['media']['geometry']['encodedHeight'] == 720
     backend.handle({'op': 'stop', 'id': offer['id']})
