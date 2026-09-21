@@ -56,6 +56,62 @@ class FreshnessTests(unittest.TestCase):
         snapshot = collector.snapshot()
         self.assertEqual(snapshot['counters']['missingTimestamp'], 2)
         self.assertEqual(snapshot['counters']['droppedStale'], 0)
+        self.assertEqual(snapshot['observedStages']['encoder_input'], 1)
+        self.assertEqual(snapshot['correlatedStages']['encoder_input'], 0)
+        self.assertEqual(snapshot['correlation']['unmatchedByStage']['encoder_input'], 1)
+        self.assertEqual(snapshot['samplesByStage']['encoder_input'][0]['format'], 'unknown')
+        self.assertEqual(snapshot['last']['correlation'], 'unknown')
+
+    def test_pts_rewrite_is_observed_but_not_correlated(self):
+        collector = FrameFreshness(clock_domain='fixture-clock')
+        collector.record('capture', 1_000_000_000, 1_000_100_000,
+                         format_name='video/x-raw,format=BGRA',
+                         pts_mapping='segment_to_running_time',
+                         source_pts_ns=100_000_000)
+        result = collector.record('converter_input', 1_000_100_000, 1_000_200_000,
+                                  format_name='video/x-raw,format=NV12')
+        self.assertFalse(result['matched'])
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot['observedStages']['converter_input'], 1)
+        self.assertEqual(snapshot['correlatedStages']['converter_input'], 0)
+        self.assertEqual(snapshot['correlation']['unmatchedByStage']['converter_input'], 1)
+        self.assertEqual(snapshot['samplesByStage']['capture'][0]['ptsMapping'],
+                         'segment_to_running_time')
+        self.assertEqual(snapshot['samplesByStage']['capture'][0]['sourcePtsNs'],
+                         100_000_000)
+        sample = snapshot['samplesByStage']['converter_input'][0]
+        self.assertIsNone(sample['frameId'])
+        self.assertEqual(sample['format'], 'video/x-raw,format=NV12')
+        self.assertEqual(sample['ptsMapping'], 'unknown')
+        self.assertNotIn('latencyMs', sample)
+        self.assertEqual(snapshot['last']['correlation'], 'unknown')
+
+    def test_repeated_payload_pts_does_not_invent_fifo_correlation(self):
+        collector = FrameFreshness(clock_domain='fixture-clock')
+        collector.record('capture', 1_000_000_000, 1_000_100_000)
+        collector.record('encoded', 1_000_000_000, 1_001_100_000)
+        first = collector.record('packetized', 1_000_000_000, 1_001_200_000)
+        second = collector.record('packetized', 1_000_000_000, 1_001_300_000)
+        self.assertTrue(first['matched'])
+        self.assertFalse(second['matched'])
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot['observedStages']['packetized'], 2)
+        self.assertEqual(snapshot['correlatedStages']['packetized'], 1)
+        self.assertEqual(snapshot['correlation']['unmatchedByStage']['packetized'], 1)
+        self.assertEqual(snapshot['counters']['unmatchedStage'], 1)
+        self.assertFalse(snapshot['samplesByStage']['packetized'][1]['matched'])
+        self.assertEqual(snapshot['samplesByStage']['packetized'][1]['correlation'], 'unknown')
+
+    def test_duplicate_capture_pts_is_ambiguous(self):
+        collector = FrameFreshness(clock_domain='fixture-clock')
+        collector.record('capture', 1_000_000_000, 1_000_100_000)
+        collector.record('capture', 1_000_000_000, 1_000_200_000)
+        result = collector.record('encoder_input', 1_000_000_000, 1_001_000_000)
+        self.assertFalse(result['matched'])
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot['correlatedStages']['encoder_input'], 0)
+        self.assertEqual(snapshot['counters']['ambiguousCorrelation'], 1)
+        self.assertEqual(snapshot['correlation']['unmatchedByStage']['encoder_input'], 1)
 
     def test_invalid_stage_does_not_get_silently_accepted(self):
         collector = FrameFreshness()

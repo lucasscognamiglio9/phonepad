@@ -222,19 +222,44 @@ class Session:
                 pass
             return time.monotonic_ns()
 
-        def buffer_timestamp_ns(buffer):
+        def buffer_timestamp_ns(pad, buffer):
             if buffer is None:
-                return None
+                return None, None, 'unknown'
             try:
                 pts = int(buffer.pts)
                 if pts < 0 or pts >= (1 << 63):
-                    return None
+                    return None, None, 'unknown'
+                source_pts = pts
                 base_time = int(self.pipeline.get_base_time())
                 if base_time <= 0:
-                    return None
-                return base_time + pts
+                    return None, source_pts, 'unknown'
+                mapping = 'base_time_plus_pts'
+                segment_event = pad.get_sticky_event(Gst.EventType.SEGMENT, 0)
+                if segment_event is not None:
+                    segment = segment_event.parse_segment()
+                    if segment.format != Gst.Format.TIME:
+                        return None, source_pts, 'unknown_non_time_segment'
+                    running_time = segment.to_running_time(Gst.Format.TIME, pts)
+                    if running_time == Gst.CLOCK_TIME_NONE:
+                        return None, source_pts, 'unknown_segment_range'
+                    pts = int(running_time)
+                    mapping = 'segment_to_running_time'
+                return base_time + pts, source_pts, mapping
             except (AttributeError, TypeError, ValueError, RuntimeError):
-                return None
+                return None, None, 'unknown'
+
+        def buffer_format_name(pad):
+            """Return caps observed at this probe, or explicit unknown.
+
+            A pad's negotiated caps describe the format at that stage.  Do
+            not infer a format from an earlier pad when caps are unavailable;
+            that would make the stage sample look more certain than it is.
+            """
+            try:
+                caps = pad.get_current_caps()
+                return caps.to_string() if caps is not None else 'unknown'
+            except (AttributeError, TypeError, RuntimeError):
+                return 'unknown'
 
         def observe(pad, info, stage):
             buffer = info.get_buffer()
@@ -243,12 +268,16 @@ class Session:
             key = {'capture': 'source', 'encoder_input': 'input', 'encoded': 'encoded'}.get(stage)
             if key is not None:
                 self.counts[key] += 1
+            timestamp_ns, source_pts_ns, pts_mapping = buffer_timestamp_ns(pad, buffer)
             result = self.freshness.record(
                 stage,
-                buffer_timestamp_ns(buffer),
+                timestamp_ns,
                 clock_time_ns(),
                 descriptor=memory_descriptor(buffer),
                 queue_depth=queue_depth(),
+                format_name=buffer_format_name(pad),
+                pts_mapping=pts_mapping,
+                source_pts_ns=source_pts_ns,
             )
             if stage == 'encoded':
                 encode_ms = result.get('latencyMs', {}).get('encoderInputToEncoded')
