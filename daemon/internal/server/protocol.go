@@ -46,6 +46,13 @@ type Msg struct {
 	Text string   `json:"text"`
 	Key  string   `json:"key"`
 	Mods []string `json:"mods"`
+	// operationId/phase are additive protocol-v2 fields for receipt-aware
+	// special/combo actions. Legacy clients omit both and keep admission-only
+	// behavior. A repeat carries the original operationId and key payload; a
+	// cancel carries only the operationId and never reaches the injector.
+	OperationID    string `json:"operationId,omitempty"`
+	Phase          string `json:"phase,omitempty"`
+	ActionSequence uint64 `json:"actionSequence,omitempty"`
 
 	// g: nombre del gesto discreto de 3 dedos ("overview"/"ws-left"/"ws-right").
 	Name string `json:"name"`
@@ -57,6 +64,17 @@ type Msg struct {
 	// with an explicitly empty contact snapshot; the input layer then reports
 	// MT_TOOL_PALM before releasing the slots.
 	Cancel bool `json:"cancel,omitempty"`
+}
+
+type actionReceipt struct {
+	Type         string `json:"t"`
+	OperationID  string `json:"operationId"`
+	Phase        string `json:"phase"`
+	State        string `json:"state"`
+	RepeatCount  int    `json:"repeatCount"`
+	Replayed     bool   `json:"replayed,omitempty"`
+	Detail       string `json:"detail,omitempty"`
+	SessionEpoch string `json:"sessionEpoch,omitempty"`
 }
 
 // Parse decodifica un text frame JSON a un Msg tipado.
@@ -114,14 +132,29 @@ func validMsg(m Msg) bool {
 	case "s":
 		return absBound(m.Dx, maxScroll) && absBound(m.Dy, maxScroll)
 	case "k":
-		if m.Action != "text" && m.Action != "special" && m.Action != "combo" {
+		if m.Action != "text" && m.Action != "special" && m.Action != "combo" && m.Action != "cancel" {
 			return false
+		}
+		if !validOperationID(m.OperationID) || !validPhase(m.Phase) {
+			return false
+		}
+		if m.Action == "cancel" {
+			return m.OperationID != "" && (m.Phase == "" || m.Phase == "cancel") && m.ActionSequence == 0 && m.Text == "" && m.Key == "" && len(m.Mods) == 0
 		}
 		if !utf8.ValidString(m.Text) || !utf8.ValidString(m.Key) || len(m.Text) > maxTextBytes || len(m.Key) > maxNameBytes {
 			return false
 		}
 		if m.Action == "text" {
-			return true // no-op válido; la PWA normalmente no lo emite
+			return m.OperationID == "" && m.Phase == "" && m.ActionSequence == 0 // literal blocks use /api/input
+		}
+		if m.Phase == "cancel" || (m.Phase != "" && m.OperationID == "") {
+			return false
+		}
+		if m.Phase == "repeat" && m.ActionSequence == 0 {
+			return false
+		}
+		if m.Phase != "repeat" && m.ActionSequence > 1 {
+			return false
 		}
 		if m.Action == "special" {
 			return validSpecial(m.Key)
@@ -202,6 +235,25 @@ func validComboKey(k string) bool {
 		return true
 	}
 	return utf8.RuneCountInString(k) == 1
+}
+
+func validOperationID(id string) bool {
+	if id == "" {
+		return true
+	}
+	if len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
+}
+
+func validPhase(phase string) bool {
+	return phase == "" || phase == "press" || phase == "repeat" || phase == "cancel"
 }
 
 // Respuestas server → cliente (SPEC §3). Se serializan una sola vez como

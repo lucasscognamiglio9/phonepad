@@ -453,39 +453,86 @@ func planText(s string) []textOp {
 }
 
 func (d *uinputDevice) Special(key string) {
+	_ = d.SpecialAction(context.Background(), key)
+}
+
+// SpecialAction is the receipt-aware path. A successful uinput call means the
+// virtual device accepted the complete key press; an error remains uncertain
+// because the library may have written only part of the event sequence.
+func (d *uinputDevice) SpecialAction(ctx context.Context, key string) ActionResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	code, ok := specialKeys[key]
 	if !ok {
-		return // tecla desconocida: se ignora (forward-compat)
+		return ActionResult{State: "rejected", Detail: "unknown_special"}
 	}
-	d.keyPress(code)
+	return d.keyPressResult(code)
 }
 
 func (d *uinputDevice) Combo(mods []string, key string) {
+	_ = d.ComboAction(context.Background(), mods, key)
+}
+
+// ComboAction verifies every modifier and the base key before emitting the
+// atomic combo. Unknown input is rejected instead of being silently reduced to
+// a partial shortcut. The caller holds no device state across the call.
+func (d *uinputDevice) ComboAction(ctx context.Context, mods []string, key string) ActionResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.comboLocked(mods, key)
+	return d.comboResultLocked(ctx, mods, key)
 }
 
 func (d *uinputDevice) comboLocked(mods []string, key string) {
+	_ = d.comboResultLocked(context.Background(), mods, key)
+}
+
+func (d *uinputDevice) comboResultLocked(ctx context.Context, mods []string, key string) ActionResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
+	}
 	var held []int
 	for _, m := range mods {
 		if code, ok := modKeys[m]; ok {
-			d.keyDown(code)
 			held = append(held, code)
+			if down := d.keyDownResult(code); down.State != "executed" {
+				for i := len(held) - 1; i >= 0; i-- {
+					d.keyUp(held[i])
+				}
+				return down
+			}
+		} else {
+			for i := len(held) - 1; i >= 0; i-- {
+				d.keyUp(held[i])
+			}
+			return ActionResult{State: "rejected", Detail: "unknown_modifier"}
 		}
 	}
 	// key puede ser una tecla especial (ej. "Tab" en Alt+Tab) o un solo char.
 	pressed := false
+	result := ActionResult{State: "rejected", Detail: "unknown_combo_key"}
 	if code, ok := specialKeys[key]; ok {
-		d.keyPress(code)
+		result = d.keyPressResult(code)
 		pressed = true
 	} else if r := []rune(key); len(r) == 1 {
 		// En un combo emitimos solo el keycode base, sin el Shift que normalmente
 		// agregaría una mayúscula: los mods del combo son los que manda el cliente.
 		if code, _, ok := runeToKey(unicode.ToLower(r[0])); ok {
-			d.keyPress(code)
+			result = d.keyPressResult(code)
 			pressed = true
 		}
 	}
@@ -493,11 +540,15 @@ func (d *uinputDevice) comboLocked(mods []string, key string) {
 	// emitir, así que el combo no hace nada. Dejamos rastro — si no, falla mudo.
 	if !pressed {
 		log.Printf("combo: tecla %q no resoluble (mods=%v); no se inyectó nada", key, mods)
+		result = ActionResult{State: "rejected", Detail: "unknown_combo_key"}
 	}
 	// Release de mods en orden inverso.
 	for i := len(held) - 1; i >= 0; i-- {
-		d.keyUp(held[i])
+		if up := d.keyUpResult(held[i]); up.State != "executed" && result.State == "executed" {
+			result = ActionResult{State: "uncertain", Detail: "uinput_modifier_release_interrupted"}
+		}
 	}
+	return result
 }
 
 // Gesture traduce un gesto discreto de 3 dedos a una combinación de teclas y la
@@ -540,38 +591,54 @@ func (d *uinputDevice) Close() {
 // keyDown/keyUp mantienen el inventario de teclas que podrían quedar abajo si
 // la conexión se corta entre el down y el up. Deben llamarse con d.mu tomado.
 func (d *uinputDevice) keyDown(code int) {
+	_ = d.keyDownResult(code)
+}
+
+func (d *uinputDevice) keyDownResult(code int) ActionResult {
 	if d.kbd == nil {
-		return
+		return ActionResult{State: "rejected", Detail: "keyboard_unavailable"}
 	}
 	if err := d.kbd.KeyDown(code); err != nil {
 		log.Printf("uinput key down %d: %v", code, err)
 		d.rememberKeyUncertain(code)
-		return
+		return ActionResult{State: "uncertain", Detail: "uinput_keydown_interrupted"}
 	}
 	d.rememberKeyUncertain(code)
+	return ActionResult{State: "executed", Detail: "uinput_keydown_complete"}
 }
 
 func (d *uinputDevice) keyUp(code int) {
+	_ = d.keyUpResult(code)
+}
+
+func (d *uinputDevice) keyUpResult(code int) ActionResult {
 	if d.kbd == nil {
 		delete(d.held, code)
-		return
+		return ActionResult{State: "executed", Detail: "keyboard_unavailable"}
 	}
 	if err := d.kbd.KeyUp(code); err != nil {
 		log.Printf("uinput key up %d: %v", code, err)
 		d.rememberKeyUncertain(code)
-		return
+		return ActionResult{State: "uncertain", Detail: "uinput_keyup_interrupted"}
 	}
 	delete(d.held, code)
+	return ActionResult{State: "executed", Detail: "uinput_keyup_complete"}
 }
 
 func (d *uinputDevice) keyPress(code int) {
+	_ = d.keyPressResult(code)
+}
+
+func (d *uinputDevice) keyPressResult(code int) ActionResult {
 	if d.kbd == nil {
-		return
+		return ActionResult{State: "rejected", Detail: "keyboard_unavailable"}
 	}
 	if err := d.kbd.KeyPress(code); err != nil {
 		log.Printf("uinput key press %d: %v", code, err)
 		d.rememberKeyUncertain(code)
+		return ActionResult{State: "uncertain", Detail: "uinput_keypress_interrupted"}
 	}
+	return ActionResult{State: "executed", Detail: "uinput_keypress_complete"}
 }
 
 // rememberKeyUncertain records a key whenever a vendor call cannot confirm

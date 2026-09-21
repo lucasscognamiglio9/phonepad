@@ -26,6 +26,7 @@ type asyncOp struct {
 	done    chan struct{}
 	ctx     context.Context
 	literal chan LiteralResult
+	action  chan ActionResult
 	target  string
 }
 
@@ -43,6 +44,8 @@ const (
 	opClose
 	opLiteral
 	opLiteralFocus
+	opSpecialAction
+	opComboAction
 )
 
 // asyncText es un serializador de todas las operaciones del Injector. El nombre
@@ -87,6 +90,9 @@ func (a *asyncText) loop() {
 			if op.literal != nil {
 				op.literal <- LiteralResult{State: "rejected", Detail: "input_context_cancelled"}
 			}
+			if op.action != nil {
+				op.action <- ActionResult{State: "rejected", Detail: "input_context_cancelled"}
+			}
 			if op.done != nil {
 				close(op.done)
 			}
@@ -117,6 +123,27 @@ func (a *asyncText) loop() {
 			a.inner.Special(op.key)
 		case opCombo:
 			a.inner.Combo(op.mods, op.key)
+		case opSpecialAction, opComboAction:
+			result := ActionResult{State: "rejected", Detail: "action_executor_unavailable"}
+			if op.ctx == nil || op.ctx.Err() == nil {
+				if executor, ok := a.inner.(ActionExecutor); ok {
+					if op.kind == opSpecialAction {
+						result = executor.SpecialAction(op.ctx, op.key)
+					} else {
+						result = executor.ComboAction(op.ctx, op.mods, op.key)
+					}
+				} else {
+					if op.kind == opSpecialAction {
+						a.inner.Special(op.key)
+					} else {
+						a.inner.Combo(op.mods, op.key)
+					}
+					result = ActionResult{State: "admitted", Detail: "provider_execution_unobserved"}
+				}
+			} else {
+				result = ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
+			}
+			op.action <- result
 		case opGesture:
 			a.inner.Gesture(op.name)
 		case opTouch:
@@ -208,6 +235,41 @@ func (a *asyncText) Text(s string)      { a.submit(asyncOp{kind: opText, text: s
 func (a *asyncText) Special(key string) { a.submit(asyncOp{kind: opSpecial, key: key}) }
 func (a *asyncText) Combo(mods []string, key string) {
 	a.submit(asyncOp{kind: opCombo, mods: append([]string(nil), mods...), key: key})
+}
+
+// SpecialAction and ComboAction are the receipt-aware variants used by the
+// server's operation protocol. They share the same FIFO as legacy void
+// actions, so a receipt cannot overtake a preceding text paste or touch edge.
+func (a *asyncText) SpecialAction(ctx context.Context, key string) ActionResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result := make(chan ActionResult, 1)
+	if !a.submit(asyncOp{kind: opSpecialAction, key: key, ctx: ctx, action: result}) {
+		return ActionResult{State: "rejected", Detail: "injector_closed"}
+	}
+	select {
+	case receipt := <-result:
+		return receipt
+	case <-ctx.Done():
+		return ActionResult{State: "uncertain", Detail: "dispatch_wait_interrupted"}
+	}
+}
+
+func (a *asyncText) ComboAction(ctx context.Context, mods []string, key string) ActionResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result := make(chan ActionResult, 1)
+	if !a.submit(asyncOp{kind: opComboAction, mods: append([]string(nil), mods...), key: key, ctx: ctx, action: result}) {
+		return ActionResult{State: "rejected", Detail: "injector_closed"}
+	}
+	select {
+	case receipt := <-result:
+		return receipt
+	case <-ctx.Done():
+		return ActionResult{State: "uncertain", Detail: "dispatch_wait_interrupted"}
+	}
 }
 func (a *asyncText) Gesture(name string) { a.submit(asyncOp{kind: opGesture, name: name}) }
 func (a *asyncText) Touch(contacts []Contact) {

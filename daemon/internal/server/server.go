@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -63,6 +64,7 @@ type Server struct {
 	capabilityRevision   uint64
 	permissionRevision   uint64
 	inputResetIncomplete bool
+	actionOps            map[string]actionOperation
 	media                mediaObservation
 	permissions          Permissions
 	readTimeout          time.Duration // 0 uses defaultWSReadTimeout; app ping keeps idle sessions alive
@@ -85,6 +87,21 @@ type Server struct {
 
 	demo      bool
 	devInject bool // dev: inyectar el flag dev en index.html y no cachear
+}
+
+const maxActionOperations = 128
+
+type actionOperation struct {
+	sessionEpoch string
+	action       string
+	key          string
+	mods         []string
+	active       bool
+	state        string
+	repeatCount  int
+	nextSequence uint64
+	cancelled    bool
+	receipts     map[uint64]actionReceipt
 }
 
 const (
@@ -121,6 +138,7 @@ func New(auth Authenticator, inj input.Injector, webFS fs.FS, pairURL string, op
 		lifecycleCtx:    lifecycleCtx,
 		lifecycleCancel: lifecycleCancel,
 		lifecycleDone:   make(chan struct{}),
+		actionOps:       make(map[string]actionOperation),
 	}
 	for _, o := range opts {
 		o(s)
@@ -331,6 +349,7 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64,
 	s.gen++
 	s.currentProtocol = protocol
 	s.sessionEpoch = epoch
+	s.actionOps = make(map[string]actionOperation)
 	s.capabilityRevision++
 	s.newInputLease()
 	gen := s.gen
@@ -482,20 +501,31 @@ func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uin
 			return
 		}
 		if inputMessage(m) {
+			// A cancel is a local admission record that stops future repeats. It
+			// remains allowed after input permission is revoked so a UI release
+			// cannot leave an operation eligible for late work.
+			cancelAction := m.Type == "k" && m.Action == "cancel" && m.OperationID != ""
 			if s.currentProtocol == protocolVersion && (s.sessionEpoch == "" || m.SessionEpoch != s.sessionEpoch) {
 				s.mu.Unlock()
 				s.rejectInput(c, "stale_session_epoch")
 				return
 			}
-			permission, allowed := s.permissionLocked(mutationScopeInput)
-			if !allowed {
-				code := permissionRejectionCode(permission, "input_unavailable")
-				s.mu.Unlock()
-				s.rejectInput(c, code)
-				return
+			if !cancelAction {
+				permission, allowed := s.permissionLocked(mutationScopeInput)
+				if !allowed {
+					code := permissionRejectionCode(permission, "input_unavailable")
+					s.mu.Unlock()
+					s.rejectInput(c, code)
+					return
+				}
 			}
 			permit := mutationPermit{scope: mutationScopeInput, revision: s.permissionRevision, generation: s.gen, sessionEpoch: s.sessionEpoch}
 			s.mu.Unlock()
+			if m.Type == "k" && m.OperationID != "" && (m.Action == "special" || m.Action == "combo" || m.Action == "cancel") {
+				receipt := s.routeKeyOperation(ctx, permit, m)
+				s.writeActionReceipt(ctx, c, receipt)
+				return
+			}
 			if err := s.runLifecycleMutation(permit, func() error {
 				s.routeInjector(m)
 				return nil
@@ -509,6 +539,190 @@ func (s *Server) routeGeneration(ctx context.Context, c *websocket.Conn, gen uin
 		return
 	}
 	s.routeInjector(m)
+}
+
+// routeKeyOperation gives protocol-v2 key actions an idempotent, bounded
+// receipt. A legacy action without operationId keeps the old admission-only
+// behavior and is routed by routeInjector above. Repeat never creates a new
+// operation, and cancel only stops future repeats: it cannot claim that a key
+// already accepted by a provider was undone.
+func (s *Server) routeKeyOperation(ctx context.Context, permit mutationPermit, m Msg) actionReceipt {
+	phase := m.Phase
+	if phase == "" {
+		phase = "press"
+	}
+	if m.Action == "cancel" {
+		s.mu.Lock()
+		op, ok := s.actionOps[m.OperationID]
+		if !ok || op.sessionEpoch != permit.sessionEpoch {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "cancel", State: "rejected", Detail: "unknown_operation", SessionEpoch: permit.sessionEpoch}
+		}
+		if op.cancelled {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "cancel", State: "cancelled", RepeatCount: op.repeatCount, Replayed: true, SessionEpoch: permit.sessionEpoch}
+		}
+		detail := ""
+		if op.state == "uncertain" {
+			detail = "repeat_stopped_after_uncertain"
+		}
+		op.active = false
+		op.cancelled = true
+		op.state = "cancelled"
+		s.actionOps[m.OperationID] = op
+		s.mu.Unlock()
+		return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "cancel", State: "cancelled", RepeatCount: op.repeatCount, Detail: detail, SessionEpoch: permit.sessionEpoch}
+	}
+
+	s.mu.Lock()
+	if s.actionOps == nil {
+		s.actionOps = make(map[string]actionOperation)
+	}
+	op, exists := s.actionOps[m.OperationID]
+	if exists {
+		if op.sessionEpoch != permit.sessionEpoch || op.action != m.Action || op.key != m.Key || !sameStrings(op.mods, m.Mods) {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: phase, State: "rejected", Detail: "operation_conflict", SessionEpoch: permit.sessionEpoch}
+		}
+		if phase == "press" {
+			if m.ActionSequence > 1 {
+				s.mu.Unlock()
+				return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "press", State: "rejected", Detail: "sequence_conflict", SessionEpoch: permit.sessionEpoch}
+			}
+			receipt, found := op.receipts[1]
+			if !found {
+				state := op.state
+				if state == "" || state == "pending" {
+					state = "uncertain"
+				}
+				receipt = actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "press", State: state, RepeatCount: op.repeatCount, SessionEpoch: permit.sessionEpoch}
+			}
+			receipt.Replayed = true
+			s.mu.Unlock()
+			return receipt
+		}
+		if !op.active {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "repeat", State: "rejected", RepeatCount: op.repeatCount, Detail: "operation_cancelled", SessionEpoch: permit.sessionEpoch}
+		}
+		if m.ActionSequence < op.nextSequence {
+			receipt, found := op.receipts[m.ActionSequence]
+			if found {
+				receipt.Replayed = true
+				s.mu.Unlock()
+				return receipt
+			}
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "repeat", State: "rejected", RepeatCount: op.repeatCount, Detail: "sequence_unknown", SessionEpoch: permit.sessionEpoch}
+		}
+		if m.ActionSequence > op.nextSequence {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "repeat", State: "rejected", RepeatCount: op.repeatCount, Detail: "sequence_gap", SessionEpoch: permit.sessionEpoch}
+		}
+		if op.repeatCount >= maxActionOperations {
+			op.active = false
+			op.state = "rejected"
+			s.actionOps[m.OperationID] = op
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "repeat", State: "rejected", RepeatCount: op.repeatCount, Detail: "repeat_limit", SessionEpoch: permit.sessionEpoch}
+		}
+		op.repeatCount++
+		op.nextSequence++
+		s.actionOps[m.OperationID] = op
+	} else {
+		if phase != "press" {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: phase, State: "rejected", Detail: "unknown_operation", SessionEpoch: permit.sessionEpoch}
+		}
+		if len(s.actionOps) >= maxActionOperations {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "press", State: "rejected", Detail: "operation_capacity", SessionEpoch: permit.sessionEpoch}
+		}
+		if m.ActionSequence > 1 {
+			s.mu.Unlock()
+			return actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: "press", State: "rejected", Detail: "sequence_conflict", SessionEpoch: permit.sessionEpoch}
+		}
+		op = actionOperation{sessionEpoch: permit.sessionEpoch, action: m.Action, key: m.Key, mods: append([]string(nil), m.Mods...), active: true, state: "pending", nextSequence: 2, receipts: make(map[uint64]actionReceipt)}
+		s.actionOps[m.OperationID] = op
+	}
+	s.mu.Unlock()
+
+	resultState, detail := s.executeKeyAction(ctx, permit, m)
+	s.mu.Lock()
+	op = s.actionOps[m.OperationID]
+	if resultState == "executed" || resultState == "admitted" {
+		op.state = resultState
+	} else {
+		op.state = resultState
+		op.active = false
+	}
+	s.actionOps[m.OperationID] = op
+	repeatCount := op.repeatCount
+	sequence := m.ActionSequence
+	if sequence == 0 {
+		sequence = 1
+	}
+	receipt := actionReceipt{Type: "receipt", OperationID: m.OperationID, Phase: phase, State: resultState, RepeatCount: repeatCount, Detail: detail, SessionEpoch: permit.sessionEpoch}
+	if op.receipts == nil {
+		op.receipts = make(map[uint64]actionReceipt)
+	}
+	op.receipts[sequence] = receipt
+	s.actionOps[m.OperationID] = op
+	s.mu.Unlock()
+	return receipt
+}
+
+func (s *Server) executeKeyAction(ctx context.Context, permit mutationPermit, m Msg) (string, string) {
+	var result input.ActionResult
+	err := s.runLifecycleMutation(permit, func() error {
+		actionCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if executor, ok := s.inj.(input.ActionExecutor); ok {
+			if m.Action == "special" {
+				result = executor.SpecialAction(actionCtx, m.Key)
+			} else {
+				result = executor.ComboAction(actionCtx, m.Mods, m.Key)
+			}
+		} else {
+			s.routeInjector(m)
+			result = input.ActionResult{State: "admitted", Detail: "provider_execution_unobserved"}
+		}
+		return nil
+	})
+	if err != nil {
+		return "rejected", "input_permission_changed"
+	}
+	if result.State != "executed" && result.State != "admitted" && result.State != "rejected" && result.State != "uncertain" {
+		return "uncertain", "invalid_provider_receipt"
+	}
+	return result.State, result.Detail
+}
+
+func (s *Server) writeActionReceipt(ctx context.Context, c *websocket.Conn, receipt actionReceipt) {
+	if c == nil {
+		return
+	}
+	data, err := json.Marshal(receipt)
+	if err != nil {
+		return
+	}
+	s.capabilitySendMu.Lock()
+	defer s.capabilitySendMu.Unlock()
+	if err := c.Write(ctx, websocket.MessageText, data); err != nil {
+		c.CloseNow()
+	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) routeInjector(m Msg) {

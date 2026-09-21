@@ -101,6 +101,27 @@ type LiteralResult struct {
 	Target string `json:"target,omitempty"`
 }
 
+// ActionResult reports the strongest result that the native provider can
+// establish for one special key or combo. "executed" means the provider
+// completed its call, "rejected" means it did not attempt the action, and
+// "uncertain" means a provider error may have happened after part of the
+// event reached the device. An Injector that does not implement
+// ActionExecutor can still accept legacy actions, but the server must report
+// those as admission only rather than pretending to observe the key.
+type ActionResult struct {
+	State  string `json:"state"`
+	Detail string `json:"detail"`
+}
+
+// ActionExecutor is optional for source compatibility with older providers.
+// Calls run in the injector's serialized FIFO when the provider is wrapped by
+// NewAsyncText. The context bounds waiting for the provider and must not be
+// interpreted as proof that a started native call had no effect.
+type ActionExecutor interface {
+	SpecialAction(context.Context, string) ActionResult
+	ComboAction(context.Context, []string, string) ActionResult
+}
+
 type LiteralInjector interface {
 	LiteralText(context.Context, string, string) LiteralResult
 	LiteralFocus(context.Context) LiteralResult
