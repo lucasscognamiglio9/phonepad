@@ -1,3 +1,4 @@
+import { Buffer } from 'buffer';
 import { File, Paths } from 'expo-file-system';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
@@ -8,7 +9,7 @@ export function parseControlPreferences(value: unknown): ControlPreferences {
  return { mode: v?.mode === 'direct' ? 'direct' : 'trackpad', gain: typeof v?.gain === 'number' && Number.isFinite(v.gain) ? Math.min(2, Math.max(.5, v.gain)) : 1 };
 }
 function settingsFile(origin: string, slot: string) {
- return new File(Paths.document, `.phonepad-controls-${bytesToHex(sha256(new TextEncoder().encode(origin)))}-${slot}.json`);
+ return new File(Paths.document, `.phonepad-controls-${bytesToHex(sha256(Buffer.from(origin, 'utf8')))}-${slot}.json`);
 }
 function journal(origin: string) {
  return ['a','b'].flatMap(slot => {

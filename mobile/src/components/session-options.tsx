@@ -8,7 +8,7 @@ export function SessionOptions({ visible, close, preferences, change, direct, cl
  const insets = useSafeAreaInsets();
  const button = (label: string, onPress: () => void, disabled = false, selected = false) => <Pressable key={label} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, selected }} disabled={disabled} onPress={onPress} style={[styles.button, { opacity: disabled ? .4 : 1, backgroundColor: selected ? '#254357' : '#242830' }]}><Text style={styles.text}>{label}</Text></Pressable>;
  return <Modal visible={visible} presentationStyle="pageSheet" animationType="slide" supportedOrientations={['portrait','landscape']} onRequestClose={close}>
-  <ScrollView contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, paddingHorizontal: 20, gap: 12, backgroundColor: '#090b0e', flexGrow: 1 }} accessibilityViewIsModal>
+  <ScrollView contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 20, paddingLeft: insets.left + 20, paddingRight: insets.right + 20, gap: 12, backgroundColor: '#090b0e', flexGrow: 1 }} accessibilityViewIsModal>
    <Text accessibilityRole="header" style={[styles.text, {fontSize:24}]}>Controles de sesión</Text>
    {button('Trackpad', () => change({...preferences,mode:'trackpad'}),false,preferences.mode==='trackpad')}
    {button('Directo', () => change({...preferences,mode:'direct'}),!direct,preferences.mode==='direct')}
