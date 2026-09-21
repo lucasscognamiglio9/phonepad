@@ -393,7 +393,11 @@ class FrameFreshness:
             return frame in self._without_pts
         return frame in self._by_pts.get(pts, ())
 
-    def snapshot(self):
+    def snapshot(self, sample_limit=8):
+        try:
+            sample_limit = max(1, min(self.limit, int(sample_limit)))
+        except (TypeError, ValueError):
+            sample_limit = 8
         stage_counts = {stage: self._counters.get(stage, 0) for stage in _STAGES}
         correlated_counts = {stage: self._correlated.get(stage, 0) for stage in _STAGES}
         unmatched_counts = {
@@ -422,8 +426,10 @@ class FrameFreshness:
                 "unknownWhenPtsMissingOrRewritten": True,
             },
             "samplesByStage": {
-                stage: list(samples) for stage, samples in self._samples.items()
+                stage: list(samples)[-sample_limit:]
+                for stage, samples in self._samples.items()
             },
+            "sampleLimit": sample_limit,
             "counters": {
                 "missingTimestamp": self._counters.get("missingTimestamp", 0),
                 "unmatchedStage": self._counters.get("unmatchedStage", 0),

@@ -118,6 +118,19 @@ class FreshnessTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             collector.record('network_arrival', 1, 2)
 
+    def test_snapshot_limits_samples_but_preserves_window_counters(self):
+        collector = FrameFreshness(clock_domain='fixture-clock')
+        for index in range(12):
+            self.record_frame(collector, pts=1_000_000_000 + index * 10_000_000)
+
+        snapshot = collector.snapshot()
+        self.assertEqual(snapshot['sampleLimit'], 8)
+        for samples in snapshot['samplesByStage'].values():
+            self.assertEqual(len(samples), 8)
+        self.assertEqual(snapshot['observedStages']['capture'], 12)
+        self.assertEqual(snapshot['correlatedStages']['packetized'], 12)
+        self.assertEqual(snapshot['latencyMs']['captureToPacketized']['count'], 12)
+
 
 if __name__ == '__main__':
     unittest.main()
