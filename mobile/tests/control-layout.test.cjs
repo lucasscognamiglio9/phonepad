@@ -146,6 +146,8 @@ function harness(options = {}) {
   };
   const keyboardLayout = {};
   vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout });
+  const pointerGeometry = {};
+  vm.runInNewContext(compile('lib/pointer-geometry.ts'), { exports: pointerGeometry, Number, Math });
   const modules = {
     react,
     'react/jsx-runtime': {
@@ -183,9 +185,11 @@ function harness(options = {}) {
     '@livekit/react-native-webrtc': { RTCView: 'RTCView' },
     '../components/glass-button': { GlassButton: 'GlassButton' },
     '../components/landscape-controls': { LandscapeControls: 'LandscapeControls' },
+    '../components/help-sheet': { HelpSheet: 'HelpSheet' },
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
     '../components/native-keyboard': { NativeKeyboard: 'NativeKeyboard' },
     '../components/keyboard-layout': keyboardLayout,
+    '../lib/pointer-geometry': pointerGeometry,
     '../lib/attachments': {
       chooseAttachments: () => options.choicePromise ?? Promise.resolve(options.attachments ?? (options.attachment ? [options.attachment] : [])),
       attachmentBatch: items => ({ id: 'fixture-batch', items }),
@@ -331,6 +335,20 @@ test('portrait keeps the composer and contains the preview without safe-area pad
     assert.equal(style.paddingTop, undefined, 'video ancestors must not add top inset padding');
     assert.equal(style.paddingBottom, undefined, 'video ancestors must not add bottom inset padding');
   }
+});
+
+test('portrait help opens above the stable control tree without remounting preview or keyboard', () => {
+  const h = harness();
+  h.reportConnection('connected');
+  const nativePath = h.findPath('NativeKeyboard');
+  h.find('GlassButton', 'Ayuda').props.onPress();
+  h.render();
+  assert.equal(h.find('HelpSheet').props.visible, true);
+  assert.deepEqual(h.findPath('NativeKeyboard'), nativePath);
+  assert.equal(h.startVideoCount(), 0);
+  h.find('HelpSheet').props.close();
+  h.render();
+  assert.equal(h.find('HelpSheet').props.visible, false);
 });
 
 test('landscape preview hides portrait controls, and rail show/hide does not restart video or send input', () => {

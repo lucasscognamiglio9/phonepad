@@ -10,10 +10,12 @@ import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
 import { useAttachmentTransfer } from '../components/attachment-transfer';
 import { NativeKeyboard } from '../components/native-keyboard';
+import { HelpSheet } from '../components/help-sheet';
 import { Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
 import { UpdateLifecycle } from '../lib/updates';
 import { PreviewLifecycle } from '../lib/preview-lifecycle';
+import { selectPointerGeometry } from '../lib/pointer-geometry';
 import { keyboardOverlap, keyboardWindowResize } from '../components/keyboard-layout';
 
 const messages: Record<ConnectionState, string> = {
@@ -28,6 +30,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [preview, setPreview] = useState(false), [keyboard, setKeyboard] = useState(false);
+  const [help, setHelp] = useState(false);
   const preKeyboardHeight = useRef(height);
   const previousKeyboard = useRef(keyboard);
   const [pendingText, setPendingText] = useState(false);
@@ -38,6 +41,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
     (signal, show, failed) => startVideo(origin, signal, show, failed), setStream, setVideoError,
   ), [origin]);
   const connection = useMemo(() => new Connection(origin, setState, () => refreshCapabilities(n => n + 1)), [origin]);
+  const pointerGeometry = useMemo(() => selectPointerGeometry(connection.capabilities), [connection, connection.capabilities]);
   const inputReady = state === 'connected' && connection.canInput;
   const attachments = useAttachmentTransfer(origin, state === 'connected' && connection.canTransfer,
     () => connection.send({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'v' }), connection.canClipboard);
@@ -80,6 +84,8 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const reconnect = () => { connection.start(); video.restart(); void updater.check(true); };
   const closeKeyboard = useCallback(() => { Keyboard.dismiss(); setKeyboard(false); }, []);
   const openKeyboard = useCallback(() => setKeyboard(true), []);
+  const closeHelp = useCallback(() => setHelp(false), []);
+  const openHelp = useCallback(() => { closeKeyboard(); setHelp(true); }, [closeKeyboard]);
   const changeHost = () => {
     const literal = connection.literal;
     if (pendingText || literal.busy || literal.pending || literal.draft || literal.lateDraft || attachments.busy || attachments.pending) {
@@ -102,7 +108,8 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   // free window area. The stream/decoder never changes when the keyboard opens.
   return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: '#090b0e' }}>
     <StatusBar style="light" hidden={landscapePreview} />
-    <TouchSurface connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}>
+    <TouchSurface connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}
+      pointerGeometry={pointerGeometry.geometry} pointerGeometryEpoch={pointerGeometry.geometryEpoch}>
       {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={previewStyle} onDimensionsChange={event => {
         // The native renderer has received a sized frame; an SDP/track alone
         // isn't evidence of a working preview.
@@ -119,7 +126,10 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
         <GlassButton label="Reconectar" action="reconnect" onPress={() => { closeKeyboard(); reconnect(); }} />
       </View>
       {status}
-      <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
+      <View style={{ flexDirection: 'row', gap: 8 }}>
+        <GlassButton label="Ayuda" action="help" onPress={openHelp} />
+        <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
+      </View>
     </View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
       <Text selectable style={{ color: '#b7bbc4', fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>
@@ -133,5 +143,6 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
       canReview={state === 'connected'} allowAttachments={state === 'connected' && connection.canTransfer}
      visible={!landscapePreview || keyboard}
       disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} />
+    <HelpSheet visible={help} close={closeHelp} mode="trackpad" />
   </View>;
 }

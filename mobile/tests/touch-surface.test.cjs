@@ -5,7 +5,20 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 
+let pointerGeometryModule;
+let previewZoomModule;
+
 function loadTouchSurface() {
+  const geometry = {};
+  pointerGeometryModule = geometry;
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(
+    path.join(__dirname, '../src/lib/pointer-geometry.ts'), 'utf8',
+  ), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: geometry, Number, Math });
+  const zoom = {};
+  previewZoomModule = zoom;
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(
+    path.join(__dirname, '../src/lib/preview-zoom.ts'), 'utf8',
+  ), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: zoom, Number, Math });
   const source = ts.transpileModule(fs.readFileSync(
     path.join(__dirname, '../src/components/touch-surface.tsx'), 'utf8',
   ), {
@@ -18,7 +31,7 @@ function loadTouchSurface() {
   const exports = {};
   vm.runInNewContext(source, {
     exports,
-    require: () => undefined,
+    require: name => name === '../lib/pointer-geometry' ? geometry : name === '../lib/preview-zoom' ? zoom : undefined,
     Number,
     Math,
   });
@@ -30,6 +43,7 @@ const {
   mapTouchSnapshot,
   mapTouchReleaseSnapshot,
   removeChangedTouchContacts,
+  SQUARE_POINTER_GEOMETRY,
 } = loadTouchSurface();
 
 function point(id, x, y) {
@@ -118,12 +132,15 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
     },
     'react-native-gesture-handler': {
       GestureDetector: 'GestureDetector',
-      Gesture: { Manual: () => gesture('Manual') },
+      Gesture: {
+        Manual: () => gesture('Manual'), Pinch: () => gesture('Pinch'), Pan: () => gesture('Pan'),
+        Simultaneous: (...items) => ({ kind: 'Simultaneous', items }),
+      },
     },
-    'react-native-reanimated': { useSharedValue },
+    'react-native-reanimated': { useSharedValue, useAnimatedStyle: fn => fn() },
     'react-native-worklets': { scheduleOnRN: (fn, ...args) => defer ? queue.push([fn, args]) : fn(...args) },
     '../lib/connection': {},
-    '../lib/protocol': {},
+    '../lib/protocol': {}, '../lib/pointer-geometry': pointerGeometryModule, '../lib/preview-zoom': previewZoomModule,
   };
   const componentExports = {};
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(
@@ -159,6 +176,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
   return {
     calls,
     cancelCalls,
+    gestures,
     manual,
     layout,
     appState: state => appStateListeners.slice().forEach(listener => listener(state)),
@@ -182,6 +200,24 @@ test('maps a centered physical 100x70 surface without stretching either axis', (
   assert.deepEqual(plain(mapTouchToContact(point(4, 150, 50), { width: 300, height: 100 })), { id: 4, x: .5, y: .5 });
   assert.deepEqual(plain(mapTouchToContact(point(4, -100, 240), { width: 200, height: 200 })), { id: 4, x: 0, y: 1 });
   assert.deepEqual(plain(mapTouchToContact({ id: 4, x: Number.NaN, y: Number.POSITIVE_INFINITY }, { width: 200, height: 200 })), { id: 4, x: .15, y: 0 });
+});
+
+test('square candidate keeps screen axes, subpixel gain and orientation on one frame', () => {
+  const portrait = mapTouchToContact(point(4, 0, 0), { width: 390, height: 844 }, SQUARE_POINTER_GEOMETRY);
+  const portraitX100 = mapTouchToContact(point(4, 100, 0), { width: 390, height: 844 }, SQUARE_POINTER_GEOMETRY);
+  const portraitY100 = mapTouchToContact(point(4, 0, 100), { width: 390, height: 844 }, SQUARE_POINTER_GEOMETRY);
+  const landscape = mapTouchToContact(point(4, 0, 0), { width: 844, height: 390 }, SQUARE_POINTER_GEOMETRY);
+  const landscapeX100 = mapTouchToContact(point(4, 100, 0), { width: 844, height: 390 }, SQUARE_POINTER_GEOMETRY);
+  const landscapeY100 = mapTouchToContact(point(4, 0, 100), { width: 844, height: 390 }, SQUARE_POINTER_GEOMETRY);
+  const gain = SQUARE_POINTER_GEOMETRY.gainMmPerPoint * 100 / SQUARE_POINTER_GEOMETRY.sideMm;
+  assert.ok(portrait.x > 0 && portrait.y === 0, 'portrait margins stay explicit on the short X axis');
+  assert.ok(landscape.x === 0 && landscape.y > 0, 'landscape keeps the short-axis margin on Y');
+  assert.ok(Math.abs((portraitX100.x - portrait.x) - gain) < 1e-12);
+  assert.ok(Math.abs((portraitY100.y - portrait.y) - gain) < 1e-12);
+  assert.ok(Math.abs((landscapeX100.x - landscape.x) - gain) < 1e-12);
+  assert.ok(Math.abs((landscapeY100.y - landscape.y) - gain) < 1e-12);
+  assert.ok(portraitX100.x > portrait.x && portraitY100.y > portrait.y);
+  assert.ok(landscapeX100.x > landscape.x && landscapeY100.y > landscape.y);
 });
 
 test('forwards only raw touch snapshots from a Manual gesture', () => {
@@ -302,6 +338,16 @@ test('cancellation, background, layout, and unmount all release active contacts'
   assert.equal(h.cancelCalls.at(-1).epoch, 1);
 });
 
+test('an applied geometry epoch interrupts the old touch sequence before new contacts', () => {
+  const h = render(); h.layout(100, 70); const g = h.manual().handlers;
+  g.onTouchesDown({ allTouches: [point(1, 10, 10)], changedTouches: [point(1, 10, 10)] });
+  h.rerender({ pointerGeometry: SQUARE_POINTER_GEOMETRY, pointerGeometryEpoch: 7 });
+  assert.equal(h.cancelCalls.at(-1).epoch, 1);
+  g.onTouchesDown({ allTouches: [point(2, 10, 10)], changedTouches: [point(2, 10, 10)] });
+  assert.equal(h.calls.at(-1).epoch, 1);
+  assert.equal(h.calls.at(-1).contacts[0].id, 2);
+});
+
 test('keyboard mode consumes the touch to dismiss input without touching the remote computer', () => {
   let dismissed = 0;
   const h = render({ dismissKeyboard: () => { dismissed += 1; } }); h.layout(100, 70);
@@ -311,6 +357,14 @@ test('keyboard mode consumes the touch to dismiss input without touching the rem
   g.onTouchesUp({ allTouches: [], changedTouches: [point(1, 40, 40)] });
   assert.equal(dismissed, 1);
   assert.deepEqual(h.calls, []);
+});
+
+test('preview composes local pinch and two-finger pan without replacing the manual input gesture', () => {
+  const h = render();
+  h.rerender({ preview: true });
+  assert.ok(h.gestures.some(value => value.kind === 'Manual'));
+  assert.ok(h.gestures.some(value => value.kind === 'Pinch'));
+  assert.ok(h.gestures.some(value => value.kind === 'Pan'));
 });
 
 test('release snapshots explicitly emit the empty frame when all changed contacts lift', () => {

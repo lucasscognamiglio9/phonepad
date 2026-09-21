@@ -26,6 +26,7 @@ export const ACTIONS = {
   more: { label: 'Agregar', symbol: { ios: 'plus', android: 'add', web: 'add' }, fallback: '+' },
   shortcuts: { label: 'Teclas extra', symbol: { ios: 'keyboard.badge.ellipsis', android: 'keyboard_alt', web: 'keyboard_alt' }, fallback: '⋯' },
   enter: { label: 'Enter', symbol: { ios: 'return', android: 'keyboard_return', web: 'keyboard_return' }, fallback: '↵' },
+  help: { label: 'Ayuda', symbol: { ios: 'questionmark.circle', android: 'help_outline', web: 'help_outline' }, fallback: '?' },
 } as const satisfies Record<string, Action>;
 
 export type ActionID = keyof typeof ACTIONS;
