@@ -1,3 +1,4 @@
+import { cursorPlacement, type CursorState } from '../lib/cursor';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { AppState, View, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
@@ -79,7 +80,7 @@ export function removeChangedTouchContacts(
 }
 
 export function TouchSurface({ connection, children, preview, dismissKeyboard,
-  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0 }: {
+  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0, cursor = null }: {
   connection: Connection;
   children?: ReactNode;
   preview: boolean;
@@ -91,6 +92,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   disabled?: boolean;
   videoSize?: { width?: number; height?: number };
   viewportInsetBottom?: number;
+  cursor?: CursorState | null;
 }) {
   const width = useSharedValue(1);
   const height = useSharedValue(1);
@@ -182,6 +184,8 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       { scale: previewScale.value },
     ],
   })) as unknown as ViewStyle;
+
+  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, width.value, Math.max(1,height.value-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value));
 
   useEffect(() => {
     // A mode switch, including entering preview or changing the keyboard
@@ -337,6 +341,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       accessibilityLabel={mode === 'direct' ? 'Control directo de la pantalla. Tocá o arrastrá; dos dedos para scroll o clic derecho.' : 'Touchpad multitáctil. Los gestos físicos se procesan en la computadora.'}
     >
       <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
+      {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,bottom:viewportInsetBottom,overflow:'hidden'}}>
+        <Animated.Image accessible={false} source={{uri:cursor.image}} resizeMode="stretch" style={[{position:'absolute'},cursorStyle]} />
+      </View>}
     </View>
   </GestureDetector>;
 }

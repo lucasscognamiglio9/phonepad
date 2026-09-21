@@ -32,7 +32,7 @@ def focused_editor(atspi):
     return None
 
 
-def insert(node, value, focused):
+def insert(node, value, focused, text_api=None):
     """Return rejected before mutation, uncertain after any editing call starts."""
     mutating = False
     try:
@@ -44,7 +44,8 @@ def insert(node, value, focused):
         if selections > 1:
             return {'state': 'rejected', 'detail': 'multiple_selections_unsupported'}
         offset = text.get_caret_offset()
-        selection = text.get_selection(0) if selections else None
+        # GI Accessible.get_selection shadows Text.get_selection; dispatch the Text interface explicitly.
+        selection = (text_api.get_selection(text, 0) if text_api else text.get_selection(0)) if selections else None
         if selection:
             start, end = selection.start_offset, selection.end_offset
             if start < 0 or end < start:
@@ -71,12 +72,12 @@ def insert(node, value, focused):
         return {'state': 'uncertain' if mutating else 'rejected', 'detail': 'accessibility_unavailable'}
 
 
-def focus_token(node):
+def focus_token(node, text_api=None):
     text = node.get_text_iface()
     selections = text.get_n_selections()
     ranges = []
     for i in range(min(selections, 2)):
-        span = text.get_selection(i)
+        span = text_api.get_selection(text, i) if text_api else text.get_selection(i)
         ranges.append((span.start_offset, span.end_offset))
     identity = [node.get_process_id(), node.path, text.get_caret_offset(), selections, ranges]
     return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
@@ -103,11 +104,11 @@ def main():
         if node is None or not focused(node):
             result = {'state': 'rejected', 'detail': 'editable_focus_unavailable'}
         elif operation == 'probe':
-            result = {'state': 'ready', 'detail': 'atspi_literal', 'target': focus_token(node)}
-        elif operation != 'insert' or request.get('target') != focus_token(node):
+            result = {'state': 'ready', 'detail': 'atspi_literal', 'target': focus_token(node, Atspi.Text)}
+        elif operation != 'insert' or request.get('target') != focus_token(node, Atspi.Text):
             result = {'state': 'rejected', 'detail': 'focus_or_selection_changed'}
         else:
-            result = insert(node, value, focused)
+            result = insert(node, value, focused, Atspi.Text)
     except Exception:
         result = {'state': 'rejected', 'detail': 'literal_adapter_unavailable'}
     print(json.dumps(result), flush=True)

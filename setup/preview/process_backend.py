@@ -71,6 +71,8 @@ class ProcessBackend:
         if self._closing_event.is_set() and op!='stop':
             raise ValueError('backend closing')
         if op=='start':
+            if data.get('cursorMode') == 'metadata' and not pathlib.Path(__file__).with_name('phonepad-cursor-metadata').is_file():
+                data = {**data, 'cursorMode': 'embedded'}
             preferences=requested_codecs(data)
             if any(codec!='H264' for codec in preferences):raise ValueError('HFR requires H264')
             width=data.get('width',1920)
@@ -91,7 +93,7 @@ class ProcessBackend:
                 env.pop('PHONEPAD_CURSOR_FD',None)
                 env.pop('PHONEPAD_CURSOR_NODE',None)
                 try:
-                    if self.cursor_grant:
+                    if self.cursor_grant and data.get('cursorMode') != 'metadata':
                         fd,node=self.cursor_grant()
                         env.update(PHONEPAD_CURSOR_FD=str(fd),PHONEPAD_CURSOR_NODE=str(node))
                     self.process=subprocess.Popen(self.command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
@@ -112,6 +114,11 @@ class ProcessBackend:
                 raise
             except Exception:
                 self._reap()
+                if op == 'start' and data.get('cursorMode') == 'metadata':
+                    result = self.handle({**data, 'cursorMode': 'embedded'})
+                    result['cursorMode'] = 'embedded'
+                    result['cursorFallback'] = 'metadata_unavailable'
+                    return result
                 raise
     def _reap(self):
         proc,self.process=self.process,None

@@ -1,4 +1,5 @@
 import { RTCPeerConnection, RTCSessionDescription, MediaStream } from '@livekit/react-native-webrtc';
+import { CursorReceiver, type CursorState } from './cursor';
 import { MediaBinding, parseMediaCapabilities, selectVideoCodec } from './media-capabilities';
 
 export type VideoSession = (() => void) & { setActive: (active: boolean) => Promise<void>; getDiagnostics: () => Stat | undefined };
@@ -40,7 +41,7 @@ export function selectedPair(stats: Stat[]): Stat | undefined {
 }
 
 // Encoded frames stay in native WebRTC/VideoToolbox. JS only signals and samples stats.
-export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void, controlEpoch?: () => string | null, receiverWidth?: () => number) {
+export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void, controlEpoch?: () => string | null, receiverWidth?: () => number, onCursor?: (cursor: CursorState | null) => void) {
   const peer = new RTCPeerConnection({ iceServers: [] });
   const lifetime = new AbortController();
   const sessionEpoch = controlEpoch?.();
@@ -57,6 +58,18 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   let diagnostics: Stat | undefined;
   let lastFrameAt = Date.now(), hasFrames = false;
   const media = new MediaBinding();
+  const cursorReceiver = new CursorReceiver();
+  let cursorAt = 0;
+  peer.addEventListener('datachannel', event => {
+    const channel = event.channel;
+    if (channel.label !== 'phonepad-cursor-v1') { channel.close(); return; }
+    channel.onmessage = message => {
+      if (stopped || suspended || (controlEpoch && controlEpoch() !== sessionEpoch)) return;
+      const cursor = cursorReceiver.accept(message.data);
+      if (cursor) { cursorAt=Date.now(); onCursor?.(cursor); }
+    };
+    channel.onclose = () => { if (!stopped) onCursor?.(null); };
+  });
 
   // Bound the response body as well as the connection. Parent cancellation also
   // cancels in-flight signaling when iOS backgrounds the app or preview closes.
@@ -84,7 +97,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     if (!stopped) {
       stopped = true;
       lifetime.abort(); clearTimeout(timer); clearInterval(watchdog);
-      peer.close(); signal.removeEventListener('abort', stop);
+      onCursor?.(null); peer.close(); signal.removeEventListener('abort', stop);
     }
     // An offer may finish just as cancellation happens. Release a late session
     // too; the server's lease remains the fallback if the network is unavailable.
@@ -117,6 +130,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   if (signal.aborted) { stop(); throw Error('Cancelado'); }
   signal.addEventListener('abort', stop, { once: true });
   watchdog = setInterval(() => {
+    if (cursorAt && Date.now()-cursorAt>2500) { cursorAt=0; onCursor?.(null); }
     if (!suspended && Date.now() - lastFrameAt >= (hasFrames ? 8000 : 12000)) {
       fail(Error('Reconectando la pantalla…'));
     }
@@ -129,7 +143,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // physical desktop resolution independent of screen orientation and zoom.
     phase = 'offer';
     const codec = selectVideoCodec(advertised);
-    const offer = await call({ op: 'start', width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
+    const offer = await call({ op: 'start', ...(onCursor ? {cursorMode:'metadata'} : {}), width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
@@ -206,7 +220,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
         checkActive();
         if (!active) {
           if (suspended) return;
-          ++feedbackEpoch; suspended = true; suspendedAt = Date.now(); clearTimeout(timer);
+          ++feedbackEpoch; onCursor?.(null); suspended = true; suspendedAt = Date.now(); clearTimeout(timer);
           await call({ op: 'suspend', id });
         } else if (suspended) {
           if (Date.now() - suspendedAt >= 300_000 || ['failed', 'closed'].includes(peer.connectionState)) {

@@ -2,6 +2,15 @@
 // Native H.264 receiver. Video has its own connection; input keeps its socket.
 window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
   const pc = new RTCPeerConnection({iceServers: []});
+  const cursorReceiver = new window.PhonepadCore.CursorReceiver();
+  let cursorAt=0;
+  function cursor(value) { video.dispatchEvent(new CustomEvent("phonepad-cursor",{detail:value})); }
+  pc.ondatachannel = event => {
+    const channel=event.channel;
+    if(channel.label!=="phonepad-cursor-v1") {channel.close();return;}
+    channel.onmessage=message=>{if(stopped||signal.aborted||(epoch&&epoch!==window.PhonepadNet?.capabilities?.sessionEpoch))return;const state=cursorReceiver.accept(message.data);if(state){cursorAt=Date.now();cursor(state);}};
+    channel.onclose=()=>{if(!stopped)cursor(null);};
+  };
   let id, timer, previous, stopped = false, failures = 0, stalled = 0;
   const epoch=window.PhonepadNet?.capabilities?.sessionEpoch;
   const call = async data => {
@@ -17,7 +26,7 @@ window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
   ended.catch(()=>{});
   function stop() {
     if (stopped) return;
-    stopped = true; clearTimeout(timer); pc.close(); video.srcObject = null;
+    stopped = true; cursor(null); clearTimeout(timer); pc.close(); video.srcObject = null;
     signal.removeEventListener('abort', abort);
     if (id) fetch('/api/preview/rtc', {method:'POST', keepalive:true,
       headers:{'Content-Type':'application/json'}, body:JSON.stringify({op:'stop', id})}).catch(()=>{});
@@ -27,7 +36,7 @@ window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
   if (signal.aborted) { abort(); throw new DOMException('Stopped', 'AbortError'); }
   signal.addEventListener('abort', abort, {once:true});
   try {
-    const offer = await call({op:'start', codec, cursorSize:Math.max(24,Math.min(128,Math.ceil(28*1920/Math.max(1,video.clientWidth)))), width:Math.max(320, Math.min(1920, Math.round(width)))});
+    const offer = await call({op:'start', codec, cursorMode:'metadata', cursorSize:Math.max(24,Math.min(128,Math.ceil(28*1920/Math.max(1,video.clientWidth)))), width:Math.max(320, Math.min(1920, Math.round(width)))});
     id = offer.id;
     const firstFrame = new Promise((resolve, reject) => {
       const timeout = setTimeout(()=>{cleanup();reject(Error('rtc-first-frame-timeout'));}, 8000);
@@ -61,6 +70,7 @@ window.PhonepadRTC = async function(video, signal, width, codec = "H264") {
     await call({op:'answer', id, sdp:pc.localDescription.sdp});
     async function feedback() {
       if (stopped) return;
+      if(cursorAt&&Date.now()-cursorAt>2500){cursorAt=0;cursor(null);}
       try {
         const stats = await pc.getStats(); let inbound, pair;
         stats.forEach(report => {

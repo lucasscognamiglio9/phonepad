@@ -6,6 +6,7 @@ import rtc
 from virtual_source import Mirror
 from power_lease import PowerLease
 from cursor_capture import EmbeddedCursor
+from cursor_metadata import CursorMetadata, CursorSender, HELPER
 from media_contract import MediaTracker
 rtc.Gst.init(None)
 if os.environ.get('PHONEPAD_ENCODER')!='va' or rtc.Gst.ElementFactory.find('vah264enc') is None:
@@ -62,7 +63,9 @@ try:
                 if started:raise ValueError('Only one session per worker')
                 if data.get('codec','H264')!='H264':raise ValueError('HFR requires H264')
                 if not os.environ.get('PHONEPAD_HFR_ROOT'):power.set_active(True)
-                mirror=Mirror();source=mirror.prepare();media.begin_source()
+                metadata = data.get('cursorMode') == 'metadata' and HELPER.is_file()
+                data['cursorMode'] = 'metadata' if metadata else 'embedded'
+                mirror=Mirror(cursor_metadata=metadata);source=mirror.prepare();media.begin_source()
             result=manager.handle(data)
             if data.get('op')=='resume':
                 if not os.environ.get('PHONEPAD_HFR_ROOT'):power.set_active(True)
@@ -73,7 +76,12 @@ try:
             if data.get('op')=='feedback' and not os.environ.get('PHONEPAD_HFR_ROOT'):power.refresh()
             if data.get('op')=='start':
                 mirror.activate();started=True
-                if 'PHONEPAD_CURSOR_FD' in os.environ:
+                result['cursorMode'] = data['cursorMode']
+                if data['cursorMode'] == 'metadata':
+                    source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
+                    reader=CursorMetadata(mirror.node, source_caps.to_string())
+                    manager.session.cursor_sender=CursorSender(manager.session, reader, rtc.GLib)
+                elif 'PHONEPAD_CURSOR_FD' in os.environ:
                     source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
                     cursor=EmbeddedCursor(int(os.environ['PHONEPAD_CURSOR_FD']),int(os.environ['PHONEPAD_CURSOR_NODE']),source_caps)
                     try:cursor.start()
@@ -82,6 +90,8 @@ try:
                 result['cursor']=cursor.snapshot()
             output={'result':result}
         except Exception as error:
+            if data.get('op') == 'start' and data.get('cursorMode') == 'metadata':
+                print('cursor metadata start failed: '+repr(error), flush=True)
             output={'error':str(error),'invalid':isinstance(error,ValueError)}
             if not started:stopping=True
         reply.write(json.dumps(output,separators=(',',':'))+'\n');reply.flush()

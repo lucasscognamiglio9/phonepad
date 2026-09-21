@@ -18,11 +18,12 @@ function harness(rejectStart = false) {
     set srcObject(value) { this.stream=value; if(value) queueMicrotask(()=>this.dispatchEvent(new Event('loadeddata'))); }
     play() { return Promise.resolve(); }
   }
-  const context = {window:{},RTCPeerConnection:Peer,MediaStream:class{},DOMException,
+  const context = {window:{},CustomEvent:class extends Event {constructor(type,options){super(type);this.detail=options.detail;}},RTCPeerConnection:Peer,MediaStream:class{},DOMException,
     setTimeout,clearTimeout,fetch:async (_,options)=>{
       const body=JSON.parse(options.body); calls.push(body);
       return {ok:!(rejectStart && body.op==='start'),json:async()=>({id:'session',type:'offer',sdp:'offer'})};
     }};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../daemon/web/phonepad-core.js'),'utf8'),context);
   vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../daemon/web/rtc.js'),'utf8'),context);
   return {open:context.window.PhonepadRTC,video:new Video(),peers,calls};
 }

@@ -7,8 +7,8 @@
 // style.css). El fetch es cache-first sin revalidación, así que un cambio de
 // shell NO llega a las PWA ya instaladas hasta que cambia el nombre del cache:
 // el SW nuevo reinstala (recachea el shell) y activate borra el cache viejo.
-const CACHE = "phonepad-v23";
-const SHELL = ["/phonepad-core.js?v=23", "/receiver-controls.js?v=23", "/", "/index.html", "/app.js?v=23", "/preview.js?v=23", "/rtc.js?v=23", "/style.css?v=23", "/manifest.webmanifest"];
+const CACHE = "phonepad-v24";
+const SHELL = ["/phonepad-core.js?v=24", "/receiver-controls.js?v=24", "/", "/index.html", "/app.js?v=24", "/preview.js?v=24", "/rtc.js?v=24", "/style.css?v=24", "/manifest.webmanifest"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -25,7 +25,7 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("message", (e) => {
-  if (e.data?.type === "PHONEPAD_VERSION") e.source?.postMessage({type:"PHONEPAD_VERSION", build:"23"});
+  if (e.data?.type === "PHONEPAD_VERSION") e.source?.postMessage({type:"PHONEPAD_VERSION", build:"24"});
 });
 
 self.addEventListener("fetch", (e) => {

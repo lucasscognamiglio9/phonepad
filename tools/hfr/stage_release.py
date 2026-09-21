@@ -8,6 +8,8 @@ import shutil
 parser = argparse.ArgumentParser()
 parser.add_argument('--runtime', type=pathlib.Path, required=True)
 parser.add_argument('--destination', type=pathlib.Path, required=True)
+parser.add_argument('--cursor-helper', type=pathlib.Path)
+parser.add_argument('--datachannel-runtime', type=pathlib.Path)
 args = parser.parse_args()
 source = pathlib.Path(__file__).resolve().parents[2] / 'setup/preview'
 runtime = args.runtime.resolve()
@@ -19,10 +21,16 @@ if set(manifest['files']) != expected: raise SystemExit('Unexpected runtime mani
 for name, digest in manifest['files'].items():
     if hashlib.sha256((runtime/name).read_bytes()).hexdigest() != digest:
         raise SystemExit('Runtime checksum failed: ' + name)
+if args.cursor_helper and not args.datachannel_runtime: raise SystemExit('Cursor metadata requires the SCTP runtime')
 destination.mkdir(parents=True, exist_ok=False)
-for name in ('capture.py', 'rtc.py', 'rate_control.py', 'frame_freshness.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'cursor_lease.py', 'media_contract.py'):
+for name in ('capture.py', 'rtc.py', 'rate_control.py', 'frame_freshness.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'cursor_lease.py', 'cursor_metadata.py', 'media_contract.py'):
     shutil.copyfile(source/name, destination/name)
+if args.cursor_helper:
+    shutil.copy2(args.cursor_helper, destination/'phonepad-cursor-metadata')
 shutil.copytree(runtime, destination/'hfr', symlinks=True)
+if args.datachannel_runtime:
+    shutil.copy2(args.datachannel_runtime/'gstreamer-1.0/libgstsctp.so', destination/'hfr/plugins/libgstsctp.so')
+    shutil.copy2(args.datachannel_runtime/'libgstsctp-1.0.so.0', destination/'hfr/lib/libgstsctp-1.0.so.0')
 hashes = {str(p.relative_to(destination)):hashlib.sha256(p.read_bytes()).hexdigest()
           for p in destination.rglob('*') if p.is_file()}
 (destination/'release.json').write_text(json.dumps({'files':hashes,'mode':'hfr','targetHz':120}, indent=2)+'\n')

@@ -1,4 +1,6 @@
 const test = require('node:test');
+const cursorModule = {};
+require('node:vm').runInNewContext(require('typescript').transpileModule(require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/lib/cursor.ts'),'utf8'),{compilerOptions:{module:1,target:9}}).outputText,{exports:cursorModule});
 const directPointer = {};
 require('node:vm').runInNewContext(require('typescript').transpileModule(require('node:fs').readFileSync(require('node:path').join(__dirname,'../src/lib/direct-pointer.ts'),'utf8'),{compilerOptions:{module:1,target:9}}).outputText,{exports:directPointer,setTimeout,clearTimeout});
 const assert = require('node:assert/strict');
@@ -142,7 +144,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
     },
     'react-native-reanimated': { default: { View: 'AnimatedView' }, useSharedValue, useAnimatedStyle: fn => fn() },
     'react-native-worklets': { scheduleOnRN: (fn, ...args) => defer ? queue.push([fn, args]) : fn(...args) },
-    '../lib/direct-pointer': directPointer, '../lib/connection': {},
+    '../lib/cursor': cursorModule, '../lib/direct-pointer': directPointer, '../lib/connection': {},
     '../lib/protocol': {}, '../lib/pointer-geometry': pointerGeometryModule, '../lib/preview-zoom': previewZoomModule,
   };
   const componentExports = {};

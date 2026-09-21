@@ -12,7 +12,8 @@ def layout(state):
     return [(v[0],v[1],v[2],v[3],v[4],[(m[0],modes[m[0]],{}) for m in v[5]]) for v in state[2]]
 
 class Mirror:
-    def __init__(self):
+    def __init__(self, cursor_metadata=False):
+        self.cursor_metadata = cursor_metadata
         lab = os.environ.get('PHONEPAD_HFR_ROOT', '')
         isolated = lab.startswith('/tmp/phonepad-hfr-') and lab in os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
         if not isolated and os.environ.get('PHONEPAD_VIRTUAL_MIRROR') != '1':
@@ -47,7 +48,7 @@ class Mirror:
         self.session=self.call(SC,'/org/gnome/Mutter/ScreenCast',SC,'CreateSession',GLib.Variant('(a{sv})',({},))).unpack()[0]
         modes=[{'size':GLib.Variant('(uu)',(1920,1080)),'refresh-rate':GLib.Variant('d',float(os.environ.get('PHONEPAD_MIRROR_HZ','120'))),'is-preferred':GLib.Variant('b',True)}]
         stream=self.call(SC,self.session,SC+'.Session','RecordVirtual',
-             GLib.Variant('(a{sv})',({'cursor-mode':GLib.Variant('u',1),'modes':GLib.Variant('aa{sv}',modes)},))).unpack()[0]
+             GLib.Variant('(a{sv})',({'cursor-mode':GLib.Variant('u',2 if self.cursor_metadata else 1),'modes':GLib.Variant('aa{sv}',modes)},))).unpack()[0]
         def added(*args):self.node=args[-1].unpack()[0];self.added.set()
         self.subscription=self.bus.signal_subscribe(SC,SC+'.Stream','PipeWireStreamAdded',stream,None,Gio.DBusSignalFlags.NONE,added)
         self.call(SC,self.session,SC+'.Session','Start')

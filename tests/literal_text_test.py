@@ -39,6 +39,18 @@ class LiteralTests(unittest.TestCase):
         self.assertEqual(adapter.insert(editor, '?', lambda n: True)['state'], 'dispatched')
         self.assertEqual(editor.value, 'OK?!')
         self.assertEqual(editor.calls, ['delete', 'insert'])
+    def test_explicit_text_interface_avoids_accessible_selection_collision(self):
+        editor = Editor('replace', 0, (0, 7))
+        def accessible_selection(): return object()
+        editor.get_selection = accessible_selection
+        class TextAPI:
+            @staticmethod
+            def get_selection(node, index):
+                return SimpleNamespace(start_offset=0, end_offset=7)
+        result = adapter.insert(editor, '漢字🙂', lambda n: True, TextAPI)
+        self.assertEqual(result['state'], 'dispatched')
+        self.assertEqual(editor.value, '漢字🙂')
+
     def test_no_focus_rejects_before_mutation(self):
         editor = Editor('unchanged')
         self.assertEqual(adapter.insert(editor, 'x', lambda n: False)['state'], 'rejected')

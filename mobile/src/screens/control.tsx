@@ -1,3 +1,4 @@
+import type { CursorState } from '../lib/cursor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -53,11 +54,12 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const [pendingText, setPendingText] = useState(false);
   const [, refreshCapabilities] = useState(0);
   const [landscapeControls, setLandscapeControls] = useState(false);
+  const [cursor, setCursor] = useState<CursorState | null>(null);
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [stream, setStream] = useState<MediaStream | null>(null), [videoError, setVideoError] = useState('');
   const connection = useMemo(() => new Connection(origin, setState, () => refreshCapabilities(n => n + 1)), [origin]);
   const video = useMemo(() => new PreviewLifecycle<MediaStream>(
-    (signal, show, failed) => startVideo(origin, signal, show, failed, () => connection.capabilities?.sessionEpoch ?? null, () => receiverWidth.current), setStream, setVideoError,
+    (signal, show, failed) => startVideo(origin, signal, show, failed, () => connection.capabilities?.sessionEpoch ?? null, () => receiverWidth.current, setCursor), setStream, setVideoError,
   ), [origin, connection]);
   const pointerGeometry = useMemo(() => selectPointerGeometry(connection.capabilities), [connection, connection.capabilities]);
   const inputReady = state === 'connected' && connection.canInput;
@@ -143,7 +145,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   // free window area. The stream/decoder never changes when the keyboard opens.
   return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: '#090b0e' }}>
     <StatusBar style="light" hidden={landscapePreview} />
-    <TouchSurface connection={connection} preview={preview} dismissKeyboard={keyboard && !preview ? closeKeyboard : undefined}
+    <TouchSurface cursor={stream ? cursor : null} connection={connection} preview={preview} dismissKeyboard={keyboard && !preview ? closeKeyboard : undefined}
       pointerGeometry={pointerGeometry.geometry} pointerGeometryEpoch={pointerGeometry.geometryEpoch}
       mode={mode} gain={preferences.gain} disabled={!inputReady || options || help || !foreground}
       videoSize={videoSize} viewportInsetBottom={previewInset}>

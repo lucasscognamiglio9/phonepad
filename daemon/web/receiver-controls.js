@@ -91,7 +91,22 @@
  storage().then(saved=>{if(saved?.batch&&Array.isArray(saved.files)){batch=saved.batch;files=saved.files;review();notice('Hay un lote pendiente. Podés reanudarlo.');}}).catch(()=>notice('El navegador no permite conservar lotes entre aperturas.'));
  // Use the same geometry and button state machine as native Direct mode.
  const video=$('desktop-preview'),points=new Map(),direct=new C.DirectPointerSequence(c=>N.send(c));let scale=1,pan={x:0,y:0},base=null,zoom=false,pointerEpoch=null;
- function transform(){video.style.transform=`translate(${pan.x}px,${pan.y}px) scale(${scale})`;}
+ let cursorState=null;
+ const cursorImage=document.createElement('img');cursorImage.alt='';cursorImage.setAttribute('aria-hidden','true');cursorImage.style.cssText='position:fixed;pointer-events:none;z-index:4;display:none';document.body.appendChild(cursorImage);
+ function paintCursor(){
+  // offset geometry is unaffected by the video's CSS zoom transform.
+  const parent=video.offsetParent?.getBoundingClientRect()||{left:0,top:0};
+  const box=C.cursorPlacement(cursorState,video.clientWidth,video.clientHeight,scale,pan.x,pan.y);
+  if(!box.opacity||video.hidden){cursorImage.style.display='none';return;}
+  const left=parent.left+video.offsetLeft,top=parent.top+video.offsetTop;
+  const x=left+box.left,y=top+box.top;
+  cursorImage.src=cursorState.image;cursorImage.style.display='block';cursorImage.style.left=x+'px';cursorImage.style.top=y+'px';cursorImage.style.width=box.width+'px';cursorImage.style.height=box.height+'px';
+  const inset=[Math.max(0,top-y),Math.max(0,x+box.width-left-video.clientWidth),Math.max(0,y+box.height-top-video.clientHeight),Math.max(0,left-x)];
+  cursorImage.style.clipPath=`inset(${inset.map(n=>n+'px').join(' ')})`;
+ }
+ video.addEventListener('phonepad-cursor',event=>{cursorState=event.detail;paintCursor();});
+ new ResizeObserver(paintCursor).observe(video);
+ function transform(){video.style.transform=`translate(${pan.x}px,${pan.y}px) scale(${scale})`;paintCursor();}
  function resetPointer(){direct.cancel();points.clear();base=null;zoom=false;}
  $('zoom-reset').onclick=()=>{resetPointer();scale=1;pan={x:0,y:0};transform();};
  function position(e){const rect=video.parentElement.getBoundingClientRect();return {id:e.pointerId,x:e.clientX-rect.left,y:e.clientY-rect.top};}

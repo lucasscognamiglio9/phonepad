@@ -163,7 +163,7 @@ def _lab_h264_config(default_keyint):
 from cursor_lease import CursorGuardian
 
 class Session:
-    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None):
+    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None, cursor_metadata=False):
         self.id = secrets.token_urlsafe(24)
         self.touched = time.monotonic()
         self.ready = threading.Event()
@@ -364,6 +364,15 @@ class Session:
         # Explicit real-time clock/latency prevents the transport pipeline from
         # throttling PipeWire (measured ~18 fps before, ~43-48 fps after locally).
         self.pipeline.set_latency(0)
+        if cursor_metadata:
+            self.pipeline.set_state(Gst.State.READY)
+            options = Gst.Structure.new_empty('cursor-options')
+            options.set_value('ordered', False)
+            options.set_value('max-retransmits', 0)
+            self.cursor_open_state = GstWebRTC.WebRTCDataChannelState.OPEN
+            self.cursor_channel = self.peer.emit('create-data-channel', 'phonepad-cursor-v1', options)
+            if self.cursor_channel is None:
+                self.close(); raise RuntimeError('cursor data channel unavailable')
         self.pipeline.set_state(Gst.State.PLAYING)
         self.refresh_media()
 
@@ -531,6 +540,8 @@ class Session:
         return response
 
     def close(self):
+        sender = getattr(self, 'cursor_sender', None)
+        if sender: self.cursor_sender = None; sender.close()
         if getattr(self, 'cursor_guardian', None): self.cursor_guardian.close()
         if not self.closed:
             self.closed = True
@@ -913,7 +924,8 @@ class Manager:
                 # that metadata. Actual geometry is read from current caps.
                 self.session = Session(source, width, 1080, chosen,
                                        media_tracker=self.media_tracker,
-                                       media_provider=self.media_provider, output_size=output_size)
+                                       media_provider=self.media_provider, output_size=output_size,
+                                       **({'cursor_metadata': True} if data.get('cursorMode') == 'metadata' else {}))
                 return self.session
             session = self.dispatch(start)
             if not session.ready.wait(7) or session.error or session.closed:
@@ -935,7 +947,7 @@ class Manager:
                         # probe was unavailable; never claim it before this
                         # point.
                         self.media_tracker.set_codecs([session.codec], selected=session.codec)
-                session.cursor_guardian = CursorGuardian(cursor_size)
+                session.cursor_guardian = CursorGuardian(0 if data.get('cursorMode') == 'metadata' else cursor_size)
                 session.cursor_guardian.set_active(True)
                 return {'id': session.id, 'type': 'offer', 'sdp': offer_sdp, 'media': session.media_snapshot()}
             try:
