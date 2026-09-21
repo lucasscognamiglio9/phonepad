@@ -111,7 +111,10 @@ export class Connection {
       if (!this.active || generation !== this.generation) return;
       if (response.status === 401 || response.status === 403) { this.active = false; this.report('unauthorized'); return; }
       if (response.status !== 204) throw Error('connection');
-      const socket = new WebSocket(this.origin.replace('https:', 'wss:') + '/ws?protocol=2');
+      // Geometry is an explicit v2 opt-in. Older daemons ignore the additive
+      // query parameter and keep their legacy 100x70 mapper; newer daemons
+      // apply a persisted calibrated profile before sending the hello.
+      const socket = new WebSocket(this.origin.replace('https:', 'wss:') + '/ws?protocol=2&pointerGeometry=1');
       this.socket = socket;
       this.handshake = setTimeout(() => this.disconnect(socket), 5000);
       socket.onmessage = event => {

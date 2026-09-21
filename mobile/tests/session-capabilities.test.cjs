@@ -38,7 +38,7 @@ function harness() {
 
 test('v2 negotiates explicitly and scopes all input to the current session, except ping',async()=>{
   const h=harness();try{
-    const ws=await h.start();assert.equal(ws.url,'wss://test.example/ws?protocol=2');
+      const ws=await h.start();assert.equal(ws.url,'wss://test.example/ws?protocol=2&pointerGeometry=1');
     assert.equal(h.states.at(-1),'connected');assert.equal(h.connection.canInput,true);
     h.connection.send({t:'k',a:'special',key:'Enter'});h.connection.send({t:'ping'});
     assert.equal(ws.sent[0].sessionEpoch,'fixture-epoch');assert.equal(ws.sent[1].sessionEpoch,undefined);

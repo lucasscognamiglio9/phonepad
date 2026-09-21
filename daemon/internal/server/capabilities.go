@@ -133,16 +133,17 @@ func pointerGeometryForInjector(inj input.Injector) *pointerGeometryCapability {
 	// even to a newer client.
 	switch wire.Kind {
 	case "legacy-aspect-fit":
-		if wire.WidthMM <= 0 || wire.HeightMM <= 0 || wire.SideMM != 0 ||
+		if wire.WidthMM != 100 || wire.HeightMM != 70 || wire.SideMM != 0 ||
 			wire.GainMMPerPoint != 0 || wire.GainSource != "" ||
 			wire.GainMinMMPerPoint != 0 || wire.GainMaxMMPerPoint != 0 {
 			return nil
 		}
 	case "square-centered":
-		if wire.SideMM <= 0 || wire.GainMMPerPoint <= 0 || wire.GainSource != "calibrated" ||
-			wire.GainMinMMPerPoint <= 0 || wire.GainMaxMMPerPoint < wire.GainMinMMPerPoint ||
-			wire.GainMMPerPoint < wire.GainMinMMPerPoint || wire.GainMMPerPoint > wire.GainMaxMMPerPoint ||
-			wire.WidthMM != 0 || wire.HeightMM != 0 {
+		if input.ValidatePointerGeometry(input.PointerGeometry{
+			ID: wire.ID, Kind: wire.Kind, SideMM: wire.SideMM,
+			GainMMPerPoint: wire.GainMMPerPoint, GainSource: wire.GainSource,
+			GainMinMMPerPoint: wire.GainMinMMPerPoint, GainMaxMMPerPoint: wire.GainMaxMMPerPoint,
+		}) != nil {
 			return nil
 		}
 	default:
@@ -152,6 +153,35 @@ func pointerGeometryForInjector(inj input.Injector) *pointerGeometryCapability {
 		Version: 1, SupportedProfiles: []pointerGeometryProfile{wire},
 		Applied: pointerGeometryApplied{ID: wire.ID, GeometryEpoch: profile.GeometryEpoch},
 	}
+}
+
+func (s *Server) applyPointerGeometry(ctx context.Context, optIn bool) error {
+	s.mu.Lock()
+	inj := s.inj
+	desired := input.PointerGeometry{ID: "legacy-100x70", Kind: "legacy-aspect-fit", WidthMM: 100, HeightMM: 70}
+	_, inputAllowed := s.permissionLocked(mutationScopeInput)
+	if optIn && inputAllowed && s.pointerCalibration != nil {
+		desired = *s.pointerCalibration
+	}
+	s.mu.Unlock()
+	controller, ok := inj.(input.PointerGeometryController)
+	if !ok {
+		return nil
+	}
+	if err := controller.ApplyPointerGeometry(ctx, desired); err != nil {
+		return err
+	}
+	applied, ok := controller.PointerGeometry()
+	if !ok || applied.GeometryEpoch == 0 || !samePointerGeometry(applied, desired) {
+		return input.ErrPointerGeometryUnavailable
+	}
+	return nil
+}
+
+func samePointerGeometry(a, b input.PointerGeometry) bool {
+	return a.ID == b.ID && a.Kind == b.Kind && a.WidthMM == b.WidthMM && a.HeightMM == b.HeightMM &&
+		a.SideMM == b.SideMM && a.GainMMPerPoint == b.GainMMPerPoint && a.GainSource == b.GainSource &&
+		a.GainMinMMPerPoint == b.GainMinMMPerPoint && a.GainMaxMMPerPoint == b.GainMaxMMPerPoint
 }
 
 type mutationPermit struct {
@@ -416,6 +446,19 @@ func (s *Server) SetPermissions(value Permissions) error {
 	var resetErr error
 	if (wasInputAllowed && !nowInputAllowed) || (resetIncomplete && value.Input.State == "granted") {
 		resetErr = s.resetForTransition()
+	}
+	if wasInputAllowed && !nowInputAllowed {
+		if err := s.applyPointerGeometry(context.Background(), false); resetErr == nil && err != nil {
+			resetErr = err
+		}
+	}
+	if !wasInputAllowed && nowInputAllowed {
+		s.mu.Lock()
+		geometryOptIn := s.pointerGeometryOptIn && s.currentProtocol == protocolVersion
+		s.mu.Unlock()
+		if err := s.applyPointerGeometry(context.Background(), geometryOptIn); resetErr == nil && err != nil {
+			resetErr = err
+		}
 	}
 	s.mu.Lock()
 	var c *websocket.Conn

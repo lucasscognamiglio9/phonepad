@@ -287,6 +287,26 @@ func (a *asyncText) PointerGeometry() (PointerGeometry, bool) {
 	return provider.PointerGeometry()
 }
 
+// ApplyPointerGeometry is a lifecycle/configuration transition. It is kept
+// outside the action FIFO because the controller itself cancels contacts and
+// recreates the sealed uinput node atomically under its device lock.
+func (a *asyncText) ApplyPointerGeometry(ctx context.Context, profile PointerGeometry) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	controller, ok := a.inner.(PointerGeometryController)
+	if !ok {
+		return ErrPointerGeometryUnavailable
+	}
+	// Drain/cancel the serialized stream first. Without this barrier, a touch
+	// frame already queued for the old profile could run after the controller
+	// swaps the uinput node and be interpreted in the new geometry.
+	if err := a.ResetContext(ctx); err != nil {
+		return err
+	}
+	return controller.ApplyPointerGeometry(ctx, profile)
+}
+
 // CancelTouch is queued in the same FIFO as touch frames, so a cancellation
 // cannot overtake a preceding movement or touch-down frame.
 func (a *asyncText) CancelTouch() { a.submit(asyncOp{kind: opTouchCancel}) }

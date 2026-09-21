@@ -61,16 +61,16 @@ type TouchCanceler interface {
 // GeometryEpoch changes only when the mapper/device profile changes; clients
 // cancel active contacts before accepting a new epoch.
 type PointerGeometry struct {
-	ID                string
-	Kind              string
-	WidthMM           float64
-	HeightMM          float64
-	SideMM            float64
-	GainMMPerPoint    float64
-	GainSource        string
-	GainMinMMPerPoint float64
-	GainMaxMMPerPoint float64
-	GeometryEpoch     uint64
+	ID                string  `json:"id"`
+	Kind              string  `json:"kind"`
+	WidthMM           float64 `json:"widthMm,omitempty"`
+	HeightMM          float64 `json:"heightMm,omitempty"`
+	SideMM            float64 `json:"sideMm,omitempty"`
+	GainMMPerPoint    float64 `json:"gainMmPerPoint,omitempty"`
+	GainSource        string  `json:"gainSource,omitempty"`
+	GainMinMMPerPoint float64 `json:"gainMinMmPerPoint,omitempty"`
+	GainMaxMMPerPoint float64 `json:"gainMaxMmPerPoint,omitempty"`
+	GeometryEpoch     uint64  `json:"geometryEpoch,omitempty"`
 }
 
 // PointerGeometryProvider lets the server expose the geometry actually
@@ -78,6 +78,14 @@ type PointerGeometry struct {
 // cannot make a safe claim; the server then omits the optional extension.
 type PointerGeometryProvider interface {
 	PointerGeometry() (PointerGeometry, bool)
+}
+
+// PointerGeometryController applies a validated profile before the next
+// contact sequence. Implementations must cancel active contacts and either
+// leave the prior device/profile intact on error or return a terminal error.
+type PointerGeometryController interface {
+	PointerGeometryProvider
+	ApplyPointerGeometry(context.Context, PointerGeometry) error
 }
 
 // ClipboardMu serializes the daemon's short-lived Unicode paste with the

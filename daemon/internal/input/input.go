@@ -27,13 +27,14 @@ import (
 // absoluto) porque la lib no expone un device combinado; para el compositor son
 // periféricos distintos, indistinguible para el usuario.
 type uinputDevice struct {
-	mouse uinput.Mouse // != nil sólo en el camino absoluto (NewAbsolute)
-	kbd   uinput.Keyboard
-	pad   uinput.TouchPad // != nil sólo en el camino absoluto (NewAbsolute)
-	mt    *mtTouchpad     // != nil sólo en el camino del celular (New)
-	mu    sync.Mutex
-	held  map[int]struct{} // teclas presionadas, para liberar en Reset/Close
-	btns  map[string]bool  // botones del mouse actualmente abajo
+	mouse    uinput.Mouse // != nil sólo en el camino absoluto (NewAbsolute)
+	kbd      uinput.Keyboard
+	pad      uinput.TouchPad  // != nil sólo en el camino absoluto (NewAbsolute)
+	mt       *mtTouchpad      // != nil sólo en el camino del celular (New)
+	geometry *PointerGeometry // perfil aplicado al touchpad móvil; nil para NewAbsolute
+	mu       sync.Mutex
+	held     map[int]struct{} // teclas presionadas, para liberar en Reset/Close
+	btns     map[string]bool  // botones del mouse actualmente abajo
 }
 
 // PointerGeometry reports only the established mobile touchpad geometry. The
@@ -43,16 +44,77 @@ type uinputDevice struct {
 func (d *uinputDevice) PointerGeometry() (PointerGeometry, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.mt == nil || d.mt.state == nil || d.mt.res <= 0 ||
-		d.mt.state.maxX != devMaxX || d.mt.state.maxY != devMaxY || d.mt.res != devRes {
+	if d.mt == nil || d.geometry == nil {
 		return PointerGeometry{}, false
 	}
-	return PointerGeometry{
-		ID: "legacy-100x70", Kind: "legacy-aspect-fit",
-		WidthMM:       float64(d.mt.state.maxX) / float64(d.mt.res),
-		HeightMM:      float64(d.mt.state.maxY) / float64(d.mt.res),
-		GeometryEpoch: 1,
-	}, true
+	return *d.geometry, true
+}
+
+func legacyPointerGeometryProfile(epoch uint64) PointerGeometry {
+	return PointerGeometry{ID: "legacy-100x70", Kind: "legacy-aspect-fit",
+		WidthMM: 100, HeightMM: 70, GeometryEpoch: epoch}
+}
+
+// ApplyPointerGeometry changes only the mobile touchpad device. uinput seals
+// ABS ranges at UI_DEV_CREATE, so applying a square profile recreates the
+// private virtual node once, after canceling all active contacts. Orientation
+// changes thereafter keep that same node and are handled by the client mapper.
+func (d *uinputDevice) ApplyPointerGeometry(ctx context.Context, profile PointerGeometry) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if profile.ID == "square-centered" {
+		if err := ValidatePointerGeometry(profile); err != nil {
+			return err
+		}
+	} else if profile.ID != "legacy-100x70" || profile.Kind != "legacy-aspect-fit" || profile.WidthMM != 100 || profile.HeightMM != 70 {
+		return ErrInvalidPointerCalibration
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.mt == nil {
+		return ErrPointerGeometryUnavailable
+	}
+	if d.geometry != nil && samePointerGeometry(*d.geometry, profile) {
+		return nil
+	}
+	nextEpoch := uint64(1)
+	if d.geometry != nil && d.geometry.GeometryEpoch >= nextEpoch {
+		nextEpoch = d.geometry.GeometryEpoch + 1
+	}
+	profile.GeometryEpoch = nextEpoch
+	width, height := profile.WidthMM, profile.HeightMM
+	if profile.ID == "square-centered" {
+		width, height = profile.SideMM, profile.SideMM
+	}
+	maxX := int32(width*float64(devRes) + .5)
+	maxY := int32(height*float64(devRes) + .5)
+	if maxX <= 0 || maxY <= 0 {
+		return ErrInvalidPointerCalibration
+	}
+	next, err := newMTTouchpadWithGeometry(maxX, maxY, devRes)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		next.close()
+		return err
+	}
+	old := d.mt
+	old.cancel()
+	d.mt = next
+	d.geometry = &profile
+	old.close()
+	return nil
+}
+
+func samePointerGeometry(a, b PointerGeometry) bool {
+	return a.ID == b.ID && a.Kind == b.Kind && a.WidthMM == b.WidthMM && a.HeightMM == b.HeightMM &&
+		a.SideMM == b.SideMM && a.GainMMPerPoint == b.GainMMPerPoint && a.GainSource == b.GainSource &&
+		a.GainMinMMPerPoint == b.GainMinMMPerPoint && a.GainMaxMMPerPoint == b.GainMaxMMPerPoint
 }
 
 // New crea los devices del camino del celular: un teclado virtual (para el
@@ -75,7 +137,8 @@ func New() (Injector, error) {
 		kbd.Close()
 		return nil, err
 	}
-	return &uinputDevice{mouse: mouse, kbd: kbd, mt: mt, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
+	geometry := legacyPointerGeometryProfile(1)
+	return &uinputDevice{mouse: mouse, kbd: kbd, mt: mt, geometry: &geometry, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
 }
 
 // NewAbsolute crea los devices para control absoluto (computer use): mouse (para

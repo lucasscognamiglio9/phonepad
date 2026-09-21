@@ -87,6 +87,10 @@ type Server struct {
 
 	demo      bool
 	devInject bool // dev: inyectar el flag dev en index.html y no cachear
+	// pointerCalibration is an explicit, validated device-local profile. It is
+	// applied only when a protocol-v2 peer opts into pointer geometry.
+	pointerCalibration   *input.PointerGeometry
+	pointerGeometryOptIn bool
 }
 
 const maxActionOperations = 128
@@ -120,6 +124,20 @@ const (
 type Option func(*Server)
 
 func WithDemo() Option { return func(s *Server) { s.demo = true } }
+
+// WithPointerCalibration enables the persisted square profile for peers that
+// explicitly request the P04 extension. Invalid profiles are ignored here so
+// a malformed operator file can only keep the legacy mapper active.
+func WithPointerCalibration(profile input.PointerGeometry) Option {
+	return func(s *Server) {
+		if err := input.ValidatePointerGeometry(profile); err != nil {
+			log.Printf("ignoring pointer calibration: %v", err)
+			return
+		}
+		profile.GeometryEpoch = 0
+		s.pointerCalibration = &profile
+	}
+}
 
 // WithDevInject hace que el server inyecte el flag dev en index.html (para que
 // la PWA desregistre el service worker) y mande las páginas con Cache-Control:
@@ -270,7 +288,8 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	c.SetReadLimit(maxFrameBytes)
-	gen, err := s.setCurrent(c, r.UserAgent(), protocol)
+	geometryOptIn := protocol == protocolVersion && r.URL.Query().Get("pointerGeometry") == "1"
+	gen, err := s.setCurrent(c, r.UserAgent(), protocol, geometryOptIn)
 	if err != nil {
 		// The websocket handshake already happened, so report the reason on
 		// the wire instead of sending a v2 hello with an empty epoch. Keep the
@@ -328,7 +347,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 // a la vista pairing: en un reemplazo emite un solo client_connected con el
 // cliente nuevo (no parpadea disconnect+connect; ver SPEC §12).
 
-func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64, error) {
+func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int, geometryOptIn bool) (uint64, error) {
 	// Unlock explícito (no defer) a propósito: no sostener el mutex durante el
 	// I/O de red de abajo (old.Close / hub). mutationGate ordena el reset físico
 	// sin retener el mutex usado por status y la coordinación de cierre.
@@ -348,12 +367,17 @@ func (s *Server) setCurrent(c *websocket.Conn, ua string, protocol int) (uint64,
 		return 0, ErrServerClosing
 	}
 	s.lifecycleMu.Unlock()
+	if err := s.applyPointerGeometry(context.Background(), geometryOptIn); err != nil {
+		s.mutationGate.Unlock()
+		return 0, fmt.Errorf("apply pointer geometry: %w", err)
+	}
 	s.mu.Lock()
 	old := s.current
 	s.current = c
 	s.gen++
 	s.currentProtocol = protocol
 	s.sessionEpoch = epoch
+	s.pointerGeometryOptIn = geometryOptIn
 	s.actionOps = make(map[string]actionOperation)
 	s.capabilityRevision++
 	s.newInputLease()
@@ -392,6 +416,7 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 	if s.current == c && s.gen == gen {
 		s.current = nil
 		s.currentProtocol = 0
+		s.pointerGeometryOptIn = false
 		// A permit captured by the disconnected control session must not become
 		// a mutation after the connection is gone. The next connection receives
 		// a fresh random epoch in setCurrent.
@@ -409,6 +434,9 @@ func (s *Server) clearCurrent(c *websocket.Conn, gen uint64) {
 	if disconnected {
 		if err := s.resetForTransition(); err != nil {
 			log.Printf("input reset after disconnect: %v", err)
+		}
+		if err := s.applyPointerGeometry(context.Background(), false); err != nil {
+			log.Printf("legacy pointer geometry after disconnect: %v", err)
 		}
 	}
 	s.mutationGate.Unlock()

@@ -5,7 +5,8 @@ package input
 import "testing"
 
 func TestPointerGeometryMatchesEstablishedTouchpadAxes(t *testing.T) {
-	d := &uinputDevice{mt: &mtTouchpad{state: newMTState(devMaxX, devMaxY), res: devRes}}
+	profile := legacyPointerGeometryProfile(1)
+	d := &uinputDevice{mt: &mtTouchpad{state: newMTState(devMaxX, devMaxY), res: devRes}, geometry: &profile}
 	profile, ok := d.PointerGeometry()
 	if !ok {
 		t.Fatal("established mobile touchpad did not expose geometry")

@@ -46,6 +46,18 @@ type p04MotionTrace struct {
 	Steps     int     `json:"steps"`
 }
 
+type p04TransitionTrace struct {
+	Name        string  `json:"name"`
+	Orientation string  `json:"orientation"`
+	Axis        string  `json:"axis"`
+	Direction   string  `json:"direction"`
+	Speed       string  `json:"speed"`
+	DelayMS     int     `json:"delayMs"`
+	StartPoint  float64 `json:"startPoint"`
+	EndPoint    float64 `json:"endPoint"`
+	Steps       int     `json:"steps"`
+}
+
 type p04MotionDevice struct {
 	Device  string           `json:"device"`
 	Sysname string           `json:"sysname"`
@@ -139,6 +151,214 @@ func TestNativeTouchpadMotionFixture(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Logf("P04 motion evidence preserved at %s", runDir)
+}
+
+// TestP04SquareOrientationTransitionFixture is opt-in. It deliberately keeps
+// one 100x100mm uinput instance alive while the logical surface changes from
+// portrait to landscape. The producer cancels between orientations, then
+// emits equal 100-point traces at the same cadence; the observer measures
+// unaccelerated motion and grabs only this private event node.
+func TestP04SquareOrientationTransitionFixture(t *testing.T) {
+	base := os.Getenv(p04MotionFixtureEnv)
+	if base == "" {
+		t.Skip("native libinput transition fixture is opt-in")
+	}
+	if !filepath.IsAbs(base) {
+		t.Fatalf("%s must be an absolute private fixture directory", p04MotionFixtureEnv)
+	}
+	runDir := filepath.Join(base, fmt.Sprintf("transition-%d", time.Now().UnixNano()))
+	caseDir := filepath.Join(runDir, "square-transition-same-uinput")
+	if err := os.MkdirAll(caseDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	traces := p04TransitionTraces()
+	if err := writeP04JSON(filepath.Join(caseDir, "traces.json"), traces); err != nil {
+		t.Fatal(err)
+	}
+	observer, err := p04MotionObserverPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logFile, err := os.OpenFile(filepath.Join(caseDir, "observer.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+	pad, err := newMTTouchpadWithGeometry(p04MotionAxis(p04MotionSquareMM), p04MotionAxis(p04MotionSquareMM), p04MotionResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pad.close()
+	sysname, device, err := p04MotionDevicePath(pad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata := p04MotionDevice{
+		Device: device, Sysname: sysname,
+		Case: p04MotionCase{Name: "square-transition-same-uinput", Mapper: "square-centered", Width: 0, Height: 0,
+			MaxX: p04MotionAxis(p04MotionSquareMM), MaxY: p04MotionAxis(p04MotionSquareMM), Resolution: p04MotionResolution},
+		Profile: "default",
+	}
+	if err := writeP04JSON(filepath.Join(caseDir, "device.json"), metadata); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/usr/bin/python3", observer, caseDir)
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitObserver := func() error {
+		wait := make(chan error, 1)
+		go func() { wait <- cmd.Wait() }()
+		select {
+		case err := <-wait:
+			return err
+		case <-time.After(p04MotionTimeout):
+			_ = cmd.Process.Kill()
+			<-wait
+			return fmt.Errorf("observer timeout after %s", p04MotionTimeout)
+		}
+	}
+	if err := p04MotionWaitFor(filepath.Join(caseDir, "start"), p04MotionTimeout); err != nil {
+		_ = cmd.Process.Kill()
+		_ = waitObserver()
+		t.Fatal(err)
+	}
+	for index, trace := range traces {
+		if err := os.WriteFile(filepath.Join(caseDir, "stage"), []byte(trace.Name), 0600); err != nil {
+			_ = cmd.Process.Kill()
+			_ = waitObserver()
+			t.Fatal(err)
+		}
+		emitP04TransitionTrace(pad, trace)
+		if index == len(traces)/2-1 {
+			// The same uinput device stays open; only active contacts are
+			// canceled before the new orientation starts.
+			pad.cancel()
+			time.Sleep(120 * time.Millisecond)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(caseDir, "done"), []byte("done"), 0600); err != nil {
+		_ = cmd.Process.Kill()
+		_ = waitObserver()
+		t.Fatal(err)
+	}
+	if err := waitObserver(); err != nil {
+		t.Fatalf("observer: %v; see %s", err, filepath.Join(caseDir, "observer.log"))
+	}
+	data, err := os.ReadFile(filepath.Join(caseDir, "motion.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var report p04MotionReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	if !report.ExclusiveGrab || report.Fixture.Sysname != sysname {
+		t.Fatalf("transition observer did not retain exclusive identity: grab=%v sysname=%q want=%q", report.ExclusiveGrab, report.Fixture.Sysname, sysname)
+	}
+	measurements := analyzeP04TransitionReport(t, report, traces)
+	if err := writeP04JSON(filepath.Join(caseDir, "transition-summary.json"), map[string]any{
+		"sameUinput": true, "sysname": sysname, "device": device,
+		"resolution": p04MotionResolution, "measurements": measurements,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("P04 same-uinput transition evidence preserved at %s", caseDir)
+}
+
+func p04TransitionTraces() []p04TransitionTrace {
+	traces := make([]p04TransitionTrace, 0, 8)
+	for _, orientation := range []struct {
+		name   string
+		width  float64
+		height float64
+	}{
+		{name: "portrait", width: 390, height: 844},
+		{name: "landscape", width: 844, height: 390},
+	} {
+		for _, axis := range []string{"x", "y"} {
+			for _, direction := range []string{"positive", "negative"} {
+				start, end := orientation.width/2-50, orientation.width/2+50
+				if axis == "y" {
+					start, end = orientation.height/2-50, orientation.height/2+50
+				}
+				if direction == "negative" {
+					start, end = end, start
+				}
+				traces = append(traces, p04TransitionTrace{
+					Name: fmt.Sprintf("%s-%s-%s", orientation.name, axis, direction), Orientation: orientation.name,
+					Axis: axis, Direction: direction, Speed: "equal-100pt-8ms", DelayMS: 8,
+					StartPoint: start, EndPoint: end, Steps: 25,
+				})
+			}
+		}
+	}
+	return traces
+}
+
+func emitP04TransitionTrace(pad *mtTouchpad, trace p04TransitionTrace) {
+	width, height := 390.0, 844.0
+	if trace.Orientation == "landscape" {
+		width, height = 844, 390
+	}
+	contact := func(value float64) Contact {
+		x, y := width/2, height/2
+		if trace.Axis == "x" {
+			x = value
+		} else {
+			y = value
+		}
+		return p04SquareContact(1, x, y, width, height)
+	}
+	pad.touch([]Contact{contact(trace.StartPoint)})
+	time.Sleep(50 * time.Millisecond)
+	for index := 1; index <= trace.Steps; index++ {
+		time.Sleep(time.Duration(trace.DelayMS) * time.Millisecond)
+		fraction := float64(index) / float64(trace.Steps)
+		pad.touch([]Contact{contact(trace.StartPoint + (trace.EndPoint-trace.StartPoint)*fraction)})
+	}
+	pad.touch(nil)
+	time.Sleep(120 * time.Millisecond)
+}
+
+func analyzeP04TransitionReport(t *testing.T, report p04MotionReport, traces []p04TransitionTrace) []map[string]any {
+	t.Helper()
+	measurements := make([]map[string]any, 0, len(traces))
+	for _, trace := range traces {
+		var axisRaw, perpendicularRaw float64
+		count := 0
+		for _, motion := range report.Motions {
+			if motion.Stage != trace.Name {
+				continue
+			}
+			count++
+			if trace.Axis == "x" {
+				axisRaw += motion.DXUnaccelerated
+				perpendicularRaw += motion.DYUnaccelerated
+			} else {
+				axisRaw += motion.DYUnaccelerated
+				perpendicularRaw += motion.DXUnaccelerated
+			}
+		}
+		if count == 0 || (trace.Direction == "positive" && axisRaw <= 0) || (trace.Direction == "negative" && axisRaw >= 0) {
+			t.Fatalf("transition %s missing signed motion: events=%d raw=%g", trace.Name, count, axisRaw)
+		}
+		if math.Abs(perpendicularRaw) > p04MotionCrossAxisTolerance(axisRaw) {
+			t.Fatalf("transition %s has perpendicular raw motion=%g axis=%g", trace.Name, perpendicularRaw, axisRaw)
+		}
+		rawMM := math.Abs(axisRaw) / float64(report.Fixture.Case.Resolution)
+		wantMM := p04MotionIsoGain * 100
+		if math.Abs(rawMM-wantMM) > .75 {
+			t.Fatalf("transition %s raw gain=%gmm, want approximately %gmm", trace.Name, rawMM, wantMM)
+		}
+		measurements = append(measurements, map[string]any{
+			"name": trace.Name, "orientation": trace.Orientation, "axis": trace.Axis,
+			"direction": trace.Direction, "events": count, "rawMM": rawMM,
+			"mmPerPoint": rawMM / 100,
+		})
+	}
+	return measurements
 }
 
 func p04MotionCases() ([]p04MotionCase, error) {

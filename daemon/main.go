@@ -113,6 +113,13 @@ func main() {
 	if *demo {
 		srvOpts = append(srvOpts, server.WithDemo())
 	}
+	calibrationPath := filepath.Join(configDir(), "pointer-geometry.json")
+	if profile, ok, calibrationErr := input.LoadPointerCalibration(calibrationPath, input.MobilePointerGeometryDeviceID); calibrationErr != nil {
+		log.Printf("calibración pointer ignorada; se conserva legacy: %v", calibrationErr)
+	} else if ok {
+		srvOpts = append(srvOpts, server.WithPointerCalibration(profile))
+		log.Printf("calibración pointer disponible para %s", input.MobilePointerGeometryDeviceID)
+	}
 	if devSrc != "" {
 		webFS = os.DirFS(filepath.Join(devSrc, "web"))
 		srvOpts = append(srvOpts, server.WithDevInject())

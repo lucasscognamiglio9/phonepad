@@ -46,16 +46,17 @@ const pointerProfile = (value: unknown): value is PointerGeometryProfile => {
     || (value.kind !== 'legacy-aspect-fit' && value.kind !== 'square-centered')) return false;
   const positive = (candidate: unknown) => typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0;
   if (value.kind === 'legacy-aspect-fit') {
-    return (value.widthMm === undefined || positive(value.widthMm))
-      && (value.heightMm === undefined || positive(value.heightMm))
+    return value.widthMm === 100 && value.heightMm === 70
       && value.sideMm === undefined && value.gainMmPerPoint === undefined
       && value.gainSource === undefined && value.gainMinMmPerPoint === undefined
       && value.gainMaxMmPerPoint === undefined;
   }
   return value.widthMm === undefined && value.heightMm === undefined
-    && positive(value.sideMm) && positive(value.gainMmPerPoint)
+    && positive(value.sideMm) && Number(value.sideMm) >= 50 && Number(value.sideMm) <= 200
+    && positive(value.gainMmPerPoint) && Number(value.gainMmPerPoint) >= .05 && Number(value.gainMmPerPoint) <= .25
     && value.gainSource === 'calibrated'
-    && positive(value.gainMinMmPerPoint) && positive(value.gainMaxMmPerPoint)
+    && positive(value.gainMinMmPerPoint) && Number(value.gainMinMmPerPoint) >= .05 && Number(value.gainMinMmPerPoint) <= .25
+    && positive(value.gainMaxMmPerPoint) && Number(value.gainMaxMmPerPoint) >= .05 && Number(value.gainMaxMmPerPoint) <= .25
     && Number(value.gainMmPerPoint) >= Number(value.gainMinMmPerPoint)
     && Number(value.gainMmPerPoint) <= Number(value.gainMaxMmPerPoint);
 };

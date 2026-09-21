@@ -248,7 +248,7 @@ func TestSessionChangeWaitsForBoundedMutationAndInvalidatesPermit(t *testing.T) 
 	<-started
 	changed := make(chan struct{})
 	go func() {
-		_, _ = s.setCurrent(nil, "reconnect", protocolVersion)
+		_, _ = s.setCurrent(nil, "reconnect", protocolVersion, false)
 		close(changed)
 	}()
 	select {
