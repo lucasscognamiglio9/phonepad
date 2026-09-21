@@ -63,11 +63,11 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   peer.addEventListener('datachannel', event => {
     const channel = event.channel;
     if (channel.label !== 'phonepad-cursor-v1') { channel.close(); return; }
-    channel.onmessage = message => {
+    channel.addEventListener('message', message => {
       if (stopped || suspended || (controlEpoch && controlEpoch() !== sessionEpoch)) return;
       const cursor = cursorReceiver.accept(message.data);
       if (cursor) { cursorAt=Date.now(); onCursor?.(cursor); }
-    };
+    });
     channel.onclose = () => { if (!stopped) onCursor?.(null); };
   });
 
