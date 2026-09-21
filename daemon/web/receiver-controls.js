@@ -15,6 +15,9 @@
   $('review-text').disabled=!connected||literal.busy||!literal.pending;
   $('resolve-text').disabled=!connected||literal.busy||!literal.pending;
   draft.readOnly=literal.busy;
+  const directAvailable=connected&&N.capabilities?.input.actions.includes('p');
+  $('pointer-mode').querySelector('option[value=direct]').disabled=!directAvailable;
+  $('clipboard-phone').disabled=$('clipboard-host').disabled=!connected||!C.allowsPermission(N.capabilities,'clipboard');
   for(const el of document.querySelectorAll('.key--special,.key--mod'))el.disabled=!input||!!literal.pending||literal.busy;
  }
  function outcome(receipt,sent){
@@ -65,6 +68,7 @@
  function review(){
   $('file-review').replaceChildren();files.forEach((file,index)=>{const li=document.createElement('li');li.textContent=`${index+1}. ${file.name} · ${(file.size/1048576).toFixed(1)} MB `;
    for(const [label,action] of [['Subir',()=>{if(index>0){[files[index-1],files[index]]=[files[index],files[index-1]];bytes=[];review();}}],['Quitar',()=>{files.splice(index,1);bytes=[];review();}]]){const button=document.createElement('button');button.textContent=label;button.disabled=busy||!!batch;button.onclick=action;li.append(button);}$('file-review').append(li);});
+  $('cancel-files').disabled=busy;$('pause-files').disabled=!busy;
   $('file-picker').disabled=busy||!!batch;$('send-files').disabled=busy||!files.length;$('send-files').textContent=batch?'Reanudar mismo lote':'Enviar lote';$('copy-files').disabled=busy||!batch;
  }
  $('file-picker').onchange=()=>{bytes=[];files=Array.from($('file-picker').files);if(files.length>20){files=[];notice('El máximo es 20 archivos.');}review();};
