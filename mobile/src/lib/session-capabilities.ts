@@ -5,6 +5,23 @@ export type PermissionScope = 'view' | 'input' | 'files' | 'clipboard';
 export type Permission = { state: PermissionState; reason?: string };
 export type CapabilityState = 'available' | 'unavailable' | 'unsupported' | 'unknown';
 export type InputAction = 'm' | 'b' | 's' | 'k' | 'g' | 't';
+export type PointerGeometryKind = 'legacy-aspect-fit' | 'square-centered';
+export type PointerGeometryProfile = {
+  id: string;
+  kind: PointerGeometryKind;
+  sideMm?: number;
+  widthMm?: number;
+  heightMm?: number;
+  gainMmPerPoint?: number;
+  gainSource?: 'calibrated';
+  gainMinMmPerPoint?: number;
+  gainMaxMmPerPoint?: number;
+};
+export type PointerGeometryCapabilities = {
+  version: 1;
+  supportedProfiles: PointerGeometryProfile[];
+  applied: { id: string; geometryEpoch: number };
+};
 export type SessionCapabilities = {
   protocolVersion: 1 | 2;
   profile: 'legacy-v1' | 'negotiated-v2';
@@ -12,7 +29,7 @@ export type SessionCapabilities = {
   capabilityRevision: number;
   roles: string[];
   permissions: Record<PermissionScope, Permission>;
-  input: { state: CapabilityState; actions: InputAction[]; effective: boolean };
+  input: { state: CapabilityState; actions: InputAction[]; effective: boolean; pointerGeometry: PointerGeometryCapabilities | null };
   literal: CapabilityState;
   video: CapabilityState;
   media: MediaCapabilities | null;
@@ -24,6 +41,47 @@ const capabilityStates = ['available', 'unavailable', 'unsupported', 'unknown'];
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const invalid = () => Error('Las versiones de PhonePad no son compatibles. Actualizá la app y el equipo.');
 
+const pointerProfile = (value: unknown): value is PointerGeometryProfile => {
+  if (!record(value) || typeof value.id !== 'string' || !/^[a-z0-9-]{1,64}$/.test(value.id)
+    || (value.kind !== 'legacy-aspect-fit' && value.kind !== 'square-centered')) return false;
+  const positive = (candidate: unknown) => typeof candidate === 'number' && Number.isFinite(candidate) && candidate > 0;
+  if (value.kind === 'legacy-aspect-fit') {
+    return (value.widthMm === undefined || positive(value.widthMm))
+      && (value.heightMm === undefined || positive(value.heightMm))
+      && value.sideMm === undefined && value.gainMmPerPoint === undefined
+      && value.gainSource === undefined && value.gainMinMmPerPoint === undefined
+      && value.gainMaxMmPerPoint === undefined;
+  }
+  return value.widthMm === undefined && value.heightMm === undefined
+    && positive(value.sideMm) && positive(value.gainMmPerPoint)
+    && value.gainSource === 'calibrated'
+    && positive(value.gainMinMmPerPoint) && positive(value.gainMaxMmPerPoint)
+    && Number(value.gainMmPerPoint) >= Number(value.gainMinMmPerPoint)
+    && Number(value.gainMmPerPoint) <= Number(value.gainMaxMmPerPoint);
+};
+
+// Pointer geometry is an optional P04 extension. Older daemons omit it, and a
+// malformed extension must keep the byte-compatible legacy mapper rather than
+// turning a newly advertised profile into an unsafe coordinate transform.
+function parsePointerGeometry(value: unknown): PointerGeometryCapabilities | null {
+  if (!record(value) || value.version !== 1 || !Array.isArray(value.supportedProfiles)
+    || value.supportedProfiles.length < 1 || value.supportedProfiles.length > 8
+    || value.supportedProfiles.some(profile => !pointerProfile(profile))) return null;
+  const profiles = value.supportedProfiles as PointerGeometryProfile[];
+  const applied = record(value.applied) ? value.applied : null;
+  if (new Set(profiles.map(profile => profile.id)).size !== profiles.length
+    || !applied || typeof applied.id !== 'string'
+    || !/^[a-z0-9-]{1,64}$/.test(applied.id)
+    || !Number.isSafeInteger(applied.geometryEpoch)
+    || Number(applied.geometryEpoch) < 1
+    || !profiles.some(profile => profile.id === applied.id)) return null;
+  return {
+    version: 1,
+    supportedProfiles: profiles.map(profile => ({...profile})),
+    applied: {id: applied.id, geometryEpoch: Number(applied.geometryEpoch)},
+  };
+}
+
 // An absent version is an explicit legacy profile. A malformed advertisement
 // must never silently fall back to the old, unrestricted command path.
 export function parseSessionCapabilities(message: unknown): SessionCapabilities {
@@ -34,7 +92,7 @@ export function parseSessionCapabilities(message: unknown): SessionCapabilities 
       protocolVersion: 1, profile: 'legacy-v1', sessionEpoch: null, capabilityRevision: 0,
       roles: ['viewer', 'controller'],
       permissions: { view: {state: 'granted'}, input: {state: 'granted'}, files: {state: 'granted'}, clipboard: {state: 'granted'} },
-      input: {state: 'available', actions: [...actions], effective: true},
+      input: {state: 'available', actions: [...actions], effective: true, pointerGeometry: null},
       literal: message.input === undefined ? 'unsupported' : 'available', video: 'unknown', media: null,
     };
   }
@@ -64,7 +122,8 @@ export function parseSessionCapabilities(message: unknown): SessionCapabilities 
   return {
     protocolVersion: 2, profile: 'negotiated-v2', sessionEpoch: message.sessionEpoch,
     capabilityRevision: Number(message.capabilityRevision), roles: [...message.roles] as string[], permissions,
-    input: {state: input.state as CapabilityState, actions: [...input.actions] as InputAction[], effective: input.effective},
+    input: {state: input.state as CapabilityState, actions: [...input.actions] as InputAction[], effective: input.effective,
+      pointerGeometry: parsePointerGeometry(input.pointerGeometry)},
     literal: literal.state as CapabilityState, video: video.state as CapabilityState,
     media: parseMediaCapabilities(message.media),
   };

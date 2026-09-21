@@ -98,6 +98,9 @@ func TestCapabilitiesPayloadUsesPermissionAndCapabilityStates(t *testing.T) {
 	if capabilities.Literal.State != "unavailable" {
 		t.Fatalf("literal capability = %+v, want unavailable", capabilities.Literal)
 	}
+	if capabilities.Input.PointerGeometry != nil {
+		t.Fatalf("view-only pointer geometry = %+v, want omitted", capabilities.Input.PointerGeometry)
+	}
 	if got := payload["roles"].([]string); len(got) != 1 || got[0] != "viewer" {
 		t.Fatalf("roles = %v, want viewer", got)
 	}
@@ -112,6 +115,13 @@ func TestCapabilitiesPayloadUsesPermissionAndCapabilityStates(t *testing.T) {
 	demoSet := demoCapabilities["capabilities"].(capabilitySet)
 	if demoSet.Input.State != "available" || demoSet.Input.Effective {
 		t.Fatalf("demo input capability = %+v", demoSet.Input)
+	}
+	if demoSet.Input.PointerGeometry == nil || demoSet.Input.PointerGeometry.Applied.ID != "legacy-100x70" || demoSet.Input.PointerGeometry.Applied.GeometryEpoch != 1 {
+		t.Fatalf("demo pointer geometry = %+v", demoSet.Input.PointerGeometry)
+	}
+	profiles := demoSet.Input.PointerGeometry.SupportedProfiles
+	if len(profiles) != 1 || profiles[0].Kind != "legacy-aspect-fit" || profiles[0].WidthMM != 100 || profiles[0].HeightMM != 70 {
+		t.Fatalf("demo supported pointer profiles = %+v", profiles)
 	}
 	if got := demoCapabilities["roles"].([]string); len(got) != 2 || got[1] != "controller" {
 		t.Fatalf("demo roles = %v", got)

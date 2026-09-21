@@ -42,9 +42,33 @@ type Permissions struct {
 }
 
 type inputCapability struct {
-	State     string   `json:"state"`
-	Actions   []string `json:"actions"`
-	Effective bool     `json:"effective"`
+	State           string                     `json:"state"`
+	Actions         []string                   `json:"actions"`
+	Effective       bool                       `json:"effective"`
+	PointerGeometry *pointerGeometryCapability `json:"pointerGeometry,omitempty"`
+}
+
+type pointerGeometryProfile struct {
+	ID                string  `json:"id"`
+	Kind              string  `json:"kind"`
+	WidthMM           float64 `json:"widthMm,omitempty"`
+	HeightMM          float64 `json:"heightMm,omitempty"`
+	SideMM            float64 `json:"sideMm,omitempty"`
+	GainMMPerPoint    float64 `json:"gainMmPerPoint,omitempty"`
+	GainSource        string  `json:"gainSource,omitempty"`
+	GainMinMMPerPoint float64 `json:"gainMinMmPerPoint,omitempty"`
+	GainMaxMMPerPoint float64 `json:"gainMaxMmPerPoint,omitempty"`
+}
+
+type pointerGeometryApplied struct {
+	ID            string `json:"id"`
+	GeometryEpoch uint64 `json:"geometryEpoch"`
+}
+
+type pointerGeometryCapability struct {
+	Version           int                      `json:"version"`
+	SupportedProfiles []pointerGeometryProfile `json:"supportedProfiles"`
+	Applied           pointerGeometryApplied   `json:"applied"`
 }
 
 type literalCapability struct {
@@ -83,6 +107,19 @@ type geometryCapability struct {
 }
 
 var inputActions = []string{"m", "b", "s", "k", "g", "t"}
+
+// legacyPointerGeometry is the production-safe capability until a calibrated
+// device-local square profile is selected. The square candidate remains an
+// opt-in fixture and is therefore deliberately absent from this advertisement.
+func legacyPointerGeometry() *pointerGeometryCapability {
+	return &pointerGeometryCapability{
+		Version: 1,
+		SupportedProfiles: []pointerGeometryProfile{{
+			ID: "legacy-100x70", Kind: "legacy-aspect-fit", WidthMM: 100, HeightMM: 70,
+		}},
+		Applied: pointerGeometryApplied{ID: "legacy-100x70", GeometryEpoch: 1},
+	}
+}
 
 type mutationPermit struct {
 	scope        string
@@ -218,6 +255,10 @@ func (s *Server) capabilitiesPayloadLocked() map[string]any {
 		inputActionsValue = append(inputActionsValue, inputActions...)
 		effective = !s.demo
 	}
+	var pointerGeometry *pointerGeometryCapability
+	if s.inputAllowedLocked() {
+		pointerGeometry = legacyPointerGeometry()
+	}
 
 	literal := literalCapability{State: "unsupported", Reason: "no_literal_adapter"}
 	if !s.inputAllowedLocked() {
@@ -246,7 +287,7 @@ func (s *Server) capabilitiesPayloadLocked() map[string]any {
 		"roles":              roles,
 		"permissions":        permissions,
 		"capabilities": capabilitySet{
-			Input:   inputCapability{State: inputState, Actions: inputActionsValue, Effective: effective},
+			Input:   inputCapability{State: inputState, Actions: inputActionsValue, Effective: effective, PointerGeometry: pointerGeometry},
 			Literal: literal,
 			Video:   videoCapability{State: media.Video.State, Reason: media.Video.Reason, Codecs: media.Video.Codecs, SelectedCodec: media.Video.SelectedCodec},
 		},

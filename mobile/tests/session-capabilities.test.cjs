@@ -45,6 +45,34 @@ test('v2 negotiates explicitly and scopes all input to the current session, exce
   }finally{h.connection.stop();}
 });
 
+test('pointer geometry keeps supported profiles separate from the applied profile and epoch',()=>{
+  const h=harness();
+  const message=hello();
+  message.capabilities.input.pointerGeometry={version:1,
+    supportedProfiles:[{id:'legacy-100x70',kind:'legacy-aspect-fit',widthMm:100,heightMm:70},
+      {id:'square-centered',kind:'square-centered',sideMm:100,gainMmPerPoint:.12,
+        gainSource:'calibrated',gainMinMmPerPoint:.08,gainMaxMmPerPoint:.16}],
+    applied:{id:'legacy-100x70',geometryEpoch:4}};
+  const parsed=h.parseSessionCapabilities(message);
+  assert.equal(parsed.input.pointerGeometry.applied.id,'legacy-100x70');
+  assert.equal(parsed.input.pointerGeometry.applied.geometryEpoch,4);
+  assert.equal(parsed.input.pointerGeometry.supportedProfiles.length,2);
+});
+
+test('absent or malformed pointer geometry remains the legacy compatibility path',()=>{
+  const h=harness();
+  for(const pointerGeometry of [undefined,
+    {version:1,supportedProfiles:[{id:'square-centered',kind:'square-centered',sideMm:100,
+      gainMmPerPoint:.12,gainSource:'fixture',gainMinMmPerPoint:.08,gainMaxMmPerPoint:.16}],
+      applied:{id:'square-centered',geometryEpoch:2}},
+    {version:1,supportedProfiles:[],applied:{id:'legacy-100x70',geometryEpoch:1}}]){
+    const message=hello();
+    if(pointerGeometry === undefined) delete message.capabilities.input.pointerGeometry;
+    else message.capabilities.input.pointerGeometry=pointerGeometry;
+    assert.equal(h.parseSessionCapabilities(message).input.pointerGeometry,null);
+  }
+});
+
 test('legacy servers keep common commands without pretending to negotiate v2 or literal text',async()=>{
   const h=harness();try{
     const ws=await h.start({t:'ok'});h.connection.click('l');
