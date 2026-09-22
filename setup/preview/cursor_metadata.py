@@ -1,6 +1,7 @@
 """Bounded real-cursor metadata, coalesced onto the video's WebRTC connection."""
 import base64, hashlib, json, re, struct, subprocess, threading, time, zlib
 from pathlib import Path
+from cursor_theme import CursorTheme
 
 HELPER = Path(__file__).with_name('phonepad-cursor-metadata')
 
@@ -25,6 +26,7 @@ class CursorMetadata:
             raise RuntimeError('cursor metadata requires the validated BGRA DMA source')
         self.lock = threading.Lock(); self.ready = threading.Event(); self.failed = False
         self.latest = {'visible': False}; self.version = 0
+        self.theme = CursorTheme(); self.image_scale = (1,1); self.hotspot_offset = (0,0)
         self.process = subprocess.Popen([str(HELPER), str(node), modifier.group(0)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
         self.thread = threading.Thread(target=self.read, daemon=True); self.thread.start()
         if not self.ready.wait(2) or self.failed:
@@ -38,17 +40,26 @@ class CursorMetadata:
                 if not line.endswith(b'\n'): raise ValueError('cursor message too large')
                 value = json.loads(line)
                 if value.get('ready'):
+                    self.ready.set()
                     continue
                 if value.get('unsupported'): raise ValueError('unsupported cursor bitmap')
                 with self.lock:
                     state = dict(self.latest)
                     if 'rgba' in value:
-                        png = png_rgba(value['w'], value['h'], bytes.fromhex(value['rgba']))
+                        pixels = bytes.fromhex(value['rgba'])
+                        original_width, original_height = value['w'], value['h']
+                        enhanced = self.theme.resolve(original_width, original_height, pixels)
+                        self.image_scale = (1,1); self.hotspot_offset = (0,0)
+                        if enhanced:
+                            value['w'], value['h'], _hx, _hy, pixels = enhanced
+                            self.image_scale = (value['w']/original_width, value['h']/original_height)
+                            self.hotspot_offset = (_hx-value.get('hx',0)*self.image_scale[0],_hy-value.get('hy',0)*self.image_scale[1])
+                        png = png_rgba(value['w'], value['h'], pixels)
                         image = 'data:image/png;base64,' + base64.b64encode(png).decode()
                         if len(image) > 60000: raise ValueError('cursor image too large')
                         state.update(image=image, imageId=hashlib.sha256(png).hexdigest()[:16], w=value['w'], h=value['h'])
                     for key in ('x','y','hx','hy','visible'):
-                        if key in value: state[key] = value[key]
+                        if key in value: state[key] = value[key] * self.image_scale[0 if key == 'hx' else 1] + self.hotspot_offset[0 if key == 'hx' else 1] if key in ('hx','hy') else value[key]
                     if state != self.latest:
                         self.latest = state; self.version += 1
                     if 'visible' in value: self.ready.set()

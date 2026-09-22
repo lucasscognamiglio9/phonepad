@@ -1,3 +1,4 @@
+import { appearance } from './appearance';
 import { ScrollView, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { GlassButton } from './glass-button';
 import { GlassSurface } from './glass-surface';
@@ -16,10 +17,10 @@ export type LandscapeControlsFrame = {
   handleTop: number;
 };
 
-export const LANDSCAPE_CONTROL_SIZE = 44;
-export const LANDSCAPE_CONTROL_GAP = 6;
+export const LANDSCAPE_CONTROL_SIZE = appearance.control.size;
+export const LANDSCAPE_CONTROL_GAP = appearance.control.gap;
 export const LANDSCAPE_CONTROLS_PADDING = 8;
-export const LANDSCAPE_CONTROLS_CONTENT_HEIGHT = LANDSCAPE_CONTROL_SIZE * 4 + LANDSCAPE_CONTROL_GAP * 3 + LANDSCAPE_CONTROLS_PADDING * 2;
+export const LANDSCAPE_CONTROLS_CONTENT_HEIGHT = LANDSCAPE_CONTROL_SIZE * 3 + LANDSCAPE_CONTROL_GAP * 2 + LANDSCAPE_CONTROLS_PADDING * 2;
 
 function finite(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -53,57 +54,25 @@ export function getLandscapeControlsFrame(
   return { top, right: Math.max(8, rightInset + 8), height: railHeight, handleTop };
 }
 
-export function LandscapeControls({
-  visible,
-  show,
-  hide,
-  openKeyboard,
-  reconnect,
-  exitPreview,
-  disabled,
-  insets,
-  optionsLabel,
-}: {
-  visible: boolean;
-  show: () => void;
-  hide: () => void;
-  openKeyboard: () => void;
-  reconnect: () => void;
-  exitPreview: () => void;
-  disabled: boolean;
-  insets: LandscapeControlsInsets;
-  optionsLabel?: string;
+export function LandscapeControls({ openKeyboard, reconnect, openOptions, exitPreview, disabled, insets, viewportInsetBottom=0 }: {
+  openKeyboard: () => void; reconnect: () => void; openOptions: () => void;
+  exitPreview: () => void; disabled: boolean; insets: LandscapeControlsInsets; viewportInsetBottom?: number;
 }) {
   const { height } = useWindowDimensions();
-  const frame = getLandscapeControlsFrame(height, insets);
-
-  if (!visible) {
-    return <View pointerEvents="box-none" style={styles.overlay}>
-      <View pointerEvents="box-none" style={[styles.positioner, { top: frame.handleTop, right: frame.right, height: LANDSCAPE_CONTROL_SIZE }]}>
-        <GlassSurface interactive style={styles.handleSurface}>
-          <GlassButton compact label="Mostrar controles" action="showControls" onPress={show} />
-        </GlassSurface>
-      </View>
-    </View>;
-  }
-
+  const frame = getLandscapeControlsFrame(Math.max(1,height-viewportInsetBottom), insets);
   return <View pointerEvents="box-none" style={styles.overlay}>
     <View pointerEvents="box-none" style={[styles.positioner, { top: frame.top, right: frame.right, height: frame.height }]}>
       <GlassSurface interactive material="regular" style={[styles.railSurface, { height: frame.height }]}>
-        <ScrollView
-          style={[styles.scroll, { height: frame.height }]}
-          contentContainerStyle={styles.content}
-          bounces={false}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
-          keyboardDismissMode="none"
-        >
-          <GlassButton compact label="Ocultar controles" action="hideControls" onPress={hide} />
+        <ScrollView style={[styles.scroll, { height: frame.height }]} contentContainerStyle={styles.content}
+          bounces={false} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
           <GlassButton compact label="Teclado" action="keyboard" disabled={disabled} onPress={openKeyboard} />
-          <GlassButton compact label={optionsLabel ?? "Reconectar"} action={optionsLabel ? "shortcuts" : "reconnect"} onPress={reconnect} />
-          <GlassButton compact label="Ocultar pantalla" action="screen" onPress={exitPreview} />
+          <GlassButton compact label="Reconectar" action="reconnect" onPress={reconnect} />
+          <GlassButton compact label="Mouse" action="mouse" onPress={openOptions} />
         </ScrollView>
       </GlassSurface>
+    </View>
+    <View style={{position:'absolute',left:insets.left+8,top:frame.top}}>
+      <GlassButton label="Ocultar pantalla" action="screen" onPress={exitPreview} />
     </View>
   </View>;
 }

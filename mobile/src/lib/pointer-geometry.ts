@@ -153,6 +153,6 @@ export function mapCalibratedPointerSnapshot(points: readonly PointerPoint[], su
  const width=finitePositive(surface.width,1),height=finitePositive(surface.height,1);
  const w=geometry.kind==='square-centered'?geometry.sideMm:geometry.widthMm;
  const h=geometry.kind==='square-centered'?geometry.sideMm:geometry.heightMm;
- const scale=(geometry.kind==='square-centered'?geometry.gainMmPerPoint:Math.min(w,h)/Math.max(width,height))*Math.max(.5,Math.min(2,gain));
+ const scale=(geometry.kind==='square-centered'?geometry.gainMmPerPoint:Math.min(w,h)/Math.max(width,height))*Math.max(.5,Math.min(4,gain));
  return points.map(p=>({id:p.id,x:clampUnit(.5+(coordinate(p.x)-width/2)*scale/w),y:clampUnit(.5+(coordinate(p.y)-height/2)*scale/h)})).sort((a,b)=>a.id-b.id);
 }

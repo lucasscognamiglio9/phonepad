@@ -25,7 +25,7 @@ import type { ActionReceipt } from '../lib/protocol';
 import { textCommands } from '../lib/protocol';
 
 type MenuAnchor = { x: number; y: number; width: number; height: number };
-type MenuAction = AttachmentSource | 'keyboard';
+type MenuAction = AttachmentSource;
 type ActionDispatch = { accepted: boolean; receiptAware: boolean; operationId: string | null };
 type HeldAction = { operationId: string; key: string; initialTimer?: ReturnType<typeof setTimeout>; repeatTimer?: ReturnType<typeof setInterval> };
 
@@ -416,11 +416,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     setMenuAnchor(null);
     // A late modal dismissal after rotation must not reopen the hidden field.
     if (!visible) return;
-    if (action === 'keyboard') {
-      if (disabled) return;
-      open();
-      input.current?.focus();
-    } else if (action) {
+    if (action) {
       if (!allowAttachments) return;
       close();
       choose(action);
@@ -456,7 +452,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   };
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
     <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss}
-      keyboardAllowed={!disabled} attachmentsAllowed={allowAttachments} />
+      attachmentsAllowed={allowAttachments} />
     <KeyboardStickyView pointerEvents="box-none" enabled={followsKeyboard}
       offset={{ closed: 0, opened: keyboardStickyOpenedOffset(windowResize, closedBottom, COMPOSER_OPEN_GAP) }}
       style={{ position: 'absolute', bottom: closedBottom, alignSelf: 'center' }}>
@@ -489,7 +485,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       {!!actionStatus && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>{actionStatus}</Text>
       </GlassSurface>}
-      {active && shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
+      {shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
           {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: 44, alignItems: 'center' }}>
@@ -561,7 +557,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             onKeyPress={event => { if (!literalMode && event.nativeEvent.key === 'Backspace' && !previous.current) special('Backspace'); }}
             onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
             scrollEnabled={active}
-            style={{ color: appearance.color.text, fontSize: 16, lineHeight: 22, marginLeft: active ? 88 : 44, marginRight: 44, paddingHorizontal: 4, paddingVertical: 11, height: MIN_TOUCH_TARGET, textAlignVertical: 'center' }} />
+            style={{ color: appearance.color.text, fontSize: 16, lineHeight: 22, marginLeft: 88, marginRight: 44, paddingHorizontal: 4, paddingVertical: 11, height: MIN_TOUCH_TARGET, textAlignVertical: 'center' }} />
         <View pointerEvents="box-none" onLayout={event => {
           const next = event.nativeEvent.layout.height;
           if (next > 0 && next !== actionBarHeight) setActionBarHeight(next);
@@ -573,13 +569,13 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               <GlassButton compact label="Agregar" action="more"
                 disabled={choosing || (disabled && !allowAttachments)} onPress={openMenu} />
             </View>
-            {active && <>
+            {<>
               <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" action="shortcuts" selected={shortcuts || mods.length > 0}
                 onPress={() => setShortcuts(current => !current)} /></View>
               <View pointerEvents="none" style={{ flex: 1 }} />
 
             </>}
-            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label={literalMode && value ? "Enviar texto" : "Enter"} action="enter" disabled={literalMode && value ? disabled || sending || deliveryIssue || !!literal?.pending : keysDisabled} onPress={() => { if (literalMode && draft.current) void writeText(); else submit(); }} /></View>
+            <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label={literalMode && value ? "Enviar texto" : "Enter"} action="send" disabled={literalMode && value ? disabled || sending || deliveryIssue || !!literal?.pending : keysDisabled} onPress={() => { if (literalMode && draft.current) void writeText(); else submit(); }} /></View>
           </View>
         </View>
       </GlassSurface>

@@ -1,4 +1,4 @@
-import { cursorPlacement, type CursorState } from '../lib/cursor';
+import { CURSOR_POINTS, cursorPlacement, type CursorState } from '../lib/cursor';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { AppState, View, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
@@ -80,7 +80,7 @@ export function removeChangedTouchContacts(
 }
 
 export function TouchSurface({ connection, children, preview, dismissKeyboard,
-  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0, cursor = null }: {
+  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0, cursor = null, cursorScale = .75 }: {
   connection: Connection;
   children?: ReactNode;
   preview: boolean;
@@ -93,6 +93,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   videoSize?: { width?: number; height?: number };
   viewportInsetBottom?: number;
   cursor?: CursorState | null;
+  cursorScale?: number;
 }) {
   const width = useSharedValue(1);
   const height = useSharedValue(1);
@@ -187,7 +188,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     ],
   })) as unknown as ViewStyle;
 
-  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, width.value, Math.max(1,height.value-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value));
+  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, width.value, Math.max(1,height.value-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value, CURSOR_POINTS * cursorScale));
 
   useEffect(() => {
     // A mode switch, including entering preview or changing the keyboard
@@ -310,7 +311,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         previewScale.value = nextScale;
         const bounds = previewPanBounds({ width: width.value, height: Math.max(1, height.value - viewportInsetBottom) }, nextScale);
         previewOffsetX.value = Math.min(bounds.x, Math.max(-bounds.x, previewOffsetX.value));
-        previewOffsetY.value = Math.min(bounds.y, Math.max(-bounds.y, previewOffsetY.value));
+        previewOffsetY.value = Math.min(bounds.y, Math.max(-bounds.y, previewOffsetY.value, CURSOR_POINTS * cursorScale));
       });
     const pan = Gesture.Pan()
       .enabled(preview && !disabled && !dismissKeyboard)

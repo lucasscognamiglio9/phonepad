@@ -89,12 +89,14 @@ test('compact field expands on focus without swapping the native input; arrows s
   h.click('Teclas extra'); assert.ok(h.find('GlassButton', 'Arriba')); assert.ok(h.find('GlassButton', 'Enter'));
   h.click('Teclas extra'); assert.equal(h.find('GlassButton', 'Arriba'), undefined);
 });
-test('the collapsed composer keeps plus and Enter inside the field', () => {
+test('the collapsed composer keeps plus, shortcuts and the send symbol inside the field', () => {
   const h = harness();
   const input = h.find('TextInput');
   assert.ok(h.find('GlassButton', 'Agregar'));
   assert.ok(h.find('GlassButton', 'Enter'));
-  assert.equal(input.props.style.marginLeft, 44);
+  assert.ok(h.find('GlassButton', 'Teclas extra'));
+  assert.equal(h.find('GlassButton','Enter').props.action,'send');
+  assert.equal(input.props.style.marginLeft, 88);
   assert.equal(input.props.style.paddingVertical, 11);
   assert.equal(input.props.style.height, 44);
   assert.equal(input.props.style.textAlignVertical, 'center');
@@ -105,6 +107,8 @@ test('the collapsed composer keeps plus and Enter inside the field', () => {
 test('expanded composer keeps placeholder and actions on one row', () => {
   const h = harness(); h.props.active = true; h.render();
   const input = h.find('TextInput');
+  assert.ok(h.find('GlassButton', 'Teclas extra'));
+  assert.equal(h.find('GlassButton','Enter').props.action,'send');
   assert.equal(input.props.style.marginLeft, 88);
   assert.equal(input.props.style.paddingVertical, 11);
   assert.equal(input.props.style.height, 44);
@@ -464,7 +468,7 @@ test('revoking input still allows receipt review and explicit local discard with
 test('files permission can keep attachments available when input is unavailable',()=>{
  const h=harness();h.props.disabled=true;h.props.allowAttachments=true;h.render();h.render();
  assert.equal(h.find('GlassButton','Agregar').props.disabled,false);
- h.click('Agregar');assert.equal(h.find('ActionMenu').props.keyboardAllowed,false);
+ h.click('Agregar');assert.equal(h.find('ActionMenu').props.keyboardAllowed,undefined);
  h.find('ActionMenu').props.choose('photos');h.render();assert.deepEqual(h.chosen,['photos']);
  h.props.allowAttachments=false;h.render();h.find('ActionMenu').props.choose('files');
  assert.deepEqual(h.chosen,['photos']);

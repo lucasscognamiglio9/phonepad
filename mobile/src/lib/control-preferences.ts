@@ -2,11 +2,11 @@ import { Buffer } from 'buffer';
 import { File, Paths } from 'expo-file-system';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-export type ControlPreferences = { mode: 'direct' | 'trackpad'; gain: number };
-export const DEFAULT_CONTROL_PREFERENCES: ControlPreferences = { mode: 'trackpad', gain: 1 };
+export type ControlPreferences = { mode: 'direct' | 'trackpad'; gain: number; cursorScale: number };
+export const DEFAULT_CONTROL_PREFERENCES: ControlPreferences = { mode: 'trackpad', gain: 2, cursorScale: .75 };
 export function parseControlPreferences(value: unknown): ControlPreferences {
  const v = value as Partial<ControlPreferences> | null;
- return { mode: v?.mode === 'direct' ? 'direct' : 'trackpad', gain: typeof v?.gain === 'number' && Number.isFinite(v.gain) ? Math.min(2, Math.max(.5, v.gain)) : 1 };
+ return { mode: v?.mode === 'direct' ? 'direct' : 'trackpad', gain: typeof v?.gain === 'number' && Number.isFinite(v.gain) ? Math.min(4, Math.max(.5, v.gain)) : 2, cursorScale: typeof v?.cursorScale === 'number' && Number.isFinite(v.cursorScale) ? Math.min(1.5, Math.max(.5, v.cursorScale)) : .75 };
 }
 function settingsFile(origin: string, slot: string) {
  return new File(Paths.document, `.phonepad-controls-${bytesToHex(sha256(Buffer.from(origin, 'utf8')))}-${slot}.json`);

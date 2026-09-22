@@ -73,10 +73,10 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
 
   // Bound the response body as well as the connection. Parent cancellation also
   // cancels in-flight signaling when iOS backgrounds the app or preview closes.
-  const request = async (path: string, data?: object) => {
+  const request = async (path: string, data?: object, timeoutMs = 5000) => {
     const controller = new AbortController();
     const abort = () => controller.abort();
-    const timeout = setTimeout(abort, 5000);
+    const timeout = setTimeout(abort, timeoutMs);
     lifetime.signal.addEventListener('abort', abort, { once: true });
     try {
       if (lifetime.signal.aborted || (controlEpoch && sessionEpoch !== controlEpoch())) throw Error('Cancelado');
@@ -92,7 +92,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   };
   const call = (data: {op: string; [key: string]: unknown}) => request('/api/preview/rtc', {
     ...data, ...(!['start', 'stop', 'diagnostic'].includes(data.op) ? media.coordinates() : {}),
-  });
+  }, data.op === 'start' ? 20000 : 5000);
   const stop = () => {
     if (!stopped) {
       stopped = true;
@@ -131,7 +131,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   signal.addEventListener('abort', stop, { once: true });
   watchdog = setInterval(() => {
     if (cursorAt && Date.now()-cursorAt>2500) { cursorAt=0; onCursor?.(null); }
-    if (!suspended && Date.now() - lastFrameAt >= (hasFrames ? 8000 : 12000)) {
+    if (!suspended && Date.now() - lastFrameAt >= (hasFrames ? 8000 : 25000)) {
       fail(Error('Reconectando la pantalla…'));
     }
   }, 1000);
@@ -236,6 +236,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     };
     void feedback(); return Object.assign(stop, { setActive, getDiagnostics: () => diagnostics }) as VideoSession;
   } catch (error) {
+    if (!signal.aborted) console.warn('[PhonePad video]', {phase, error: error instanceof Error ? error.message : String(error)});
     if (!signal.aborted) {
       const report = new AbortController();
       const timeout = setTimeout(() => report.abort(), 2000);

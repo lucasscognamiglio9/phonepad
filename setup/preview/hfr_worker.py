@@ -75,13 +75,14 @@ try:
                 if cursor:cursor.set_active(False)
             if data.get('op')=='feedback' and not os.environ.get('PHONEPAD_HFR_ROOT'):power.refresh()
             if data.get('op')=='start':
-                mirror.activate();started=True
+                started=True
                 result['cursorMode'] = data['cursorMode']
                 if data['cursorMode'] == 'metadata':
                     source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
                     reader=CursorMetadata(mirror.node, source_caps.to_string())
                     manager.session.cursor_sender=CursorSender(manager.session, reader, rtc.GLib)
-                elif 'PHONEPAD_CURSOR_FD' in os.environ:
+                mirror.activate()
+                if data['cursorMode'] != 'metadata' and 'PHONEPAD_CURSOR_FD' in os.environ:
                     source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
                     cursor=EmbeddedCursor(int(os.environ['PHONEPAD_CURSOR_FD']),int(os.environ['PHONEPAD_CURSOR_NODE']),source_caps)
                     try:cursor.start()

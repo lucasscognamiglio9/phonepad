@@ -45,7 +45,7 @@ export type ActionMenuLayout = {
 
 export const ACTION_MENU_WIDTH = 248;
 export const ACTION_MENU_ROW_HEIGHT = 52;
-export const ACTION_MENU_HEIGHT = ACTION_MENU_ROW_HEIGHT * 4 + 16;
+export const ACTION_MENU_HEIGHT = ACTION_MENU_ROW_HEIGHT * ATTACHMENT_MENU_ACTIONS.length + 16;
 const ACTION_MENU_GAP = 10;
 const ACTION_MENU_MARGIN = 12;
 
@@ -114,16 +114,15 @@ export function getActionMenuLayout(
   return { left, top, width: menuWidth, height: menuHeight, originX, originY };
 }
 
-type Action = AttachmentSource | 'keyboard';
+type Action = AttachmentSource;
 
 const items = ATTACHMENT_MENU_ACTIONS.map(key => ({ key, ...ACTIONS[key] }));
 
-export function ActionMenu({ anchor, close, choose, onDismiss, keyboardAllowed = true, attachmentsAllowed = true }: {
+export function ActionMenu({ anchor, close, choose, onDismiss, attachmentsAllowed = true }: {
   anchor: ActionMenuAnchor | null;
   close: () => void;
   choose: (action: Action) => void;
   onDismiss?: () => void;
-  keyboardAllowed?: boolean;
   attachmentsAllowed?: boolean;
 }) {
   const { width, height } = useWindowDimensions();
@@ -297,11 +296,11 @@ export function ActionMenu({ anchor, close, choose, onDismiss, keyboardAllowed =
               testID={`phonepad-action-${item.key}`}
               accessibilityRole="button"
               accessibilityLabel={item.label}
-              disabled={item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed}
-              accessibilityState={{ disabled: item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed }}
+              disabled={!attachmentsAllowed}
+              accessibilityState={{ disabled: !attachmentsAllowed }}
               onPress={() => select(item.key)}
               style={({ pressed }) => [styles.row, pressed && styles.rowPressed,
-                (item.key === 'keyboard' ? !keyboardAllowed : !attachmentsAllowed) && styles.rowDisabled]}
+                (!attachmentsAllowed) && styles.rowDisabled]}
             >
               <View style={styles.icon}>
                 <ActionIcon action={item.key} />

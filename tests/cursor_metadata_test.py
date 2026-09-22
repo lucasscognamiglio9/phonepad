@@ -1,7 +1,8 @@
-import pathlib,sys,struct,zlib,unittest,json
+import pathlib,sys,struct,zlib,unittest,json,tempfile
 from types import SimpleNamespace
 sys.path.insert(0,str(pathlib.Path(__file__).resolve().parents[1]/'setup/preview'))
 from cursor_metadata import png_rgba,CursorSender
+from cursor_theme import CursorTheme,frames
 class CursorTests(unittest.TestCase):
  def test_png_alpha_and_bounds(self):
   image=png_rgba(1,1,bytes([64,32,0,128]));self.assertTrue(image.startswith(b'\x89PNG\r\n\x1a\n'))
@@ -25,4 +26,28 @@ class CursorTests(unittest.TestCase):
   session.suspended=False;sender.send();self.assertEqual(len(sent),1);self.assertEqual(sent[0]['sequence'],1)
   sender.send();self.assertEqual(len(sent),1)
   sender.close()
+class ThemeTests(unittest.TestCase):
+ def fixture(self):
+  low=bytes([80,40,20,255])*4
+  high=bytes([90,45,22,255])*16
+  chunks=[]
+  for size,pixels in [(2,low),(4,high)]:
+   bgra=bytearray(pixels);bgra[0::4],bgra[2::4]=pixels[2::4],pixels[0::4]
+   chunks.append(struct.pack('<9I',36,0xfffd0002,size,1,size,size,1,1,0)+bgra)
+  head=struct.pack('<4I',0x72756358,16,1,2);offset=40
+  for size,chunk in zip([2,4],chunks):head+=struct.pack('<3I',0xfffd0002,size,offset);offset+=len(chunk)
+  return head+b''.join(chunks),low,high
+ def test_exact_theme_frame_uses_higher_resolution_without_guessing_custom_cursor(self):
+  data,low,high=self.fixture()
+  with tempfile.TemporaryDirectory() as root:
+   folder=pathlib.Path(root);(folder/'arrow').write_bytes(data)
+   theme=CursorTheme([folder])
+   self.assertEqual(theme.resolve(2,2,low),(4,4,1,1,high))
+   self.assertIsNone(theme.resolve(2,2,bytes([0,0,0,0])*4))
+ def test_truncated_theme_cannot_supply_partial_pixels(self):
+  data,_,_=self.fixture()
+  self.assertEqual(frames(b''),[])
+  self.assertEqual(len(frames(data[:-1])),1)
+  self.assertEqual(frames(b'bad!'+data[4:]),[])
+
 if __name__=='__main__':unittest.main()

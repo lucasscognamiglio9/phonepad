@@ -55,7 +55,8 @@ export class PreviewLifecycle<T> {
     }).catch(error => { if (generation === this.generation) this.failed(error); });
   }
   private failed(error: Error) {
-    this.clear(); this.message(error.message);
+    console.warn('[PhonePad preview]', error);
+    this.clear(); this.message('No se pudo conectar la pantalla. Reintentando…');
     if (this.wanted && this.active && this.ready) this.retry = setTimeout(() => {
       this.retry = undefined; this.ensure();
     }, 1500);

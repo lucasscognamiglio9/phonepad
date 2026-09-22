@@ -6,7 +6,13 @@ test('control preferences survive a torn journal, stay per-host, and need no Tex
  exports.saveControlPreferences('https://a',{mode:'direct',gain:1.5});
  exports.saveControlPreferences('https://a',{mode:'trackpad',gain:2});
  assert.equal(exports.loadControlPreferences('https://a').gain,2);
- assert.equal(exports.loadControlPreferences('https://b').gain,1);
+ assert.equal(exports.loadControlPreferences('https://b').gain,2);
+ assert.equal(exports.loadControlPreferences('https://b').cursorScale,.75);
+ exports.saveControlPreferences('https://c',{gain:4,cursorScale:1.5,mode:'trackpad'});
+ assert.equal(exports.loadControlPreferences('https://c').gain,4);
+ assert.equal(exports.loadControlPreferences('https://c').cursorScale,1.5);
+ assert.equal(exports.parseControlPreferences({gain:999,cursorScale:0}).gain,4);
+ assert.equal(exports.parseControlPreferences({gain:999,cursorScale:0}).cursorScale,.5);
  const last=[...data.keys()].find(name=>name.endsWith('-b.json'));data.set(last,'{"version":');
  assert.equal(exports.loadControlPreferences('https://a').mode,'direct');
  assert.equal(exports.loadControlPreferences('https://a').gain,1.5);

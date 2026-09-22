@@ -37,3 +37,13 @@ test('Expo-serialized cursor worklet runs in the isolated UI runtime on mount',(
  assert.equal(isolated.call(original,cursor,390,844).width,28);
  assert.equal(isolated.call(original,cursor,390,844,2,0,0,40).width,40);
 });
+
+test('cursor resizing keeps its hotspot aligned at all supported sizes',()=>{
+ const c=new mod.CursorReceiver().accept(JSON.stringify(packet));
+ for(const factor of [.5,.75,1,1.5]){
+  const pos=mod.cursorPlacement(c,400,800,2,10,-20,28*factor);
+  assert.equal(pos.width,28*factor);
+  assert.ok(Math.abs(pos.left+c.hx*pos.width/c.w-210)<1e-8);
+  assert.ok(Math.abs(pos.top+c.hy*pos.height/c.h-380)<1e-8);
+ }
+});

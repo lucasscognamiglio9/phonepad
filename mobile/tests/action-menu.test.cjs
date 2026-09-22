@@ -82,7 +82,7 @@ test('keeps the popup above the composer and inside horizontal safe-area margins
     insets,
   );
   assert.equal(layout.left, 78);
-  assert.equal(layout.top, 496);
+  assert.equal(layout.top, 548);
   assert.ok(layout.originX > 0 && layout.originX < ACTION_MENU_WIDTH);
   assert.ok(layout.originY > 0 && layout.originY < ACTION_MENU_HEIGHT);
 });
@@ -102,7 +102,7 @@ test('moves below a high anchor and clamps to the keyboard top when needed', () 
     insets,
     350,
   );
-  assert.equal(aboveKeyboard.top, 258);
+  assert.equal(aboveKeyboard.top, 310);
   assert.ok(aboveKeyboard.top + ACTION_MENU_HEIGHT <= 844 - 350 - 12);
 });
 

@@ -22,6 +22,7 @@ function loadLandscapeControls(overrides = {}) {
       View: 'View',
       useWindowDimensions: () => ({ height: 390 }),
     },
+    './appearance': require('./appearance-fixture.cjs'),
     './glass-button': { GlassButton: 'GlassButton' },
     './glass-surface': { GlassSurface: 'GlassSurface' },
     'react/jsx-runtime': {
@@ -63,6 +64,7 @@ function componentHarness({ height = 390, visible = false } = {}) {
       View: 'View',
       useWindowDimensions: () => ({ height }),
     },
+    './appearance': require('./appearance-fixture.cjs'),
     './glass-button': { GlassButton: 'GlassButton' },
     './glass-surface': { GlassSurface: 'GlassSurface' },
     'react/jsx-runtime': {
@@ -77,6 +79,7 @@ function componentHarness({ height = 390, visible = false } = {}) {
     hide: () => calls.push('hide'),
     openKeyboard: () => calls.push('keyboard'),
     reconnect: () => calls.push('reconnect'),
+    openOptions: () => calls.push('mouse'),
     exitPreview: () => calls.push('exit'),
     disabled: true,
     insets: { top: 0, right: 59, bottom: 21, left: 0 },
@@ -90,34 +93,11 @@ function componentHarness({ height = 390, visible = false } = {}) {
   return { tree, calls, nodes: () => nodes(tree) };
 }
 
-test('hidden mode exposes only a safe glass handle and its press is UI-only', () => {
-  const h = componentHarness();
-  const buttons = h.nodes().filter(node => node.type === 'GlassButton');
-  assert.equal(buttons.length, 1);
-  assert.equal(buttons[0].props.label, 'Mostrar controles');
-  assert.equal(buttons[0].props.action, 'showControls');
-  buttons[0].props.onPress();
-  assert.deepEqual(h.calls, ['show']);
-  const roots = h.nodes().filter(node => node.type === 'View');
-  assert.ok(roots.every(node => node.props.pointerEvents === 'box-none'));
-});
-
-test('visible mode keeps four controls in one scrollable glass capsule', () => {
-  const h = componentHarness({ height: 180, visible: true });
-  const buttons = h.nodes().filter(node => node.type === 'GlassButton');
-  assert.deepEqual(buttons.map(node => node.props.label), [
-    'Ocultar controles', 'Teclado', 'Reconectar', 'Ocultar pantalla',
-  ]);
-  assert.deepEqual(buttons.map(node => node.props.action), [
-    'hideControls', 'keyboard', 'reconnect', 'screen',
-  ]);
-  assert.equal(buttons[1].props.disabled, true);
-  assert.equal(h.nodes().filter(node => node.type === 'GlassSurface').length, 1);
-  assert.ok(buttons.every(node => node.props.compact), 'buttons share the capsule material');
-  const scroll = h.nodes().find(node => node.type === 'ScrollView');
-  assert.equal(scroll.props.keyboardShouldPersistTaps, 'always');
-  assert.equal(scroll.props.keyboardDismissMode, 'none');
-  assert.ok(scroll.props.style.some(style => style.height === 143));
-  buttons.forEach(button => button.props.onPress());
-  assert.deepEqual(h.calls, ['hide', 'keyboard', 'reconnect', 'exit']);
+test('three permanent actions share real glass while exit stays separate',()=>{
+ const h=componentHarness();const buttons=h.nodes().filter(n=>n.type==='GlassButton');
+ assert.deepEqual(buttons.map(n=>n.props.label),['Teclado','Reconectar','Mouse','Ocultar pantalla']);
+ const scroll=h.nodes().find(n=>n.type==='ScrollView');
+ assert.deepEqual(Array.from(scroll.props.children,n=>n.props.action),['keyboard','reconnect','mouse']);
+ buttons.forEach(n=>n.props.onPress());assert.deepEqual(h.calls,['keyboard','reconnect','mouse','exit']);
+ assert.equal(h.nodes().filter(n=>n.type==='GlassSurface').length,1);
 });

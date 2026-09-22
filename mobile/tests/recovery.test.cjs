@@ -241,14 +241,14 @@ test('a frozen video recovers even though its network feedback still succeeds', 
 });
 
 test('a negotiated track without decoded frames cannot stay connected indefinitely', async () => {
-  const h = video({ empty: true }); await h.start(); await h.time.advance(12000);
+  const h = video({ empty: true }); await h.start(); await h.time.advance(25000);
   assert.equal(h.failures.length, 1); assert.equal(h.time.pending, 0);
 });
 
 test('a stuck native negotiation rejects once so the screen can reconnect', async () => {
   const h = video({ hangNative: true });
   const rejected = assert.rejects(h.start(), /Reconectando/);
-  await h.time.advance(12000); await rejected; await drain();
+  await h.time.advance(25000); await rejected; await drain();
   assert.equal(h.failures.length, 0); assert.equal(h.peers[0].closed, 1);
   assert.equal(h.time.pending, 0);
 });
@@ -371,4 +371,20 @@ test('feedback integration resets on route switch and consumes encoder diagnosti
   await session.setActive(false); await session.setActive(true); await drain();
   assert.equal(h.calls.filter(c => c.op === 'feedback').at(-1).loss, null);
   session();
+});
+
+test('manual reconnect waits for a fresh input handshake before starting video',async()=>{
+ const h=previewLifecycle();h.lifecycle.update(true,true,true);await drain();
+ h.lifecycle.update(true,true,false);h.lifecycle.restart();await drain();
+ assert.equal(h.sessions.length,1);assert.equal(h.sessions[0].closed,1);
+ h.lifecycle.update(true,true,true);await drain();assert.equal(h.sessions.length,2);
+ h.lifecycle.dispose();assert.equal(h.time.pending,0);
+});
+test('native error details never become the visible reconnect message',async()=>{
+ const time=clock(),messages=[];
+ const {PreviewLifecycle}=load('preview-lifecycle.ts',{...time.env,console:{warn:()=>{}}});
+ const lifecycle=new PreviewLifecycle(async()=>{throw Error('RCTWebRTC native SDP stack trace');},()=>{},s=>messages.push(s));
+ lifecycle.update(true,true,true);await drain();
+ assert.equal(messages.at(-1),'No se pudo conectar la pantalla. Reintentando…');
+ assert.ok(messages.every(s=>!s.includes('RCTWebRTC')));lifecycle.dispose();
 });

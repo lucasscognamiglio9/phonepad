@@ -25,9 +25,11 @@ export const ACTIONS = {
   right: { label: 'Derecha', symbol: { ios: 'arrow.right', android: 'arrow_forward', web: 'arrow_forward' }, fallback: '→' },
   more: { label: 'Agregar', symbol: { ios: 'plus', android: 'add', web: 'add' }, fallback: '+' },
   shortcuts: { label: 'Teclas extra', symbol: { ios: 'keyboard.badge.ellipsis', android: 'keyboard_alt', web: 'keyboard_alt' }, fallback: '⋯' },
+  mouse: { label: 'Mouse', symbol: { ios: 'computermouse', android: 'mouse', web: 'mouse' }, fallback: '◇' },
+  send: { label: 'Enviar', symbol: { ios: 'arrow.up.circle.fill', android: 'arrow_circle_up', web: 'arrow_circle_up' }, fallback: '↑' },
   enter: { label: 'Enter', symbol: { ios: 'return', android: 'keyboard_return', web: 'keyboard_return' }, fallback: '↵' },
   help: { label: 'Ayuda', symbol: { ios: 'questionmark.circle', android: 'help_outline', web: 'help_outline' }, fallback: '?' },
 } as const satisfies Record<string, Action>;
 
 export type ActionID = keyof typeof ACTIONS;
-export const ATTACHMENT_MENU_ACTIONS = ['keyboard', 'files', 'camera', 'photos'] as const;
+export const ATTACHMENT_MENU_ACTIONS = ['files', 'camera', 'photos'] as const;

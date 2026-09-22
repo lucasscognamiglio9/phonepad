@@ -19,7 +19,7 @@ export function GlassButton({ label: customLabel, action, onPress, onPressIn, on
       onPressIn={onPressIn} onPressOut={onPressOut}
       onPress={() => { void Haptics.selectionAsync().catch(() => {}); onPress(); }}
       style={({ pressed }) => ({ minHeight: appearance.control.size, minWidth: appearance.control.size, borderRadius: 24, paddingHorizontal: compact ? 0 : action ? 12 : 20, alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.4 : pressed ? 0.72 : 1 })}>
-      {action ? <ActionIcon action={action} color={selected ? appearance.color.text : appearance.color.text} /> : <Text style={{ color: selected ? appearance.color.text : appearance.color.text, fontSize: compact ? 12 : 15, fontWeight: '500' }}>{label}</Text>}
+      {action ? <ActionIcon action={action} size={action === 'send' ? appearance.control.sendIconSize : appearance.control.iconSize} color={selected ? appearance.color.text : appearance.color.text} /> : <Text style={{ color: selected ? appearance.color.text : appearance.color.text, fontSize: compact ? 12 : 15, fontWeight: '500' }}>{label}</Text>}
     </Pressable>;
   if (compact) return content;
   return <GlassSurface interactive style={{ borderRadius: appearance.control.capsuleRadius }}>{content}</GlassSurface>;

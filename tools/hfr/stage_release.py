@@ -23,7 +23,7 @@ for name, digest in manifest['files'].items():
         raise SystemExit('Runtime checksum failed: ' + name)
 if args.cursor_helper and not args.datachannel_runtime: raise SystemExit('Cursor metadata requires the SCTP runtime')
 destination.mkdir(parents=True, exist_ok=False)
-for name in ('capture.py', 'rtc.py', 'rate_control.py', 'frame_freshness.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'cursor_lease.py', 'cursor_metadata.py', 'media_contract.py'):
+for name in ('capture.py', 'rtc.py', 'rate_control.py', 'frame_freshness.py', 'gcc_controller.py', 'virtual_source.py', 'process_backend.py', 'hfr_runtime.py', 'hfr_worker.py', 'power_lease.py', 'cursor_capture.py', 'cursor_lease.py', 'cursor_metadata.py', 'cursor_theme.py', 'media_contract.py'):
     shutil.copyfile(source/name, destination/name)
 if args.cursor_helper:
     shutil.copy2(args.cursor_helper, destination/'phonepad-cursor-metadata')

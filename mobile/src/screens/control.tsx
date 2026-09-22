@@ -14,10 +14,8 @@ import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
 import { useAttachmentTransfer } from '../components/attachment-transfer';
 import { NativeKeyboard } from '../components/native-keyboard';
-import { HelpSheet } from '../components/help-sheet';
 import { SessionOptions } from '../components/session-options';
 import { loadControlPreferences, saveControlPreferences, type ControlPreferences } from '../lib/control-preferences';
-import { transferClipboard } from '../lib/clipboard-transfer';
 import { Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
 import { UpdateLifecycle } from '../lib/updates';
@@ -38,15 +36,26 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
   const [preview, setPreview] = useState(false), [keyboard, setKeyboard] = useState(false);
-  const [help, setHelp] = useState(false);
   const [options, setOptions] = useState(false);
   const [preferences, setPreferences] = useState(() => loadControlPreferences(origin));
-  const [clipboardBusy, setClipboardBusy] = useState(false);
-  const [clipboardNotice, setClipboardNotice] = useState('');
-  const clipboardRequest = useRef<AbortController | null>(null);
-  useEffect(() => { setPreferences(loadControlPreferences(origin)); return () => { clipboardRequest.current?.abort(); }; }, [origin]);
+  useEffect(() => { setPreferences(loadControlPreferences(origin)); }, [origin]);
+  const preferenceWrite = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingPreferences = useRef<{origin: string; value: ControlPreferences} | null>(null);
+  const flushPreferences = () => {
+    clearTimeout(preferenceWrite.current);
+    const pending = pendingPreferences.current;
+    if (!pending) return;
+    try { saveControlPreferences(pending.origin, pending.value); pendingPreferences.current = null; }
+    catch { Alert.alert('No se guardó el ajuste', 'Volvé a intentarlo.'); }
+  };
+  useEffect(() => {
+    const listener = AppState.addEventListener('change', state => { if (state !== 'active') flushPreferences(); });
+    return () => { listener.remove(); flushPreferences(); };
+  }, [origin]);
   const changePreferences = (next: ControlPreferences) => {
-    try { saveControlPreferences(origin, next); setPreferences(next); } catch { Alert.alert('No se guardó el ajuste', 'Reintentá antes de salir de la sesión.'); }
+    setPreferences(next); pendingPreferences.current = {origin,value:next};
+    clearTimeout(preferenceWrite.current);
+    preferenceWrite.current = setTimeout(flushPreferences,250);
   };
   const preKeyboardHeight = useRef(height);
   const preKeyboardWidth = useRef(width);
@@ -54,7 +63,6 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const previousKeyboard = useRef(keyboard);
   const [pendingText, setPendingText] = useState(false);
   const [, refreshCapabilities] = useState(0);
-  const [landscapeControls, setLandscapeControls] = useState(false);
   const [cursor, setCursor] = useState<CursorState | null>(null);
   const [videoSize, setVideoSize] = useState({ width: 0, height: 0 });
   const [stream, setStream] = useState<MediaStream | null>(null), [videoError, setVideoError] = useState('');
@@ -66,15 +74,6 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const inputReady = state === 'connected' && connection.canInput;
   const directReady = inputReady && preview && !!stream && !!connection.capabilities?.input.actions.includes('p');
   const mode = preferences.mode === 'direct' && directReady ? 'direct' : 'trackpad';
-  const copyClipboard = async (direction: 'phone' | 'host') => {
-    if (clipboardRequest.current) return;
-    const request = new AbortController(); clipboardRequest.current = request; setClipboardBusy(true); setClipboardNotice('Copiando…');
-    const timeout = setTimeout(() => request.abort(), 10000);
-    try { await transferClipboard(connection, direction, request.signal); setClipboardNotice(direction === 'phone' ? 'Texto copiado al teléfono.' : 'Texto copiado al equipo.'); }
-    catch (error) { setClipboardNotice(error instanceof Error ? error.message : 'No se confirmó la copia.'); }
-    finally { clearTimeout(timeout); clipboardRequest.current = null; setClipboardBusy(false); }
-  };
-  useEffect(() => { if (!foreground || state !== 'connected') clipboardRequest.current?.abort(); }, [foreground, state]);
   useEffect(() => {
     if (foreground && state === 'connected') return keepSessionAwake(activateKeepAwakeAsync, deactivateKeepAwake, `phonepad-${Date.now()}-${Math.random()}`);
   }, [foreground, state, connection]);
@@ -118,25 +117,10 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const viewAllowed = connection.capabilities === null || connection.canView;
   useEffect(() => { video.update(preview && viewAllowed && !['unauthorized', 'paused', 'incompatible'].includes(state), foreground, state === 'connected'); }, [video, preview, foreground, state, viewAllowed]);
   useEffect(() => () => video.dispose(), [video]);
-  const reconnect = () => { connection.start(); video.restart(); void updater.check(true); };
+  const reconnect = () => { video.update(preview && viewAllowed, foreground, false); video.restart(); connection.start(); void updater.check(true); };
   const closeKeyboard = useCallback(() => { Keyboard.dismiss(); setKeyboard(false); }, []);
   const openKeyboard = useCallback(() => setKeyboard(true), []);
-  const closeHelp = useCallback(() => setHelp(false), []);
-  const openHelp = useCallback(() => { closeKeyboard(); setHelp(true); }, [closeKeyboard]);
   const openOptions = () => { closeKeyboard(); setOptions(true); };
-  const changeHost = () => {
-    const literal = connection.literal;
-    if (pendingText || literal.busy || literal.pending || literal.draft || literal.lateDraft || attachments.busy || attachments.pending) {
-      Alert.alert('Hay contenido pendiente', 'Terminá el envío antes de cambiar de equipo.');
-      return;
-    }
-    closeKeyboard();
-    onChangeHost();
-  };
-  const hideLandscapeControls = useCallback(() => { closeKeyboard(); setLandscapeControls(false); }, [closeKeyboard]);
-  // Reset on actual orientation changes, including when the preview is off.
-  // The RTC view and stream stay mounted throughout the transition.
-  useEffect(() => { setLandscapeControls(false); }, [landscape, preview]);
   const togglePreview = () => { setPreview(p => !p); closeKeyboard(); };
   const controlNotice = state === 'connected' && !inputReady
     ? 'Solo lectura'
@@ -146,9 +130,9 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   // free window area. The stream/decoder never changes when the keyboard opens.
   return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: appearance.color.background }}>
     <StatusBar style="light" hidden={landscapePreview} />
-    <TouchSurface cursor={stream ? cursor : null} connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}
+    <TouchSurface cursor={stream ? cursor : null} cursorScale={preferences.cursorScale} connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}
       pointerGeometry={pointerGeometry.geometry} pointerGeometryEpoch={pointerGeometry.geometryEpoch}
-      mode={mode} gain={preferences.gain} disabled={!inputReady || options || help || !foreground}
+      mode={mode} gain={preferences.gain} disabled={!inputReady || options || !foreground}
       videoSize={videoSize} viewportInsetBottom={previewInset}>
       {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={previewStyle} onDimensionsChange={event => {
         // The native renderer has received a sized frame; an SDP/track alone
@@ -156,18 +140,15 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
         if (event.nativeEvent.width > 0 && event.nativeEvent.height > 0) { setVideoError(''); setVideoSize({ width: event.nativeEvent.width, height: event.nativeEvent.height }); }
       }} />}
     </TouchSurface>
-    {landscapePreview ? <LandscapeControls visible={landscapeControls && !keyboard}
-      show={() => { closeKeyboard(); setLandscapeControls(true); }} hide={hideLandscapeControls}
-      openKeyboard={() => { setLandscapeControls(false); openKeyboard(); }}
-      reconnect={openOptions} exitPreview={togglePreview} optionsLabel="Opciones"
-      disabled={!inputReady} insets={insets} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 16, right: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+    {landscapePreview ? <LandscapeControls openKeyboard={openKeyboard}
+      reconnect={() => { closeKeyboard(); reconnect(); }} openOptions={openOptions} exitPreview={togglePreview}
+      disabled={!inputReady} insets={insets} viewportInsetBottom={previewInset} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 16, right: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <GlassButton label="Equipos" action="hosts" onPress={changeHost} />
         <GlassButton label="Reconectar" action="reconnect" onPress={() => { closeKeyboard(); reconnect(); }} />
       </View>
       {status}
       <View style={{ flexDirection: 'row', gap: 8 }}>
-        <GlassButton label="Opciones" action="shortcuts" onPress={openOptions} />
+        <GlassButton label="Mouse" action="mouse" onPress={openOptions} />
         <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
       </View>
     </View>}
@@ -183,9 +164,6 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
       canReview={state === 'connected'} allowAttachments={state === 'connected' && connection.canTransfer}
      visible={!landscapePreview || keyboard}
       disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} />
-    <HelpSheet visible={help} close={closeHelp} mode={mode} />
-    <SessionOptions visible={options} close={() => setOptions(false)} preferences={preferences} change={changePreferences} direct={directReady}
-      clipboard={state === 'connected' && connection.canClipboard && !!connection.capabilities?.sessionEpoch} copy={direction => void copyClipboard(direction)} busy={clipboardBusy} notice={clipboardNotice}
-      help={() => { setOptions(false); openHelp(); }} hosts={() => { setOptions(false); changeHost(); }} />
+    <SessionOptions visible={options} close={() => setOptions(false)} preferences={preferences} change={changePreferences} />
   </View>;
 }
