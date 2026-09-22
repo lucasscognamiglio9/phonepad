@@ -133,7 +133,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
           return { remove: () => { const at = appStateListeners.indexOf(listener); if (at >= 0) appStateListeners.splice(at, 1); } };
         },
       },
-      View: 'View',
+      View: 'View', Image: 'Image',
     },
     'react-native-gesture-handler': {
       GestureDetector: 'GestureDetector',
@@ -180,6 +180,7 @@ function render({ dismissKeyboard, touchResult, defer = false } = {}) {
   renderAgain();
   return {
     calls,
+    nodes: () => nodes(tree),
     directCommands,
     cancelCalls,
     gestures,
@@ -455,4 +456,13 @@ test('calibrated trackpad starts outside the preview and continues across coordi
  const cancels=h.cancelCalls.length;
  g.onTouchesUp({allTouches:[],changedTouches:[point(1,30,825)]});
  assert.equal(h.cancelCalls.length,cancels+1,'a final short segment cannot generate a tap');h.unmount();
+});
+
+test('initial cursor image has native layout dimensions before animated positioning',()=>{
+ const h=render();h.layout(390,844);
+ h.rerender({preview:true,cursorScale:1,cursor:{visible:true,x:960,y:540,hx:14,hy:13,w:96,h:96,sourceWidth:1920,sourceHeight:1080,imageId:'0123456789abcdef',image:'data:image/png;base64,iVBORw0KGgoAAA=='}});
+ const image=h.nodes().find(n=>n.type==='Image');assert.ok(image);
+ assert.equal(image.props.style.width,28);assert.equal(image.props.style.height,28);
+ assert.equal(image.props.source.width,96);assert.equal(image.props.source.height,96);
+ h.rerender({cursorScale:.75});assert.equal(h.nodes().find(n=>n.type==='Image').props.style.width,21);h.unmount();
 });

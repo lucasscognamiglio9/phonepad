@@ -127,3 +127,8 @@ Reconexión: video espera el nuevo handshake de control y la oferta tiene un pla
 Implementado: cursor inicial incluido en la oferta antes del video; trackpad calibrado desde cualquier zona con renovación de coordenadas sin clics espurios; pausa de sesión de dos minutos. Preview y cursor comparten el área libre del teclado y los márgenes laterales. Ajustes y cápsulas usan GlassSurface claro; Mouse/Pantalla agrupados, indicador centrado, teclado horizontal con alternancia. Atajos sin recorte y compositor uniforme: +, texto, teclas extra, Enter.
 
 Verificación: TypeScript, 228 pruebas móviles (226 de suite y dos regresiones adicionales de layout), 76 Python y todos los paquetes Go. La tanda anterior fue confirmada visible por el usuario. Publicación, arranque real y rollback de esta tanda se registran en sus artefactos; aceptación física de estos cambios pendiente. P00–P06 no se declaran completos.
+
+
+Corrección posterior de la misma tanda: sliders Expo dentro del controlador de la pantalla, manteniendo vidrio nativo; cursor con dimensiones de imagen definidas en el primer layout nativo y posición animada aparte; indicador centrado desde la raíz sin padding de botones. PNG inicial real inspeccionado y nítido, 96×96. Solo JS, servidor fe2f59a sin cambios. Aceptación física de estas tres correcciones pendiente.
+
+Atajos limitados a dos filas en todas las orientaciones; flechas en orden izquierda, derecha, arriba, abajo. Filas desplazables solo si el ancho no alcanza los blancos táctiles. TypeScript y 231 casos móviles verificados, incluidas regresiones de imagen inicial, indicador y distribución.

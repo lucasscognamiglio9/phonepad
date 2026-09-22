@@ -486,33 +486,28 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>{actionStatus}</Text>
       </GlassSurface>}
       {shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
-      <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
-          {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: 44, alignItems: 'center' }}>
+      <GlassSurface style={{ borderRadius: 26, padding: 6 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" bounces={false}
+          contentContainerStyle={{ flexGrow: 1, alignItems: 'center', gap: 4 }}>
+          {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}>
             <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)} disabled={keysDisabled}
               onPress={() => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }} />
           </View>)}
-          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Esc" disabled={keysDisabled} onPress={() => special('Escape')} /></View>
-          <View style={{ flex: 1, minWidth: 44, alignItems: 'center' }}><GlassButton compact label="Tab" disabled={keysDisabled} onPress={() => special('Tab')} /></View>
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', flex: width > height ? 1 : undefined, gap: 8 }}>
-          <View style={{ width: 64 }}><GlassButton compact label="Copiar" disabled={keysDisabled}
-            onPress={() => clipboard('c')} /></View>
-          <View style={{ width: 140 }}>
-            <View style={{ width: 44, alignSelf: 'center' }}><GlassButton compact label="Arriba" action="up" disabled={keysDisabled}
-              onPressIn={() => beginRepeatGesture('ArrowUp')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowUp')} /></View>
-            <View style={{ flexDirection: 'row', gap: 4 }}>
-              <GlassButton compact label="Izquierda" action="left" disabled={keysDisabled}
-                onPressIn={() => beginRepeatGesture('ArrowLeft')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowLeft')} />
-              <GlassButton compact label="Abajo" action="down" disabled={keysDisabled}
-                onPressIn={() => beginRepeatGesture('ArrowDown')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowDown')} />
-              <GlassButton compact label="Derecha" action="right" disabled={keysDisabled}
-                onPressIn={() => beginRepeatGesture('ArrowRight')} onPressOut={endRepeatGesture} onPress={() => pressRepeatable('ArrowRight')} />
-            </View>
-          </View>
-          <View style={{ width: 64 }}><GlassButton compact label="Pegar" disabled={keysDisabled}
-            onPress={() => clipboard('v')} /></View>
-        </View>
+          <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Esc" disabled={keysDisabled} onPress={() => special('Escape')} /></View>
+          <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Tab" disabled={keysDisabled} onPress={() => special('Tab')} /></View>
+        </ScrollView>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" bounces={false}
+          contentContainerStyle={{ flexGrow: 1, alignItems: 'center', gap: 4 }}>
+          <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Copiar" disabled={keysDisabled} onPress={() => clipboard('c')} /></View>
+          {([
+            ['Izquierda', 'left', 'ArrowLeft'], ['Derecha', 'right', 'ArrowRight'],
+            ['Arriba', 'up', 'ArrowUp'], ['Abajo', 'down', 'ArrowDown'],
+          ] as const).map(([label, action, key]) => <View key={key} style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}>
+            <GlassButton compact label={label} action={action} disabled={keysDisabled}
+              onPressIn={() => beginRepeatGesture(key)} onPressOut={endRepeatGesture} onPress={() => pressRepeatable(key)} />
+          </View>)}
+          <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Pegar" disabled={keysDisabled} onPress={() => clipboard('v')} /></View>
+        </ScrollView>
       </GlassSurface></ScrollView></Animated.View>}
       <GlassSurface style={{ borderRadius: 28, padding: 4 }}>
         <View style={{ position: 'relative', height: MIN_TOUCH_TARGET }}>

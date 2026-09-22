@@ -1,6 +1,5 @@
 import { appearance } from './appearance';
 import { Modal, Platform, ScrollView, View, Text, Pressable, useWindowDimensions } from 'react-native';
-import { FullWindowOverlay } from 'react-native-screens';
 import { Host, Slider } from '@expo/ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GlassSurface } from './glass-surface';
@@ -23,7 +22,7 @@ export function SessionOptions({ visible, close, preferences, change }: {
   </View>;
  if (!visible) return null;
  const content =
-  <View style={{flex:1}} accessibilityViewIsModal>
+  <View style={{position:'absolute',inset:0}} accessibilityViewIsModal>
    <Pressable accessibilityRole="button" accessibilityLabel="Cerrar ajustes de mouse" onPress={close} style={{position:'absolute',inset:0}} />
    <GlassSurface interactive style={{position:'absolute',top:insets.top+appearance.control.size+appearance.control.gap*2,right:insets.right+appearance.control.margin,width:Math.min(appearance.control.menuWidth,width-insets.left-insets.right-2*appearance.control.margin),maxHeight:height-insets.top-insets.bottom-appearance.control.size-2*appearance.control.margin-appearance.control.gap,borderRadius:appearance.control.menuRadius,overflow:'hidden'}}>
     <ScrollView contentContainerStyle={{padding:appearance.control.margin,gap:appearance.control.gap}}>
@@ -33,5 +32,5 @@ export function SessionOptions({ visible, close, preferences, change }: {
    </GlassSurface>
   </View>
  ;
- return Platform.OS === 'ios' ? <FullWindowOverlay>{content}</FullWindowOverlay> : <Modal visible transparent animationType="fade" supportedOrientations={['portrait','landscape']} onRequestClose={close}>{content}</Modal>;
+ return Platform.OS === 'ios' ? content : <Modal visible transparent animationType="fade" supportedOrientations={['portrait','landscape']} onRequestClose={close}>{content}</Modal>;
 }

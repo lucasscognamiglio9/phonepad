@@ -1,6 +1,6 @@
 import { CURSOR_POINTS, cursorPlacement, type CursorState } from '../lib/cursor';
 import { useEffect, useMemo, useRef, type ReactNode } from 'react';
-import { AppState, View, type ViewStyle } from 'react-native';
+import { AppState, Image, View, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Gesture, GestureDetector, type GestureTouchEvent, type TouchData } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -193,7 +193,15 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     ],
   })) as unknown as ViewStyle;
 
-  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, Math.max(1,width.value-viewportInsetLeft-viewportInsetRight), Math.max(1,height.value-viewportInsetTop-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value, CURSOR_POINTS * cursorScale));
+  // Native Image decoding uses the React layout, not Reanimated's later UI update.
+  // Keep bitmap dimensions in the initial commit; animate only its container.
+  const cursorSize = CURSOR_POINTS * cursorScale;
+  const cursorWidth = cursor ? cursorSize * cursor.w / Math.max(cursor.w,cursor.h) : cursorSize;
+  const cursorHeight = cursor ? cursorSize * cursor.h / Math.max(cursor.w,cursor.h) : cursorSize;
+  const cursorStyle = useAnimatedStyle(() => {
+    const {left,top,opacity} = cursorPlacement(cursor, Math.max(1,width.value-viewportInsetLeft-viewportInsetRight), Math.max(1,height.value-viewportInsetTop-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value, CURSOR_POINTS * cursorScale);
+    return {left,top,opacity};
+  });
 
   useEffect(() => {
     // A mode switch, including entering preview or changing the keyboard
@@ -384,7 +392,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
       </View>
       {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:viewportInsetTop,left:viewportInsetLeft,right:viewportInsetRight,bottom:viewportInsetBottom,overflow:'hidden',zIndex:2}}>
-        <Animated.Image accessible={false} fadeDuration={0} source={{uri:cursor.image}} resizeMode="stretch" style={[{position:'absolute'},cursorStyle]} />
+        <Animated.View style={[{position:'absolute',width:cursorWidth,height:cursorHeight},cursorStyle]}>
+          <Image accessible={false} fadeDuration={0} source={{uri:cursor.image,width:cursor.w,height:cursor.h}} resizeMode="contain" style={{width:cursorWidth,height:cursorHeight}} />
+        </Animated.View>
       </View>}
     </View>
   </GestureDetector>;

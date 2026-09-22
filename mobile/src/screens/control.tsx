@@ -149,12 +149,12 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <GlassButton label="Reconectar" action="reconnect" onPress={() => { closeKeyboard(); reconnect(); }} />
       </View>
-      <View pointerEvents="none" style={{position:'absolute',left:'50%',marginLeft:-2.5}}>{status}</View>
       <GlassSurface interactive style={{flexDirection:'row',borderRadius:appearance.control.capsuleRadius}}>
         <GlassButton compact label="Mouse" action="mouse" onPress={openOptions} />
         <GlassButton compact label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
       </GlassSurface>
     </View>}
+    {!landscapePreview && <View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:insets.top+8,height:appearance.control.size,alignItems:'center',justifyContent:'center'}}>{status}</View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
       <Text selectable style={{ color: appearance.color.secondary, fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>
     </View>}

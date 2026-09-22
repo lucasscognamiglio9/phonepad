@@ -572,3 +572,11 @@ test('landscape reserves both control rails and the keyboard button toggles',()=
  h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,true);
  h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,false);
 });
+
+test('connection indicator is centered in the unpadded screen, independent of action widths',()=>{
+ const h=harness();const children=h.tree().props.children.flat(Infinity).filter(Boolean);
+ const overlay=children.find(n=>n.props?.pointerEvents==='none'&&n.props?.style?.alignItems==='center');
+ assert.ok(overlay,'indicator must be a direct child of the full-screen root');
+ assert.equal(overlay.props.style.left,0);assert.equal(overlay.props.style.right,0);
+ assert.equal(overlay.props.style.paddingLeft,undefined);assert.equal(overlay.props.style.marginLeft,undefined);
+});

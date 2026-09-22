@@ -485,3 +485,15 @@ test('focused literal editor has no tutorial or extra send button and stays one 
  assert.equal(h.find('TextInput').props.value,'Texto largo\ncon otra línea');
  assert.equal(h.find('TextInput').props.scrollEnabled,true);
 });
+
+test('shortcuts use two horizontal rows with left right up down at every width',()=>{
+ const h=harness();h.click('Teclas extra');
+ for(const width of [280,390,844]){
+  h.resize({width,height:width===844?390:844});h.render();
+  const rows=h.nodes(h.tree()).filter(n=>n.type==='ScrollView'&&n.props.horizontal);
+  assert.equal(rows.length,2);
+  const labels=row=>h.nodes(row).filter(n=>n.type==='GlassButton').map(n=>n.props.label);
+  assert.deepEqual(labels(rows[0]),['Ctrl','Alt','Super','Shift','Esc','Tab']);
+  assert.deepEqual(labels(rows[1]),['Copiar','Izquierda','Derecha','Arriba','Abajo','Pegar']);
+ }
+});
