@@ -1,3 +1,4 @@
+const appearanceModule = require('./appearance-fixture.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -145,10 +146,10 @@ function harness(options = {}) {
     reloadAsync: () => Promise.resolve(),
   };
   const keyboardLayout = {};
-  vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout });
+  vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout, require: () => appearanceModule });
   const pointerGeometry = {};
   vm.runInNewContext(compile('lib/pointer-geometry.ts'), { exports: pointerGeometry, Number, Math });
-  const modules = {
+  const modules = { './appearance': appearanceModule, '../components/appearance': appearanceModule,
     'expo-keep-awake': {activateKeepAwakeAsync: async()=>{},deactivateKeepAwake:async()=>{}},
     '../lib/session-awake': {keepSessionAwake:()=>()=>{}},
     '../lib/control-preferences': {loadControlPreferences:()=>({mode:'trackpad',gain:1}),saveControlPreferences:()=>{}},
@@ -517,7 +518,7 @@ async function choose(h, source='photos') {
  h.reportConnection('connected'); h.find('NativeKeyboard').props.choose(source); await settle(); h.render();
 }
 async function send(h) {
- h.find('GlassButton','Enviar y preparar para pegar').props.onPress(); await settle(); h.render();
+ h.find('GlassButton','Enviar').props.onPress(); await settle(); h.render();
 }
 test('selection is reviewed before upload and never pastes or submits automatically',async()=>{
  const h=harness({attachment:photo,receipt:delivered});await choose(h,'camera');
@@ -551,7 +552,7 @@ test('multiple selections can be reviewed and removed before sending in order',a
 test('lost upload response reuses the prepared manifest and does not allow changing its files',async()=>{
  const h=harness({attachment:photo,uploadError:true});await choose(h);await send(h);
  const first=h.uploads[0][0];assert.equal(h.find('GlassButton','Quitar Foto.jpg'),undefined);
- h.find('GlassButton','Reanudar mismo lote').props.onPress();await settle();h.render();
+ h.find('GlassButton','Reanudar').props.onPress();await settle();h.render();
  assert.equal(h.uploads[1][0].manifest,first.manifest);assert.equal(h.commands.length,0);
 });
 test('preview stays mounted while reviewing, uploading and closing the attachment sheet',async()=>{
@@ -604,7 +605,7 @@ test('a view-only session can show video while keyboard control stays disabled',
 
 test('a saved batch can complete without clipboard permission and never offers Paste',async()=>{
  const h=harness({attachment:photo,canClipboard:false});await choose(h);
- h.find('GlassButton','Enviar archivos').props.onPress();await settle();h.render();
+ h.find('GlassButton','Enviar').props.onPress();await settle();h.render();
  assert.equal(h.uploads.length,1);assert.equal(h.alerts[0][0],'Guardado en la computadora');
  assert.equal(h.alerts[0][2],undefined);assert.equal(h.commands.length,0);
 });

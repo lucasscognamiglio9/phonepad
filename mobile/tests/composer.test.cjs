@@ -1,3 +1,4 @@
+const appearanceModule = require('./appearance-fixture.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -23,7 +24,7 @@ function harness() {
       if (!old || deps.some((d, i) => d !== old[i])) { slots[at] = deps; effects.push(fn); } },
   };
   const protocol = {}; vm.runInNewContext(compile('lib/protocol.ts'), { exports: protocol });
-  const keyboardLayout = {}; vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout });
+  const keyboardLayout = {}; vm.runInNewContext(compile('components/keyboard-layout.ts'), { exports: keyboardLayout, require: () => appearanceModule });
   const jsx = (type, props) => {
     if (type === 'View' && props?.ref && typeof props.ref === 'object') {
       props.ref.current = { measureInWindow: callback => callback(
@@ -35,7 +36,7 @@ function harness() {
     }
     return { type, props };
   };
-  const modules = {
+  const modules = { './appearance': appearanceModule, '../components/appearance': appearanceModule,
     react,
     'react/jsx-runtime': { jsx, jsxs: jsx },
     'react-native': {
@@ -93,21 +94,21 @@ test('the collapsed composer keeps plus and Enter inside the field', () => {
   const input = h.find('TextInput');
   assert.ok(h.find('GlassButton', 'Agregar'));
   assert.ok(h.find('GlassButton', 'Enter'));
-  assert.equal(input.props.style.paddingHorizontal, 44);
-  assert.equal(input.props.style.paddingTop, 11);
-  assert.equal(input.props.style.paddingBottom, 11);
+  assert.equal(input.props.style.marginLeft, 44);
+  assert.equal(input.props.style.paddingVertical, 11);
+  assert.equal(input.props.style.height, 44);
   assert.equal(input.props.style.textAlignVertical, 'center');
   const actionBar = h.nodes(h.tree()).find(node => node.type === 'View' && node.props.style?.position === 'absolute' && node.props.style?.height === 44);
   assert.equal(actionBar.props.pointerEvents, 'box-none', 'the gap between icons must let a tap focus the native input beneath it');
   assert.equal(h.find('ActionMenu').props.anchor, null);
 });
-test('expanded composer keeps text above a fixed bottom action bar', () => {
+test('expanded composer keeps placeholder and actions on one row', () => {
   const h = harness(); h.props.active = true; h.render();
   const input = h.find('TextInput');
-  assert.equal(input.props.style.paddingHorizontal, 12);
-  assert.equal(input.props.style.paddingTop, 10);
-  assert.equal(input.props.style.paddingBottom, 8);
-  assert.equal(input.props.style.textAlignVertical, 'top');
+  assert.equal(input.props.style.marginLeft, 88);
+  assert.equal(input.props.style.paddingVertical, 11);
+  assert.equal(input.props.style.height, 44);
+  assert.equal(input.props.style.textAlignVertical, 'center');
   assert.ok(h.nodes(h.tree()).some(node => node.type === 'View' && node.props.style?.bottom === 0 && node.props.style?.height === 44));
 });
 test('the plus wrapper is measured for the mounted action menu', () => {
@@ -335,7 +336,7 @@ test('literal composer keeps dictation edits local and writes the final block wi
   assert.equal(pending.at(-1), true, 'parent protects this draft before changing hosts or applying an update');
   assert.equal(h.sent.length, 0);
   assert.equal(h.find('TextInput').props.maxLength, undefined);
-  h.click('Escribir'); await new Promise(resolve => setImmediate(resolve)); h.render();
+  h.click('Enviar texto'); await new Promise(resolve => setImmediate(resolve)); h.render();
   assert.deepEqual(blocks, ['quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea']);
   assert.equal(h.sent.length, 0); assert.equal(h.find('TextInput').props.value, '');
   assert.equal(pending.at(-1), false, 'a confirmed block releases the host-switch guard');
@@ -346,11 +347,12 @@ test('literal draft survives close, navigation actions and a lost receipt', asyn
   h.props.connection.literal = { draft: '', pending: null, busy: false,
     send: async text => { h.props.connection.literal.pending = { text }; throw Error('offline'); }, reviewed() { this.pending = null; } };
   h.props.active = true; h.render(); h.type('borrador de dictado');
-  h.click('Teclas extra'); h.click('Derecha'); h.click('Enter');
+  h.click('Teclas extra'); h.click('Derecha');
+  assert.equal(h.find('GlassButton', 'Enter'), undefined);
   assert.equal(h.sent.length, 0); assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
   h.props.active = false; h.render(); h.render();
   assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
-  h.props.active = true; h.render(); h.click('Escribir');
+  h.props.active = true; h.render(); h.click('Enviar texto');
   await new Promise(resolve => setImmediate(resolve)); h.render();
   assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
   assert.ok(h.find('GlassButton', 'Consultar envío'));
@@ -370,7 +372,7 @@ test('a late native append during delivery retains only the unsent suffix', asyn
   const h=harness();let finish;
   h.props.connection.inputCapabilities={version:1};
   h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
-  h.props.active=true;h.render();h.type('first');h.click('Escribir');
+  h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
   assert.equal(h.find('TextInput').props.editable,false);
   h.type('first next');finish({state:'dispatched'});
   await new Promise(resolve=>setImmediate(resolve));h.render();
@@ -384,12 +386,12 @@ test('callbacks two editor generations old preserve the current draft and expose
    send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
    noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
    discardLateDraft(){this.lateDraft=null;}};
- h.props.active=true;h.render();h.type('first');h.click('Escribir');
+ h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
  const firstEditor=h.find('TextInput');
  const focused=h.focusCount();
  finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
  assert.ok(h.focusCount()>focused,'the remounted editor regains focus');
- h.type('second');h.click('Escribir');
+ h.type('second');h.click('Enviar texto');
  finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
  h.type('nuevo');
  await new Promise(resolve=>setImmediate(resolve));
@@ -397,14 +399,14 @@ test('callbacks two editor generations old preserve the current draft and expose
  assert.equal(h.find('TextInput').props.value,'nuevo');
  assert.equal(h.props.connection.literal.draft,'nuevo');
  assert.equal(h.props.connection.literal.lateDraft.text,'first next');
- assert.equal(h.find('GlassButton','Escribir').props.disabled,true);
- assert.ok(h.find('GlassButton','Usar versión tardía'));
+ assert.equal(h.find('GlassButton','Enviar texto').props.disabled,true);
+ assert.ok(h.find('GlassButton','Usar este texto'));
  h.props.visible=false;h.render();h.props.visible=true;h.render();
- assert.ok(h.find('GlassButton','Usar versión tardía'),'late version survives hiding');
- h.click('Descartar versión tardía');
+ assert.ok(h.find('GlassButton','Usar este texto'),'late version survives hiding');
+ h.click('Descartar esta versión');
  assert.equal(h.find('TextInput').props.value,'nuevo');
  assert.equal(h.props.connection.literal.lateDraft,null);
- assert.equal(h.find('GlassButton','Escribir').props.disabled,false);
+ assert.equal(h.find('GlassButton','Enviar texto').props.disabled,false);
 });
 test('using a late editor version replaces the draft only after an explicit choice',async()=>{
  const h=harness();let finish;
@@ -413,12 +415,12 @@ test('using a late editor version replaces the draft only after an explicit choi
    send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
    noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
    useLateDraft(){const value=this.lateDraft;this.lateDraft=null;return value;}};
- h.props.active=true;h.render();h.type('first');h.click('Escribir');
+ h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
  const oldEditor=h.find('TextInput');finish({state:'dispatched'});
  await new Promise(resolve=>setImmediate(resolve));h.render();h.type('nuevo');
  oldEditor.props.onChangeText('first next');h.render();
  const sends=h.sent.length;
- h.click('Usar versión tardía');
+ h.click('Usar este texto');
  assert.equal(h.find('TextInput').props.value,'first next');
  assert.equal(h.props.connection.literal.lateDraft,null);
  assert.equal(h.sent.length,sends,'choosing a late version never sends it');
@@ -427,9 +429,9 @@ test('a late replacement during delivery requires review before another send',as
  const h=harness();let finish;
  h.props.connection.inputCapabilities={version:1};
  h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
- h.props.active=true;h.render();h.type('caza');h.click('Escribir');h.type('casa');finish({state:'dispatched'});
+ h.props.active=true;h.render();h.type('caza');h.click('Enviar texto');h.type('casa');finish({state:'dispatched'});
  await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Escribir').props.disabled,true);
+ assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Enviar texto').props.disabled,true);
  assert.ok(h.find('GlassButton','Continuar sin reenviar'));
 });
 
@@ -439,7 +441,7 @@ test('a modern host without literal input never falls back to layout-dependent t
    send:async()=>{throw Error('La computadora no admite este envío de texto.');}};
  h.props.active=true;h.render();h.type('¿Pregunta_?');
  assert.equal(h.sent.length,0);
- h.click('Escribir');await new Promise(resolve=>setImmediate(resolve));h.render();
+ h.click('Enviar texto');await new Promise(resolve=>setImmediate(resolve));h.render();
  assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'¿Pregunta_?');
 });
 
@@ -466,4 +468,16 @@ test('files permission can keep attachments available when input is unavailable'
  h.find('ActionMenu').props.choose('photos');h.render();assert.deepEqual(h.chosen,['photos']);
  h.props.allowAttachments=false;h.render();h.find('ActionMenu').props.choose('files');
  assert.deepEqual(h.chosen,['photos']);
+});
+
+test('focused literal editor has no tutorial or extra send button and stays one row',()=>{
+ const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false};
+ h.props.active=true;h.render();
+ assert.equal(h.find('GlassButton','Escribir'),undefined);
+ assert.equal(h.find('TextInput').props.style.height,44);
+ assert.equal(h.nodes(h.tree()).filter(n=>n.type==='Text').length,0);
+ h.type('Texto largo\ncon otra línea');
+ assert.equal(h.find('TextInput').props.style.height,44);
+ assert.equal(h.find('TextInput').props.value,'Texto largo\ncon otra línea');
+ assert.equal(h.find('TextInput').props.scrollEnabled,true);
 });

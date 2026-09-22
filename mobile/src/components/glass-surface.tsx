@@ -1,3 +1,4 @@
+import { appearance } from './appearance';
 import { useEffect, useState } from 'react';
 import { AccessibilityInfo, View, type ViewProps } from 'react-native';
 import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
@@ -29,7 +30,7 @@ export function GlassSurface({ interactive = false, material = 'clear', style, .
   }, []);
 
   if (!available || reduceTransparency) {
-    return <View {...props} style={[{ backgroundColor: '#24262b' }, style]} />;
+    return <View {...props} style={[{ backgroundColor: appearance.color.surface }, style]} />;
   }
 
   return <GlassView {...props} glassEffectStyle={material} colorScheme="dark" isInteractive={interactive} style={style} />;

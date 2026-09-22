@@ -416,3 +416,25 @@ test('direct touches outside the image and leaving letterboxes never commit a cl
  h.manual().handlers.onTouchesDown(frame(3,100));h.manual().handlers.onTouchesUp(frame(3,100));
  assert.equal(h.directCommands.filter(c=>c.a==='down').length,1);assert.equal(h.directCommands.filter(c=>c.a==='up').length,1);
 });
+
+test('two-finger scroll keeps ownership through incidental finger separation',()=>{
+ const h=render();h.rerender({preview:true});h.layout(400,800);
+ const initial=[point(1,100,300),point(2,160,300)];
+ h.manual().handlers.onTouchesDown({allTouches:initial,changedTouches:initial});
+ h.manual().handlers.onTouchesMove({allTouches:[point(1,100,320),point(2,162,320)],changedTouches:initial});
+ const cancelled=h.cancelCalls.length,before=h.calls.length;
+ h.gestures.findLast(g=>g.kind==='Pinch').handlers.onUpdate({scale:1.3});
+ h.manual().handlers.onTouchesMove({allTouches:[point(1,98,350),point(2,172,350)],changedTouches:initial});
+ assert.equal(h.cancelCalls.length,cancelled);assert.equal(h.calls.length,before+1);
+});
+
+test('manual native recognizer owns the gesture until its final finger is lifted',()=>{
+ const h=render();let active=0,ended=0;const manager={activate(){active++},end(){ended++}};
+ const touches=[point(1,20,20),point(2,30,30),point(3,40,40)];
+ h.manual().handlers.onTouchesDown({allTouches:touches,changedTouches:touches},manager);
+ assert.equal(active,1);
+ h.manual().handlers.onTouchesUp({allTouches:touches,changedTouches:[touches[0]]},manager);
+ assert.equal(ended,0);
+ h.manual().handlers.onTouchesUp({allTouches:touches.slice(1),changedTouches:touches.slice(1)},manager);
+ assert.equal(ended,1);
+});

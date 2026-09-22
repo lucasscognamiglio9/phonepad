@@ -1,3 +1,4 @@
+import { appearance } from '../components/appearance';
 import type { CursorState } from '../lib/cursor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AppState, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -26,7 +27,7 @@ import { keyboardOverlap, keyboardWindowResize } from '../components/keyboard-la
 
 const messages: Record<ConnectionState, string> = {
   connecting: 'Conectando…', connected: '', offline: 'Esperando a tu computadora…',
-  unauthorized: 'Este dispositivo todavía no está autorizado en la laptop.', paused: 'Otra sesión tomó el control. Tocá reconectar para recuperarlo.',
+  unauthorized: 'Autorizá este teléfono en el equipo.', paused: 'Sesión pausada. Tocá reconectar.',
   incompatible: 'Las versiones de PhonePad no son compatibles. Actualizá la app y el equipo.',
 };
 export function Control({ origin, onChangeHost }: { origin: string; onChangeHost: () => void }) {
@@ -126,7 +127,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const changeHost = () => {
     const literal = connection.literal;
     if (pendingText || literal.busy || literal.pending || literal.draft || literal.lateDraft || attachments.busy || attachments.pending) {
-      Alert.alert('Hay contenido pendiente', 'Revisá el texto y los adjuntos antes de cambiar de equipo. Se conservan en esta sesión.');
+      Alert.alert('Hay contenido pendiente', 'Terminá el envío antes de cambiar de equipo.');
       return;
     }
     closeKeyboard();
@@ -138,14 +139,14 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   useEffect(() => { setLandscapeControls(false); }, [landscape, preview]);
   const togglePreview = () => { setPreview(p => !p); closeKeyboard(); };
   const controlNotice = state === 'connected' && !inputReady
-    ? 'Solo visualización. El control no está disponible en este equipo.'
-    : state === 'connected' && connection.lastRejection ? 'El equipo rechazó la acción. Revisá los permisos y el contenido pendiente.' : '';
-  const status = <View accessibilityLabel={state === 'connected' ? 'Conectado' : messages[state]} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: state === 'connected' ? '#70dbab' : '#b7bbc4' }} />;
+    ? 'Solo lectura'
+    : state === 'connected' && connection.lastRejection ? 'Acción rechazada.' : '';
+  const status = <View accessibilityLabel={state === 'connected' ? 'Conectado' : messages[state]} style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: state === 'connected' ? appearance.color.success : appearance.color.secondary }} />;
   // Keep the RTC view mounted while its visible rectangle follows the actual
   // free window area. The stream/decoder never changes when the keyboard opens.
-  return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: '#090b0e' }}>
+  return <View pointerEvents={foreground ? 'auto' : 'none'} style={{ flex: 1, backgroundColor: appearance.color.background }}>
     <StatusBar style="light" hidden={landscapePreview} />
-    <TouchSurface cursor={stream ? cursor : null} connection={connection} preview={preview} dismissKeyboard={keyboard && !preview ? closeKeyboard : undefined}
+    <TouchSurface cursor={stream ? cursor : null} connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}
       pointerGeometry={pointerGeometry.geometry} pointerGeometryEpoch={pointerGeometry.geometryEpoch}
       mode={mode} gain={preferences.gain} disabled={!inputReady || options || help || !foreground}
       videoSize={videoSize} viewportInsetBottom={previewInset}>
@@ -171,10 +172,10 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
       </View>
     </View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
-      <Text selectable style={{ color: '#b7bbc4', fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>
+      <Text selectable style={{ color: appearance.color.secondary, fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>
     </View>}
     {!!controlNotice && <View pointerEvents="none" style={{ position: 'absolute', top: insets.top + 78, left: insets.left + 24, right: insets.right + 24 }}>
-      <Text accessibilityRole="alert" style={{ color: '#b7bbc4', fontSize: 12, textAlign: 'center' }}>{controlNotice}</Text>
+      <Text accessibilityRole="alert" style={{ color: appearance.color.secondary, fontSize: 12, textAlign: 'center' }}>{controlNotice}</Text>
     </View>}
     {attachments.panel}
     <NativeKeyboard connection={connection} active={keyboard} open={openKeyboard} close={closeKeyboard}

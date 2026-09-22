@@ -1,3 +1,4 @@
+import { appearance } from './appearance';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Modal, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -97,14 +98,14 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     discardPreparedBatch(saved.manifest.id);
     remember(null); select(null); setVisible(false);
     if (receipt.clipboard?.state === 'ready' && !receipt.clipboard.replayed) {
-      Alert.alert('Listo para pegar', `${receipt.files.length} archivo(s) guardados. Elegí un campo de la computadora que admita adjuntos.`, [
+      Alert.alert('Listo para pegar', `${receipt.files.length} archivos`, [
         { text: 'Cerrar', style: 'cancel' },
-        { text: 'Pegar ahora', onPress: () => { if (!paste()) Alert.alert('Reconectá la computadora', 'Los archivos ya están guardados. Revisá el portapapeles antes de pegarlos.'); } },
+        { text: 'Pegar ahora', onPress: () => { if (!paste()) Alert.alert('Reconectá la computadora', 'Archivos guardados en Downloads/Phonepad.'); } },
       ]);
     } else {
       Alert.alert('Guardado en la computadora', receipt.clipboard?.replayed
-        ? 'El lote ya estaba guardado. No volvimos a reemplazar el portapapeles. Podés adjuntarlo desde Downloads → Phonepad.'
-        : 'Los archivos llegaron a Downloads → Phonepad. Podés adjuntarlos desde esa carpeta; no se pudo confirmar el portapapeles.');
+        ? 'Downloads/Phonepad'
+        : 'Downloads/Phonepad. No se pudo copiar al portapapeles.');
     }
   }, true);
 
@@ -113,7 +114,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     if (saved) {
       setProgress('Cancelando el lote…');
       const result = await cancelPreparedBatch({ ...saved, sessionEpoch: epoch.current ?? undefined }, signal);
-      if (result.state === 'stored' && alive.current) Alert.alert('El lote ya estaba guardado', 'Quitamos la selección del teléfono. Los archivos siguen en Downloads → Phonepad.');
+      if (result.state === 'stored' && alive.current) Alert.alert('El lote ya estaba guardado', 'Downloads/Phonepad');
       discardPreparedBatch(saved.manifest.id);
     }
     if (!alive.current) return;
@@ -128,7 +129,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   };
   const total = prepared?.manifest.files.reduce((n, f) => n + f.bytes, 0)
     ?? selection?.items.reduce((n, f) => n + (f.size ?? 0), 0) ?? 0;
-  const textStyle = { color: '#f4f5f7', fontSize: 15 };
+  const textStyle = { color: appearance.color.text, fontSize: 15 };
   const panel = <>
     {!visible && !!selection && <View style={{ position: 'absolute', bottom: insets.bottom + 76, alignSelf: 'center' }}>
       <GlassButton label={`${selection.items.length} archivo(s) pendientes`} onPress={() => setVisible(true)} />
@@ -137,12 +138,9 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       <Text accessibilityRole="alert" style={textStyle}>{problem}</Text>
     </View>}
     <Modal visible={visible && !!selection} animationType="slide" presentationStyle="pageSheet" supportedOrientations={['portrait', 'landscape']} onRequestClose={() => setVisible(false)}>
-      <View style={{ flex: 1, backgroundColor: '#14171c', paddingTop: insets.top + 16, paddingBottom: insets.bottom + 12, paddingHorizontal: 20, gap: 16 }}>
-        <Text accessibilityRole="header" style={{ ...textStyle, fontSize: 22, fontWeight: '600' }}>Revisar envío</Text>
+      <View style={{ flex: 1, backgroundColor: appearance.color.background, paddingTop: insets.top + 16, paddingBottom: insets.bottom + 12, paddingHorizontal: 20, gap: 16 }}>
+        <Text accessibilityRole="header" style={{ ...textStyle, fontSize: 22, fontWeight: '600' }}>Archivos</Text>
         <Text style={textStyle}>{selection?.items.length} archivo(s) · {(total / 1024 / 1024).toFixed(1)} MB</Text>
-        <Text style={{ ...textStyle, color: '#b7bbc4' }}>{limits
-          ? `Hasta ${limits.maxFiles} archivos y ${Math.floor(limits.maxBytes / 1024 / 1024)} MB por envío.`
-          : 'Al reanudar se comprobarán los límites de la computadora.'}</Text>
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: 12 }}>
           {selection?.items.map((item, index) => <View key={`${selection.id}-${index}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <Text style={{ ...textStyle, flex: 1 }} numberOfLines={3}>{index + 1}. {item.name}</Text>
@@ -151,12 +149,12 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
           </View>)}
         </ScrollView>
         {!!progress && <Text accessibilityLiveRegion="polite" style={textStyle}>{progress}</Text>}
-        {!!problem && <Text accessibilityRole="alert" style={{ ...textStyle, color: '#ffd7a6' }}>{problem}</Text>}
+        {!!problem && <Text accessibilityRole="alert" style={{ ...textStyle, color: appearance.color.warning }}>{problem}</Text>}
         {busy ? <GlassButton label="Pausar envío" onPress={() => request.current?.abort()} /> : <>
-          <GlassButton label={prepared ? 'Reanudar mismo lote' : canClipboard ? 'Enviar y preparar para pegar' : 'Enviar archivos'} disabled={!connected || !selection} onPress={send} />
+          <GlassButton label={prepared ? 'Reanudar' : 'Enviar'} disabled={!connected || !selection} onPress={send} />
           <GlassButton label="Descartar selección" onPress={discard} />
         </>}
-        <GlassButton label="Volver a la pantalla" onPress={() => setVisible(false)} />
+        <GlassButton label="Cerrar" onPress={() => setVisible(false)} />
       </View>
     </Modal>
   </>;

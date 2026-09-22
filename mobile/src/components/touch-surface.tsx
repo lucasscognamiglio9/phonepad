@@ -108,6 +108,8 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   const panStartY = useSharedValue(0);
   const zoomOwns = useSharedValue(false);
   const initialSpan = useSharedValue(0);
+  const initialCenterX = useSharedValue(0), initialCenterY = useSharedValue(0);
+  const scrollOwns = useSharedValue(false);
   const direct = useMemo(() => new DirectPointerSequence(command => inputEpoch.current === connection.inputEpoch && connection.send(command)), [connection]);
   const inputEpoch = useRef<number | null>(null);
   const inputBlocked = useRef(false);
@@ -218,11 +220,13 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       scheduleOnRN(sendTouchFrame,[],sequenceGeneration.value,false,false,true);
     };
     const forward = Gesture.Manual()
-      .onTouchesDown((event: GestureTouchEvent) => {
+      .onTouchesDown((event: GestureTouchEvent, manager) => {
         'worklet';
         if (disabled) return;
-        if (event.allTouches.length === 1) { zoomOwns.value = false; initialSpan.value = 0; }
-        if (event.allTouches.length === 2) { const [a,b]=event.allTouches; initialSpan.value=Math.hypot(a.x-b.x,a.y-b.y); }
+        manager?.activate();
+        if (event.allTouches.length === 1) { zoomOwns.value = false; initialSpan.value = 0; scrollOwns.value = false; }
+        if (event.allTouches.length === 2) { const [a,b]=event.allTouches; initialSpan.value=Math.hypot(a.x-b.x,a.y-b.y); initialCenterX.value=(a.x+b.x)/2; initialCenterY.value=(a.y+b.y)/2; }
+        if (event.allTouches.length > 2) scrollOwns.value = true;
         if (zoomOwns.value) return;
         if (dismissKeyboard) {
           if (!keyboardConsumed.value) {
@@ -248,7 +252,10 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         if (disabled || zoomOwns.value || dismissKeyboard || !sequenceActive.value) return;
         if (preview && event.allTouches.length === 2 && initialSpan.value > 0) {
           const [a,b]=event.allTouches;
-          if (previewScale.value > 1 || Math.abs(Math.hypot(a.x-b.x,a.y-b.y)/initialSpan.value - 1) >= .08) { claimZoom(); return; }
+          const travel = Math.hypot((a.x+b.x)/2-initialCenterX.value,(a.y+b.y)/2-initialCenterY.value);
+          const spread = Math.abs(Math.hypot(a.x-b.x,a.y-b.y)-initialSpan.value);
+          if (!scrollOwns.value && travel >= 8 && travel > spread) scrollOwns.value = true;
+          if (!scrollOwns.value && (previewScale.value > 1 || (spread >= 12 && spread/initialSpan.value >= .12 && spread > travel))) { claimZoom(); return; }
         }
         const contacts = map(event.allTouches);
         if (mode === 'direct' && contacts.length === 0) {
@@ -258,8 +265,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
-      .onTouchesUp((event: GestureTouchEvent) => {
+      .onTouchesUp((event: GestureTouchEvent, manager) => {
         'worklet';
+        if (!event.allTouches.some(touch => !event.changedTouches.some(changed => changed.id === touch.id))) manager?.end();
         if (zoomOwns.value) {
           if (!event.allTouches.some(touch => !event.changedTouches.some(changed => changed.id === touch.id))) {
             sequenceActive.value = false; activeContacts.value = []; zoomOwns.value = false;
@@ -296,7 +304,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       })
       .onUpdate(event => {
         'worklet';
-        if (!zoomOwns.value && Math.abs(event.scale - 1) < .08) return;
+        if (scrollOwns.value || (!zoomOwns.value && (Math.abs(event.scale - 1) < .12 || Math.abs(event.scale - 1)*initialSpan.value < 12))) return;
         claimZoom();
         const nextScale = clampPreviewScale(pinchStartScale.value * event.scale);
         previewScale.value = nextScale;
@@ -341,8 +349,8 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       accessibilityLabel={mode === 'direct' ? 'Control directo de la pantalla. Tocá o arrastrá; dos dedos para scroll o clic derecho.' : 'Touchpad multitáctil. Los gestos físicos se procesan en la computadora.'}
     >
       <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
-      {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,bottom:viewportInsetBottom,overflow:'hidden'}}>
-        <Animated.Image accessible={false} source={{uri:cursor.image}} resizeMode="stretch" style={[{position:'absolute'},cursorStyle]} />
+      {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,bottom:viewportInsetBottom,overflow:'hidden',zIndex:2}}>
+        <Animated.Image accessible={false} fadeDuration={0} source={{uri:cursor.image}} resizeMode="stretch" style={[{position:'absolute'},cursorStyle]} />
       </View>}
     </View>
   </GestureDetector>;

@@ -1,3 +1,4 @@
+const appearanceModule = require('./appearance-fixture.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -22,12 +23,12 @@ function harness() {
       if (!old || deps.some((value, i) => value !== old[i])) { slots[at] = deps; effects.push(fn); } },
   };
   const protocol = {}; vmRun(compile('lib/protocol.ts'), { exports: protocol, setTimeout, clearTimeout, setInterval, clearInterval });
-  const layout = {}; vmRun(compile('components/keyboard-layout.ts'), { exports: layout });
+  const layout = {}; vmRun(compile('components/keyboard-layout.ts'), { exports: layout, require: () => appearanceModule });
   const jsx = (type, props) => {
     if (type === 'TextInput' && props?.ref && typeof props.ref === 'object') props.ref.current = { focus() {}, blur() {} };
     return { type, props };
   };
-  const modules = {
+  const modules = { './appearance': appearanceModule, '../components/appearance': appearanceModule,
     react,
     'react/jsx-runtime': { jsx, jsxs: jsx, Fragment: 'Fragment' },
     'react-native': {
@@ -84,7 +85,7 @@ function vmRun(code, context) {
 
 function statusText(h) {
   return h.nodes(h.tree()).filter(node => node.type === 'Text').map(node => node.props.children)
-    .find(value => typeof value === 'string' && (value.includes('Tecla') || value.includes('Resultado') || value.includes('Repetición'))) ?? '';
+    .find(value => typeof value === 'string' && (value.toLowerCase().includes('tecla') || value.includes('Resultado') || value.includes('Repetición'))) ?? '';
 }
 
 test('special action uses receipt states and never replays after uncertain result', () => {
@@ -94,9 +95,9 @@ test('special action uses receipt states and never replays after uncertain resul
   const operationId = h.sent[0].operationId;
   assert.equal(h.sent.length, 1);
   h.receipt(operationId, 'admitted');
-  assert.match(statusText(h), /admitida/);
+  assert.equal(statusText(h), '');
   h.receipt(operationId, 'uncertain');
-  assert.match(statusText(h), /incierto/);
+  assert.match(statusText(h), /sin confirmar/);
   assert.equal(h.sent.length, 1, 'uncertain receipt must not trigger a replay');
 });
 
@@ -105,7 +106,7 @@ test('executed and rejected receipts remain distinct for separate actions', () =
   h.click('Teclas extra'); h.click('Arriba');
   const first = h.sent[0].operationId;
   h.receipt(first, 'executed');
-  assert.match(statusText(h), /ejecutada/);
+  assert.equal(statusText(h), '');
   h.click('Derecha');
   const second = h.sent.at(-1).operationId;
   h.receipt(second, 'rejected');
@@ -184,6 +185,6 @@ test('an after-cancel effect is visible without clearing the new draft or replay
   h.receipt(operationId, 'cancelled', 'cancel');
   h.receipt(operationId, 'executed', 'press', 0, false, 'executed_after_cancel');
   assert.equal(h.find('TextInput').props.value, 'contexto nuevo');
-  assert.match(statusText(h), /posiblemente ejecutada/);
+  assert.match(statusText(h), /pudo ejecutarse/);
   assert.equal(h.sent.filter(item => item.operationId === operationId && item.phase !== 'cancel').length, 1);
 });

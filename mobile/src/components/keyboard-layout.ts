@@ -1,6 +1,7 @@
-export const MIN_TOUCH_TARGET = 44;
-export const COMPOSER_CLOSED_MARGIN = 12;
-export const COMPOSER_OPEN_GAP = 8;
+import { appearance } from './appearance';
+export const MIN_TOUCH_TARGET = appearance.control.size;
+export const COMPOSER_CLOSED_MARGIN = appearance.control.margin;
+export const COMPOSER_OPEN_GAP = appearance.control.gap;
 
 function finite(value: number, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;

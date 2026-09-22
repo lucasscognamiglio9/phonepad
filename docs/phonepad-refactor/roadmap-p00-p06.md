@@ -105,3 +105,7 @@ Esta es la única checklist vigente. Se conservan los 77 IDs y sus criterios ori
 4. Android, iPad/tablet y compatibilidad Safari: aceptación pendiente, postergada por el usuario. Chromium se usó como receptor de prueba; no reemplaza la app PhonePad nativa solicitada.
 
 P00, P01, P01A, P02, P03, P04, P05 y P06 permanecen abiertas mientras conserven aceptación, recursos o criterios funcionales pendientes. P04.2 ya tiene implementación de overlay independiente del zoom y verificación local; sigue pendiente su aceptación física nativa.
+
+## Corrección tras aceptación del iPhone — 2026-09-21
+
+El usuario confirmó arranque y conexión, pero rechazó la experiencia: cursor ausente, nitidez/sensibilidad deficientes, gestos, avisos permanentes, compositor y menú. No se considera aceptación final. Se eliminan tutoriales y recibos de éxito visibles; errores breves conservan recuperación. Compositor de una fila con envío mediante la flecha, cierre al tocar fuera también con video, menú flotante GlassView en lugar de la página de sesión y apariencia compartida. Scroll mantiene el gesto ante separación incidental de dedos; recognizer manual se activa hasta el último dedo. Pasan 220 pruebas móviles, TypeScript y diff-check. Candidato nativo actualizado e inspección física pendientes; cursor, calidad y recorrido de 1–2 pasadas siguen sin aceptación y no se declaran resueltos.

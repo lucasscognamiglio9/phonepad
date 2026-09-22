@@ -1,3 +1,4 @@
+const appearanceModule = require('./appearance-fixture.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -10,7 +11,7 @@ const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const layout = {};
-vm.runInNewContext(compiled, { exports: layout });
+vm.runInNewContext(compiled, { exports: layout, require: () => appearanceModule });
 
 test('available height is measured from window, safe area and current keyboard overlap', () => {
   assert.equal(layout.keyboardOverlap(320, 844), 320);

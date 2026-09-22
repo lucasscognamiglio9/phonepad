@@ -1,3 +1,4 @@
+const appearanceModule = require('./appearance-fixture.cjs');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -13,13 +14,13 @@ const code = ts.transpileModule(source, {
 function load() {
   const exports = {};
   const jsx = (type, props) => ({ type, props: props || {} });
-  const modules = {
+  const modules = { './appearance': appearanceModule, '../components/appearance': appearanceModule,
     'react-native': {
       Modal: 'Modal', Pressable: 'Pressable', ScrollView: 'ScrollView', StyleSheet: { create: styles => styles },
       Text: 'Text', View: 'View',
     },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 10, right: 4, bottom: 12, left: 6 }) },
-    './glass-surface': { GlassSurface: 'GlassSurface' },
+    './glass-button': {GlassButton: 'GlassButton'}, './glass-surface': { GlassSurface: 'GlassSurface' },
     'react/jsx-runtime': { jsx, jsxs: jsx },
   };
   vm.runInNewContext(code, { exports, require: name => modules[name] });
@@ -45,7 +46,7 @@ test('help sheet is accessible, describes visible controls, and closes without s
   const text = all.filter(node => node.type === 'Text').map(node => node.props.children).filter(value => typeof value === 'string').join(' ');
   assert.match(text, /Modos y zoom/);
   assert.match(text, /Escribir y pegar/);
-  const close = all.find(node => node.props.accessibilityLabel === 'Cerrar ayuda');
+  const close = all.find(node => node.props.label === 'Cerrar ayuda');
   close.props.onPress();
   assert.equal(closes, 1);
 });
