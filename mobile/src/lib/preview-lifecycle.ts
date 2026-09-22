@@ -1,7 +1,7 @@
 import type { VideoSession } from './video';
 
-// Keep a paused native session while input reconnects. No streaming lease is
-// extended by background heartbeats; the server owns the five-minute deadline.
+// Retain the paused native session for a two-minute app switch. The server
+// lease remains a fallback if iOS suspends JS before the local timer runs.
 export class PreviewLifecycle<T> {
   private wanted = false;
   private active = false;
@@ -27,7 +27,7 @@ export class PreviewLifecycle<T> {
       if (!this.paused) {
         this.paused = true; this.pausedAt = Date.now();
         const session = this.session;
-        this.expiry = setTimeout(() => { if (this.session === session && this.paused) this.clear(); }, 300_000);
+        this.expiry = setTimeout(() => { if (this.session === session && this.paused) this.clear(); }, 120_000);
         void session.setActive(false).catch(() => {
           if (this.session === session) { this.clear(); this.ensure(); }
         });
@@ -36,7 +36,7 @@ export class PreviewLifecycle<T> {
     }
     if (!ready) return;
     if (this.paused && this.session) {
-      if (Date.now() - this.pausedAt >= 300_000) { this.clear(); this.ensure(); return; }
+      if (Date.now() - this.pausedAt >= 120_000) { this.clear(); this.ensure(); return; }
       const session = this.session; this.paused = false; clearTimeout(this.expiry);
       void session.setActive(true).catch(error => { if (this.session === session) this.failed(error); });
     } else this.ensure();

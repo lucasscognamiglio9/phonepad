@@ -118,7 +118,7 @@ type actionOperation struct {
 }
 
 const (
-	defaultWSReadTimeout = 15 * time.Second
+	defaultWSReadTimeout = 125 * time.Second
 	wsHeartbeatInterval  = 5 * time.Second
 	wsHeartbeatTimeout   = 3 * time.Second
 )

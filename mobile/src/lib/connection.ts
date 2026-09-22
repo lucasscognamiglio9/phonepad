@@ -28,6 +28,26 @@ export class Connection {
   private request?: AbortController;
   private generation = 0;
   private active = false;
+  private foreground = true;
+  private backgroundAt: number | null = null;
+  private grace?: ReturnType<typeof setTimeout>;
+  setForeground = (foreground: boolean) => {
+    this.foreground = foreground;
+    clearTimeout(this.grace);
+    if (!foreground) {
+      this.backgroundAt ??= Date.now();
+      this.cancelTouch(this.inputEpoch);
+      this.dx = this.dy = 0; clearTimeout(this.flush);
+      this.grace = setTimeout(() => this.stop(), Math.max(0,120000-(Date.now()-this.backgroundAt!)));
+      return;
+    }
+    const expired = this.backgroundAt !== null && Date.now()-this.backgroundAt >= 120000;
+    this.backgroundAt = null;
+    if (!expired && this.active && this.ready && this.socket?.readyState === WebSocket.OPEN) {
+      this.pong = Date.now(); this.send({t:'ping'}); this.report('connected'); return;
+    }
+    this.start();
+  };
   private ready = false;
   private attempts = 0;
   private pong = 0;
@@ -51,7 +71,7 @@ export class Connection {
   start = () => { this.stop(); this.active = true; this.attempts = 0; void this.connect(); };
   stop = () => {
     this.active = false; this.ready = false; this.clearCapabilities(); this.generation++; this.inputGeneration++;
-    clearTimeout(this.retry); this.clearSocketTimers();
+    clearTimeout(this.grace); clearTimeout(this.retry); this.clearSocketTimers();
     this.request?.abort(); this.dx = this.dy = 0;
     const old = this.socket; this.socket = null; old?.close();
   };
@@ -99,6 +119,7 @@ export class Connection {
   private schedule() {
     if (!this.active) return;
     this.report('offline'); clearTimeout(this.retry);
+    if (!this.foreground) return;
     this.retry = setTimeout(() => void this.connect(), [250, 500, 1000, 3000][Math.min(this.attempts++, 3)]);
   }
   private async connect() {
@@ -128,6 +149,7 @@ export class Connection {
           this.ready = true; this.attempts = 0; this.pong = Date.now(); this.report('connected');
           clearInterval(this.heartbeat);
           this.heartbeat = setInterval(() => {
+            if (!this.foreground) return;
             if (Date.now() - this.pong > 10000) this.disconnect(socket);
             else this.send({ t: 'ping' });
           }, 2000);

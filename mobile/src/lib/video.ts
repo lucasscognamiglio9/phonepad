@@ -147,6 +147,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
+    if (offer.cursorInitial) { const initial=cursorReceiver.accept(JSON.stringify(offer.cursorInitial)); if(initial){cursorAt=Date.now();onCursor?.(initial);} }
     media.accept(offer.media, advertised !== null);
     if (media.current && media.current.video.selectedCodec !== codec) throw Error('La computadora seleccionó un formato de video incompatible.');
     peer.addEventListener('track', event => {

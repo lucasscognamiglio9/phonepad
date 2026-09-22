@@ -1,5 +1,5 @@
 """One native encoder process per session. The parent owns the request pipe."""
-import json, os, select, signal, sys, threading, traceback
+import json, os, select, signal, sys, threading, traceback, time
 reply = sys.stdout
 sys.stdout = sys.stderr  # Protocol output must never contain GStreamer diagnostics.
 import rtc
@@ -82,6 +82,14 @@ try:
                     reader=CursorMetadata(mirror.node, source_caps.to_string())
                     manager.session.cursor_sender=CursorSender(manager.session, reader, rtc.GLib)
                 mirror.activate()
+                if data['cursorMode'] == 'metadata':
+                    deadline=time.monotonic()+.75
+                    while True:
+                        _,initial=reader.snapshot()
+                        if initial.get('image') or time.monotonic()>=deadline: break
+                        time.sleep(.01)
+                    if initial.get('image'):
+                        result['cursorInitial']={**initial,'t':'cursor','version':1,'sequence':0,'sourceWidth':1920,'sourceHeight':1080}
                 if data['cursorMode'] != 'metadata' and 'PHONEPAD_CURSOR_FD' in os.environ:
                     source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
                     cursor=EmbeddedCursor(int(os.environ['PHONEPAD_CURSOR_FD']),int(os.environ['PHONEPAD_CURSOR_NODE']),source_caps)

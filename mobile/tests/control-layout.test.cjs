@@ -89,6 +89,7 @@ function harness(options = {}) {
       connections.push(this);
     }
     start = () => { this.startCount++; };
+    setForeground = active => { if(active && !this.startCount) this.start(); };
     stop = () => { this.stopCount++; };
     send = command => { commands.push({ kind: 'send', command }); return options.sendSucceeds !== false; };
     move = (dx, dy) => { commands.push({ kind: 'move', dx, dy }); };
@@ -190,6 +191,7 @@ function harness(options = {}) {
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, right: 12, bottom: 34, left: 10 }) },
     '@livekit/react-native-webrtc': { RTCView: 'RTCView' },
     '../components/glass-button': { GlassButton: 'GlassButton' },
+    '../components/glass-surface': { GlassSurface: 'GlassSurface' },
     '../components/landscape-controls': { LandscapeControls: 'LandscapeControls' },
     '../components/help-sheet': { HelpSheet: 'HelpSheet' },
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
@@ -371,12 +373,12 @@ test('landscape preview reserves only the keyboard overlap and avoids Android do
   h.keyboardState.isVisible = true;
   h.keyboardState.height = 260;
   h.render();
-  assert.equal(h.find('RTCView').props.style.bottom, 260, 'iOS full-window layout clips the preview above the keyboard');
+  assert.equal(h.find('TouchSurface').props.viewportInsetBottom, 260, 'iOS full-window layout clips the preview above the keyboard');
 
   h.setDimensions(844, 130);
   assert.equal(h.find('RTCView').props.style, h.absoluteFill, 'Android resize is already reflected by the window');
   h.find('NativeKeyboard').props.onOcclusionChange(68);h.render();
-  assert.equal(h.find('RTCView').props.style.bottom,68,'reserve the measured composer once');
+  assert.equal(h.find('TouchSurface').props.viewportInsetBottom,68,'reserve the measured composer once');
   assert.equal(h.find('TouchSurface').props.viewportInsetBottom,68,'direct input uses the same free rectangle');
   assert.equal(h.startVideoCount(),1,'resizing does not restart video');
 });
@@ -554,4 +556,19 @@ test('native picker suspension does not discard the photos chosen while the cont
  h.reportConnection('offline');finish([photo]);await settle();h.render();
  assert.equal(h.find('Modal').props.visible,true);assert.equal(h.uploads.length,0);
  h.reportConnection('connected');await send(h);assert.equal(h.uploads.length,1);
+});
+
+test('portrait keyboard reserves space above the composer without recreating video',()=>{
+ const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ h.find('NativeKeyboard').props.open();h.render();h.keyboardState.height=300;h.keyboardState.isVisible=true;
+ h.find('NativeKeyboard').props.onOcclusionChange(60);h.render();
+ assert.equal(h.find('TouchSurface').props.viewportInsetBottom,360);
+ assert.ok(h.find('TouchSurface').props.viewportInsetTop>54);
+ assert.equal(h.startVideoCount(),1);
+});
+test('landscape reserves both control rails and the keyboard button toggles',()=>{
+ const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();h.setDimensions(844,390);
+ const surface=h.find('TouchSurface');assert.ok(surface.props.viewportInsetLeft>=70);assert.ok(surface.props.viewportInsetRight>=70);
+ h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,true);
+ h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,false);
 });

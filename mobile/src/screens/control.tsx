@@ -9,6 +9,7 @@ import * as Updates from 'expo-updates';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { RTCView, type MediaStream } from '@livekit/react-native-webrtc';
+import { GlassSurface } from '../components/glass-surface';
 import { GlassButton } from '../components/glass-button';
 import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
@@ -86,7 +87,8 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
     download: Updates.fetchUpdateAsync,
     reload: () => Updates.reloadAsync(),
   }, active => {
-    if (active) connection.start(); else { connection.stop(); setKeyboard(false); }
+    connection.setForeground(active);
+    if (!active) setKeyboard(false);
     setForeground(active);
   }), [connection]);
   const [composerHeight, setComposerHeight] = useState(0);
@@ -97,10 +99,11 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   // Android may resize the root window while iOS keeps its full height. Use
   // only the portion not already reflected by the current window dimensions.
   const residualKeyboardOverlap = keyboardOverlap(keyboardHeight, height, windowResize);
-  const previewInset = landscapePreview ? Math.min(Math.max(0, height - 1), residualKeyboardOverlap + (keyboard ? composerHeight : 0)) : 0;
-  const previewStyle = landscapePreview && previewInset > 0
-    ? { position: 'absolute' as const, top: 0, left: 0, right: 0, bottom: previewInset }
-    : StyleSheet.absoluteFill;
+  const previewInset = preview ? Math.min(Math.max(0, height - 1), residualKeyboardOverlap + (keyboard ? composerHeight : 0)) : 0;
+  const previewTop = preview && !landscapePreview && previewInset > 0 ? insets.top + appearance.control.size + appearance.control.margin * 2 : 0;
+  const sideRail = appearance.control.size + 2 * appearance.control.gap + appearance.control.margin;
+  const previewLeft = landscapePreview ? insets.left + sideRail : 0;
+  const previewRight = landscapePreview ? insets.right + sideRail : 0;
   useEffect(() => {
     if (!keyboard) preKeyboardHeight.current = height;
     else if (!previousKeyboard.current) preKeyboardHeight.current = height;
@@ -133,24 +136,24 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
     <TouchSurface cursor={stream ? cursor : null} cursorScale={preferences.cursorScale} connection={connection} preview={preview} dismissKeyboard={keyboard ? closeKeyboard : undefined}
       pointerGeometry={pointerGeometry.geometry} pointerGeometryEpoch={pointerGeometry.geometryEpoch}
       mode={mode} gain={preferences.gain} disabled={!inputReady || options || !foreground}
-      videoSize={videoSize} viewportInsetBottom={previewInset}>
-      {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={previewStyle} onDimensionsChange={event => {
+      videoSize={videoSize} viewportInsetBottom={previewInset} viewportInsetTop={previewTop} viewportInsetLeft={previewLeft} viewportInsetRight={previewRight}>
+      {stream && <RTCView streamURL={stream.toURL()} objectFit="contain" mirror={false} style={StyleSheet.absoluteFill} onDimensionsChange={event => {
         // The native renderer has received a sized frame; an SDP/track alone
         // isn't evidence of a working preview.
         if (event.nativeEvent.width > 0 && event.nativeEvent.height > 0) { setVideoError(''); setVideoSize({ width: event.nativeEvent.width, height: event.nativeEvent.height }); }
       }} />}
     </TouchSurface>
-    {landscapePreview ? <LandscapeControls openKeyboard={openKeyboard}
+    {landscapePreview ? <LandscapeControls openKeyboard={() => { if (keyboard) closeKeyboard(); else openKeyboard(); }} keyboardOpen={keyboard}
       reconnect={() => { closeKeyboard(); reconnect(); }} openOptions={openOptions} exitPreview={togglePreview}
-      disabled={!inputReady} insets={insets} viewportInsetBottom={previewInset} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: insets.left + 16, right: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      disabled={!inputReady} insets={insets} viewportInsetBottom={previewInset} /> : <View pointerEvents="box-none" style={{ position: 'absolute', top: insets.top + 8, left: 0, right: 0, paddingLeft: insets.left + 16, paddingRight: insets.right + 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
       <View style={{ flexDirection: 'row', gap: 8 }}>
         <GlassButton label="Reconectar" action="reconnect" onPress={() => { closeKeyboard(); reconnect(); }} />
       </View>
-      {status}
-      <View style={{ flexDirection: 'row', gap: 8 }}>
-        <GlassButton label="Mouse" action="mouse" onPress={openOptions} />
-        <GlassButton label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
-      </View>
+      <View pointerEvents="none" style={{position:'absolute',left:'50%',marginLeft:-2.5}}>{status}</View>
+      <GlassSurface interactive style={{flexDirection:'row',borderRadius:appearance.control.capsuleRadius}}>
+        <GlassButton compact label="Mouse" action="mouse" onPress={openOptions} />
+        <GlassButton compact label={preview ? 'Ocultar pantalla' : 'Ver pantalla'} action="screen" selected={preview} onPress={togglePreview} />
+      </GlassSurface>
     </View>}
     {!!(messages[state] || (preview && videoError)) && <View pointerEvents="none" style={{ position: 'absolute', left: 28, right: 28, top: '44%' }}>
       <Text selectable style={{ color: appearance.color.secondary, fontSize: 14, textAlign: 'center', lineHeight: 22 }}>{messages[state] || videoError}</Text>

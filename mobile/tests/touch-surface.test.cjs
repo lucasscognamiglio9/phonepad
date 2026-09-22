@@ -438,3 +438,21 @@ test('manual native recognizer owns the gesture until its final finger is lifted
  h.manual().handlers.onTouchesUp({allTouches:touches.slice(1),changedTouches:touches.slice(1)},manager);
  assert.equal(ended,1);
 });
+
+
+test('calibrated trackpad starts outside the preview and continues across coordinate boundaries',()=>{
+ const h=render();h.rerender({preview:true,gain:2,viewportInsetTop:200,viewportInsetBottom:200});h.layout(390,844);
+ const g=h.manual().handlers;
+ g.onTouchesDown({allTouches:[point(1,10,30)],changedTouches:[point(1,10,30)]});
+ const first=h.calls.at(-1).contacts[0];
+ g.onTouchesMove({allTouches:[point(1,30,50)],changedTouches:[point(1,30,50)]});
+ assert.ok(h.calls.at(-1).contacts[0].x>first.x);
+ for(let y=70;y<820;y+=20)g.onTouchesMove({allTouches:[point(1,30,y)],changedTouches:[point(1,30,y)]});
+ assert.ok(h.cancelCalls.length>0,'crossing the virtual pad edge rebases instead of stopping');
+ const before=h.calls.at(-1).contacts[0].y;
+ g.onTouchesMove({allTouches:[point(1,30,825)],changedTouches:[point(1,30,825)]});
+ assert.notEqual(h.calls.at(-1).contacts[0].y,before);
+ const cancels=h.cancelCalls.length;
+ g.onTouchesUp({allTouches:[],changedTouches:[point(1,30,825)]});
+ assert.equal(h.cancelCalls.length,cancels+1,'a final short segment cannot generate a tap');h.unmount();
+});

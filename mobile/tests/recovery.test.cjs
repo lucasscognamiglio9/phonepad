@@ -156,7 +156,7 @@ function video(options = {}) {
       controller.abort(); return { ok: true, json: async () => ({ id: 'session', sdp: 'offer' }) };
     }
     return { ok: true, json: async () => {
-      const result = data.op === 'status' ? {state: 'ready'} : data.op === 'start' ? {id: 'session', sdp: 'offer'} : data.op === 'feedback' ? (options.feedbackResponse || {}) : {};
+      const result = data.op === 'status' ? {state: 'ready'} : data.op === 'start' ? {id: 'session', sdp: 'offer', cursorInitial:options.cursorInitial} : data.op === 'feedback' ? (options.feedbackResponse || {}) : {};
       const media = typeof options.media === 'function' ? options.media(data, time.now) : options.media;
       return {...result, ...(media !== undefined ? {media} : {})};
     }};
@@ -169,7 +169,7 @@ function video(options = {}) {
     },
   });
   return { time, peers, calls, failures, shown, controller,
-    start: () => startVideo('https://host.ts.net', controller.signal, stream => shown.push(stream), error => failures.push(error)),
+    start: () => startVideo('https://host.ts.net', controller.signal, stream => shown.push(stream), error => failures.push(error), undefined, undefined, options.onCursor),
   };
 }
 
@@ -297,9 +297,9 @@ test('returning through an input handshake reuses warm preview without showing a
   h.lifecycle.dispose();assert.equal(h.time.pending,0);
 });
 
-test('warm preview expires at five minutes and creates a fresh session on return', async () => {
+test('warm preview expires at two minutes and creates a fresh session on return', async () => {
   const h=previewLifecycle();h.lifecycle.update(true,true,true);await drain();
-  h.lifecycle.update(true,false,true);await h.time.advance(300000);
+  h.lifecycle.update(true,false,true);await h.time.advance(120000);
   assert.equal(h.sessions[0].closed,1);
   h.lifecycle.update(true,true,true);await drain();assert.equal(h.sessions.length,2);
   h.lifecycle.update(false,true,true);assert.equal(h.sessions[1].closed,1);assert.equal(h.time.pending,0);
@@ -387,4 +387,29 @@ test('native error details never become the visible reconnect message',async()=>
  lifecycle.update(true,true,true);await drain();
  assert.equal(messages.at(-1),'No se pudo conectar la pantalla. Reintentando…');
  assert.ok(messages.every(s=>!s.includes('RCTWebRTC')));lifecycle.dispose();
+});
+
+
+test('a short app switch preserves the socket and cancels active contacts', async()=>{
+ const h=control();h.connection.start();await drain();h.sockets[0].ack();
+ h.connection.setForeground(false);await h.time.advance(119000);
+ assert.equal(h.sockets.length,1);assert.equal(h.sockets[0].readyState,1);
+ assert.equal(h.sockets[0].sent[0].cancel,true);
+ h.connection.setForeground(true);await drain();assert.equal(h.sockets.length,1);
+ assert.equal(h.states.at(-1),'connected');h.connection.stop();assert.equal(h.time.pending,0);
+});
+test('two minutes in background expires the connection; failures wait for foreground',async()=>{
+ const h=control();h.connection.start();await drain();h.sockets[0].ack();
+ h.connection.setForeground(false);await h.time.advance(120000);
+ assert.equal(h.sockets[0].readyState,3);assert.equal(h.sockets.length,1);
+ h.connection.setForeground(true);await drain();assert.equal(h.sockets.length,2);
+ h.sockets[1].ack();h.connection.setForeground(false);h.sockets[1].onerror();
+ await h.time.advance(10000);assert.equal(h.sockets.length,2);
+ h.connection.setForeground(true);await drain();assert.equal(h.sockets.length,3);h.connection.stop();
+});
+
+test('the initial cursor is delivered before the native preview becomes visible',async()=>{
+ let h;const cursors=[];
+ h=video({cursorInitial:{t:'cursor',version:1,sequence:0,visible:true,x:960,y:540,hx:12,hy:12,w:96,h:96,sourceWidth:1920,sourceHeight:1080,imageId:'0123456789abcdef',image:'data:image/png;base64,iVBORw0KGgoAAA=='},onCursor:cursor=>{if(cursor){assert.equal(h.shown.length,0);cursors.push(cursor);}}});
+ const stop=await h.start();assert.equal(cursors.length,1);assert.equal(cursors[0].w,96);stop();await drain();
 });

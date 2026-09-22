@@ -91,7 +91,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const measureAnchorRef = useRef<() => void>(() => {});
   const available = Math.max(0, width - insets.left - insets.right - 24);
   const compactWidth = Math.min(available, Math.max(240, available * .72));
-  const targetWidth = active ? available : compactWidth;
+  const targetWidth = active || shortcuts ? available : compactWidth;
   const animatedWidth = useSharedValue(targetWidth);
   const closedBottom = insets.bottom + COMPOSER_CLOSED_MARGIN;
   const followsKeyboard = active && visible && !disabled;
@@ -487,7 +487,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       </GlassSurface>}
       {shortcuts && <Animated.View style={extrasStyle}><ScrollView keyboardShouldPersistTaps="always" bounces={false}>
       <GlassSurface style={{ borderRadius: 26, padding: 6, flexDirection: width > height ? 'row' : 'column', alignItems: width > height ? 'center' : 'stretch' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', flex: width > height ? 1 : undefined, gap: 4 }}>
           {['ctrl', 'alt', 'super', 'shift'].map(mod => <View key={mod} style={{ flex: 1, minWidth: 44, alignItems: 'center' }}>
             <GlassButton compact label={mod === 'super' ? 'Super' : mod[0].toUpperCase() + mod.slice(1)} selected={mods.includes(mod)} disabled={keysDisabled}
               onPress={() => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }} />
@@ -557,7 +557,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             onKeyPress={event => { if (!literalMode && event.nativeEvent.key === 'Backspace' && !previous.current) special('Backspace'); }}
             onContentSizeChange={event => setContentHeight(Math.ceil(event.nativeEvent.contentSize.height))}
             scrollEnabled={active}
-            style={{ color: appearance.color.text, fontSize: 16, lineHeight: 22, marginLeft: 88, marginRight: 44, paddingHorizontal: 4, paddingVertical: 11, height: MIN_TOUCH_TARGET, textAlignVertical: 'center' }} />
+            style={{ color: appearance.color.text, fontSize: 16, lineHeight: 22, marginLeft: 44, marginRight: 88, paddingHorizontal: 4, paddingVertical: 11, height: MIN_TOUCH_TARGET, textAlignVertical: 'center' }} />
         <View pointerEvents="box-none" onLayout={event => {
           const next = event.nativeEvent.layout.height;
           if (next > 0 && next !== actionBarHeight) setActionBarHeight(next);
@@ -569,11 +569,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               <GlassButton compact label="Agregar" action="more"
                 disabled={choosing || (disabled && !allowAttachments)} onPress={openMenu} />
             </View>
+            <View pointerEvents="none" style={{ flex: 1 }} />
             {<>
               <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label="Teclas extra" action="shortcuts" selected={shortcuts || mods.length > 0}
                 onPress={() => setShortcuts(current => !current)} /></View>
-              <View pointerEvents="none" style={{ flex: 1 }} />
-
             </>}
             <View style={{ width: 44, height: 44, justifyContent: 'center' }}><GlassButton compact label={literalMode && value ? "Enviar texto" : "Enter"} action="send" disabled={literalMode && value ? disabled || sending || deliveryIssue || !!literal?.pending : keysDisabled} onPress={() => { if (literalMode && draft.current) void writeText(); else submit(); }} /></View>
           </View>

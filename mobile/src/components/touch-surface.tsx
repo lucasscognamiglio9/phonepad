@@ -80,7 +80,7 @@ export function removeChangedTouchContacts(
 }
 
 export function TouchSurface({ connection, children, preview, dismissKeyboard,
-  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0, cursor = null, cursorScale = .75 }: {
+  pointerGeometry = LEGACY_POINTER_GEOMETRY, pointerGeometryEpoch = 0, mode = 'trackpad', gain, disabled = false, videoSize, viewportInsetBottom = 0, viewportInsetTop = 0, viewportInsetLeft = 0, viewportInsetRight = 0, cursor = null, cursorScale = .75 }: {
   connection: Connection;
   children?: ReactNode;
   preview: boolean;
@@ -92,6 +92,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   disabled?: boolean;
   videoSize?: { width?: number; height?: number };
   viewportInsetBottom?: number;
+  viewportInsetTop?: number; viewportInsetLeft?: number; viewportInsetRight?: number;
   cursor?: CursorState | null;
   cursorScale?: number;
 }) {
@@ -101,6 +102,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   const sequenceActive = useSharedValue(false);
   const keyboardConsumed = useSharedValue(false);
   const activeContacts = useSharedValue<TouchContact[]>([]);
+  const pointerAnchor = useSharedValue({x:0,y:0});
+  const rebased = useSharedValue(false);
+  const segmented = useSharedValue(false);
   const previewScale = useSharedValue(PREVIEW_ZOOM_MIN);
   const previewOffsetX = useSharedValue(0);
   const previewOffsetY = useSharedValue(0);
@@ -173,6 +177,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     keyboardConsumed.value = false;
     zoomOwns.value = false;
     activeContacts.value = [];
+    rebased.value=false;
     previewScale.value = PREVIEW_ZOOM_MIN;
     previewOffsetX.value = 0;
     previewOffsetY.value = 0;
@@ -180,7 +185,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
   };
 
   const previewStyle = useAnimatedStyle(() => ({
-    transformOrigin: [width.value / 2, Math.max(1, height.value - viewportInsetBottom) / 2, 0],
+    transformOrigin: [(width.value-viewportInsetLeft-viewportInsetRight) / 2, Math.max(1, height.value - viewportInsetTop - viewportInsetBottom) / 2, 0],
     transform: [
       { translateX: previewOffsetX.value },
       { translateY: previewOffsetY.value },
@@ -188,13 +193,13 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     ],
   })) as unknown as ViewStyle;
 
-  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, width.value, Math.max(1,height.value-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value, CURSOR_POINTS * cursorScale));
+  const cursorStyle = useAnimatedStyle(() => cursorPlacement(cursor, Math.max(1,width.value-viewportInsetLeft-viewportInsetRight), Math.max(1,height.value-viewportInsetTop-viewportInsetBottom), previewScale.value, previewOffsetX.value, previewOffsetY.value, CURSOR_POINTS * cursorScale));
 
   useEffect(() => {
     // A mode switch, including entering preview or changing the keyboard
     // overlay, invalidates any in-flight native sequence.
     return () => interruptSequence();
-  }, [connection, preview, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, mode, gain, disabled, viewportInsetBottom]);
+  }, [connection, preview, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, mode, gain, disabled, viewportInsetBottom, viewportInsetTop, viewportInsetLeft, viewportInsetRight]);
 
   useEffect(() => {
     const listener = AppState.addEventListener('change', state => {
@@ -207,12 +212,22 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
     const map = (touches: readonly TouchData[]) => {
       'worklet';
       if (mode === 'direct') return touches.map(touch => {
-        const p=directPoint(touch.x,touch.y,width.value,Math.max(1,height.value-viewportInsetBottom),videoSize?.width??0,videoSize?.height??0,previewScale.value,previewOffsetX.value,previewOffsetY.value);
+        const p=directPoint(touch.x-viewportInsetLeft,touch.y-viewportInsetTop,Math.max(1,width.value-viewportInsetLeft-viewportInsetRight),Math.max(1,height.value-viewportInsetTop-viewportInsetBottom),videoSize?.width??0,videoSize?.height??0,previewScale.value,previewOffsetX.value,previewOffsetY.value);
         return p ? {id:touch.id,...p} : null;
       }).filter((p): p is NonNullable<typeof p> => p !== null);
       const mapped=mapTouchSnapshot(touches,{width:width.value,height:height.value},pointerGeometry);
-      if (gain === undefined) return mapped;
-      return mapCalibratedPointerSnapshot(touches,{width:width.value,height:height.value},pointerGeometry,gain);
+      if (gain === undefined || !touches.length) return mapped;
+      const cx=touches.reduce((sum,p)=>sum+p.x,0)/touches.length;
+      const cy=touches.reduce((sum,p)=>sum+p.y,0)/touches.length;
+      if (!sequenceActive.value) { pointerAnchor.value={x:cx,y:cy}; segmented.value=false; }
+      const shifted=touches.map(p=>({...p,x:width.value/2+p.x-pointerAnchor.value.x,y:height.value/2+p.y-pointerAnchor.value.y}));
+      const calibrated=mapCalibratedPointerSnapshot(shifted,{width:width.value,height:height.value},pointerGeometry,gain);
+      if (sequenceActive.value && calibrated.some(p=>p.x<=0 || p.x>=1 || p.y<=0 || p.y>=1)) {
+        // Palm-cancel prevents a segment boundary from becoming a tap.
+        pointerAnchor.value={x:cx,y:cy}; rebased.value=true;
+        return mapCalibratedPointerSnapshot(touches.map(p=>({...p,x:width.value/2+p.x-cx,y:height.value/2+p.y-cy})),{width:width.value,height:height.value},pointerGeometry,gain);
+      }
+      return calibrated;
     };
     const claimZoom = () => {
       'worklet';
@@ -245,6 +260,14 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
           scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, true, false, false);
           return;
         }
+        if (rebased.value) {
+          rebased.value=false; segmented.value=true;
+          scheduleOnRN(sendTouchFrame,[],sequenceGeneration.value,false,false,true);
+          sequenceGeneration.value+=1;
+          activeContacts.value=contacts;
+          scheduleOnRN(sendTouchFrame,contacts,sequenceGeneration.value,true,false,false);
+          return;
+        }
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
       })
@@ -262,6 +285,14 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         if (mode === 'direct' && contacts.length === 0) {
           sequenceActive.value = false; activeContacts.value = [];
           scheduleOnRN(sendTouchFrame, [], sequenceGeneration.value, false, false, true); return;
+        }
+        if (rebased.value) {
+          rebased.value=false; segmented.value=true;
+          scheduleOnRN(sendTouchFrame,[],sequenceGeneration.value,false,false,true);
+          sequenceGeneration.value+=1;
+          activeContacts.value=contacts;
+          scheduleOnRN(sendTouchFrame,contacts,sequenceGeneration.value,true,false,false);
+          return;
         }
         activeContacts.value = contacts;
         scheduleOnRN(sendTouchFrame, contacts, sequenceGeneration.value, false, false, false);
@@ -285,7 +316,7 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         const contacts = removeChangedTouchContacts(activeContacts.value, event.changedTouches);
         activeContacts.value = contacts;
         const generation = sequenceGeneration.value;
-        scheduleOnRN(sendTouchFrame, contacts, generation, false, contacts.length === 0, false);
+        scheduleOnRN(sendTouchFrame, contacts, generation, false, contacts.length === 0, contacts.length === 0 && segmented.value);
         if (contacts.length === 0) sequenceActive.value = false;
       })
       .onTouchesCancelled(() => {
@@ -309,9 +340,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         claimZoom();
         const nextScale = clampPreviewScale(pinchStartScale.value * event.scale);
         previewScale.value = nextScale;
-        const bounds = previewPanBounds({ width: width.value, height: Math.max(1, height.value - viewportInsetBottom) }, nextScale);
+        const bounds = previewPanBounds({ width: Math.max(1,width.value-viewportInsetLeft-viewportInsetRight), height: Math.max(1, height.value - viewportInsetTop - viewportInsetBottom) }, nextScale);
         previewOffsetX.value = Math.min(bounds.x, Math.max(-bounds.x, previewOffsetX.value));
-        previewOffsetY.value = Math.min(bounds.y, Math.max(-bounds.y, previewOffsetY.value, CURSOR_POINTS * cursorScale));
+        previewOffsetY.value = Math.min(bounds.y, Math.max(-bounds.y, previewOffsetY.value));
       });
     const pan = Gesture.Pan()
       .enabled(preview && !disabled && !dismissKeyboard)
@@ -327,12 +358,12 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
         if (previewScale.value <= 1) return;
         claimZoom();
         const next = clampPreviewPan({ x: panStartX.value + event.translationX, y: panStartY.value + event.translationY },
-          { width: width.value, height: Math.max(1, height.value - viewportInsetBottom) }, previewScale.value);
+          { width: Math.max(1,width.value-viewportInsetLeft-viewportInsetRight), height: Math.max(1, height.value - viewportInsetTop - viewportInsetBottom) }, previewScale.value);
         previewOffsetX.value = next.x;
         previewOffsetY.value = next.y;
       });
     return Gesture.Simultaneous(forward, pinch, pan);
-  }, [connection, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, preview, mode, gain, disabled, videoSize?.width, videoSize?.height, viewportInsetBottom]);
+  }, [connection, dismissKeyboard, pointerGeometry, pointerGeometryEpoch, preview, mode, gain, disabled, videoSize?.width, videoSize?.height, viewportInsetBottom, viewportInsetTop, viewportInsetLeft, viewportInsetRight]);
 
   const onLayout = (event: { nativeEvent: { layout: { width: number; height: number } } }) => {
     width.value = event.nativeEvent.layout.width;
@@ -349,8 +380,10 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       style={{ flex: 1, overflow: 'hidden' }}
       accessibilityLabel={mode === 'direct' ? 'Control directo de la pantalla. Tocá o arrastrá; dos dedos para scroll o clic derecho.' : 'Touchpad multitáctil. Los gestos físicos se procesan en la computadora.'}
     >
-      <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
-      {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:0,left:0,right:0,bottom:viewportInsetBottom,overflow:'hidden',zIndex:2}}>
+      <View pointerEvents="none" style={{position:'absolute',top:viewportInsetTop,left:viewportInsetLeft,right:viewportInsetRight,bottom:viewportInsetBottom,overflow:'hidden'}}>
+        <Animated.View pointerEvents="none" style={[{ position: 'absolute', inset: 0 }, previewStyle]}>{children}</Animated.View>
+      </View>
+      {preview && !!cursor?.image && <View pointerEvents="none" style={{position:'absolute',top:viewportInsetTop,left:viewportInsetLeft,right:viewportInsetRight,bottom:viewportInsetBottom,overflow:'hidden',zIndex:2}}>
         <Animated.Image accessible={false} fadeDuration={0} source={{uri:cursor.image}} resizeMode="stretch" style={[{position:'absolute'},cursorStyle]} />
       </View>}
     </View>

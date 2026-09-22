@@ -120,3 +120,10 @@ Implementado: menú Mouse con dos sliders nativos Expo UI, sensibilidad 0,5–4,
 Cursor: consumidor de metadatos conectado antes de activar el espejo; variantes de alta resolución del tema real con fallback al bitmap original para cursores personalizados. Prueba real sin mover el mouse: primer cursor visible de 96×96, hotspot 14/13, restauración del escritorio confirmada. No cambia la sensibilidad ni el tamaño global del mouse.
 
 Reconexión: video espera el nuevo handshake de control y la oferta tiene un plazo compatible con el arranque del servidor. Errores visibles breves; diagnóstico técnico conserva su fase en logs. Verificados TypeScript, 222 pruebas móviles y 76 pruebas Python, con el runtime instalado. Dependencias/configuración nativas sin cambios respecto de la IPA instalada. Publicación y activación se registran en los artefactos versionados del workspace actual. Pendiente de aceptación física del feedback completo; no cierra P00–P06.
+
+
+### Segundo feedback, 2026-09-22
+
+Implementado: cursor inicial incluido en la oferta antes del video; trackpad calibrado desde cualquier zona con renovación de coordenadas sin clics espurios; pausa de sesión de dos minutos. Preview y cursor comparten el área libre del teclado y los márgenes laterales. Ajustes y cápsulas usan GlassSurface claro; Mouse/Pantalla agrupados, indicador centrado, teclado horizontal con alternancia. Atajos sin recorte y compositor uniforme: +, texto, teclas extra, Enter.
+
+Verificación: TypeScript, 228 pruebas móviles (226 de suite y dos regresiones adicionales de layout), 76 Python y todos los paquetes Go. La tanda anterior fue confirmada visible por el usuario. Publicación, arranque real y rollback de esta tanda se registran en sus artefactos; aceptación física de estos cambios pendiente. P00–P06 no se declaran completos.

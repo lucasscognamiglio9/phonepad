@@ -96,7 +96,7 @@ test('the collapsed composer keeps plus, shortcuts and the send symbol inside th
   assert.ok(h.find('GlassButton', 'Enter'));
   assert.ok(h.find('GlassButton', 'Teclas extra'));
   assert.equal(h.find('GlassButton','Enter').props.action,'send');
-  assert.equal(input.props.style.marginLeft, 88);
+  assert.equal(input.props.style.marginLeft, 44);
   assert.equal(input.props.style.paddingVertical, 11);
   assert.equal(input.props.style.height, 44);
   assert.equal(input.props.style.textAlignVertical, 'center');
@@ -109,7 +109,7 @@ test('expanded composer keeps placeholder and actions on one row', () => {
   const input = h.find('TextInput');
   assert.ok(h.find('GlassButton', 'Teclas extra'));
   assert.equal(h.find('GlassButton','Enter').props.action,'send');
-  assert.equal(input.props.style.marginLeft, 88);
+  assert.equal(input.props.style.marginLeft, 44);
   assert.equal(input.props.style.paddingVertical, 11);
   assert.equal(input.props.style.height, 44);
   assert.equal(input.props.style.textAlignVertical, 'center');

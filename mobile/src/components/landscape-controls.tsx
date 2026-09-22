@@ -54,18 +54,18 @@ export function getLandscapeControlsFrame(
   return { top, right: Math.max(8, rightInset + 8), height: railHeight, handleTop };
 }
 
-export function LandscapeControls({ openKeyboard, reconnect, openOptions, exitPreview, disabled, insets, viewportInsetBottom=0 }: {
+export function LandscapeControls({ openKeyboard, reconnect, openOptions, exitPreview, disabled, insets, viewportInsetBottom=0, keyboardOpen=false }: {
   openKeyboard: () => void; reconnect: () => void; openOptions: () => void;
-  exitPreview: () => void; disabled: boolean; insets: LandscapeControlsInsets; viewportInsetBottom?: number;
+  exitPreview: () => void; disabled: boolean; insets: LandscapeControlsInsets; viewportInsetBottom?: number; keyboardOpen?: boolean;
 }) {
   const { height } = useWindowDimensions();
   const frame = getLandscapeControlsFrame(Math.max(1,height-viewportInsetBottom), insets);
   return <View pointerEvents="box-none" style={styles.overlay}>
     <View pointerEvents="box-none" style={[styles.positioner, { top: frame.top, right: frame.right, height: frame.height }]}>
-      <GlassSurface interactive material="regular" style={[styles.railSurface, { height: frame.height }]}>
+      <GlassSurface interactive style={[styles.railSurface, { height: frame.height }]}>
         <ScrollView style={[styles.scroll, { height: frame.height }]} contentContainerStyle={styles.content}
           bounces={false} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="always" keyboardDismissMode="none">
-          <GlassButton compact label="Teclado" action="keyboard" disabled={disabled} onPress={openKeyboard} />
+          <GlassButton compact label={keyboardOpen ? "Cerrar teclado" : "Teclado"} selected={keyboardOpen} action="keyboard" disabled={disabled} onPress={openKeyboard} />
           <GlassButton compact label="Reconectar" action="reconnect" onPress={reconnect} />
           <GlassButton compact label="Mouse" action="mouse" onPress={openOptions} />
         </ScrollView>
