@@ -25,11 +25,12 @@ export class CursorReceiver {
 }
 
 /** Transform only the hotspot position. Bitmap dimensions remain in UI points. */
-export function cursorPlacement(cursor: CursorState | null, width: number, height: number, scale=1, panX=0, panY=0, points=CURSOR_POINTS) {
+export function cursorPlacement(cursor: CursorState | null, width: number, height: number, scale=1, panX=0, panY=0, points?: number) {
   'worklet';
   if (!cursor?.visible || !cursor.image || width<=0 || height<=0) return {opacity:0,left:0,top:0,width:1,height:1};
   const fit=Math.min(width/cursor.sourceWidth,height/cursor.sourceHeight);
-  const size=points/Math.max(cursor.w,cursor.h);
+  // Resolve captured defaults inside the worklet, after its closure is restored.
+  const size=(points ?? CURSOR_POINTS)/Math.max(cursor.w,cursor.h);
   const x=width/2+(cursor.x-cursor.sourceWidth/2)*fit*scale+panX;
   const y=height/2+(cursor.y-cursor.sourceHeight/2)*fit*scale+panY;
   return {opacity:cursor.x>=0&&cursor.y>=0&&cursor.x<cursor.sourceWidth&&cursor.y<cursor.sourceHeight?1:0,left:x-cursor.hx*size,top:y-cursor.hy*size,width:cursor.w*size,height:cursor.h*size};

@@ -25,3 +25,15 @@ test('hidden, offscreen and empty cursor never draws a predicted pointer',()=>{
  const hidden=r.accept(JSON.stringify({t:'cursor',version:1,sequence:2,visible:false,sourceWidth:1920,sourceHeight:1080}));
  assert.equal(mod.cursorPlacement(hidden,400,800).opacity,0);assert.equal(mod.cursorPlacement(null,400,800).opacity,0);
 });
+test('Expo-serialized cursor worklet runs in the isolated UI runtime on mount',()=>{
+ const babel=require('@babel/core');
+ const preset=require.resolve('babel-preset-expo',{paths:[path.dirname(require.resolve('expo/package.json'))]});
+ const transformed=babel.transformFileSync(path.join(__dirname,'../src/lib/cursor.ts'),{presets:[preset],caller:{name:'metro',platform:'ios',isDev:false,engine:'hermes',supportsStaticESM:false}});
+ const compiled={};vm.runInNewContext(transformed.code,{exports:compiled,global:{Error}});
+ const original=compiled.cursorPlacement;
+ const isolated=vm.runInNewContext('('+original.__initData.code+')');
+ assert.equal(isolated.call(original,null,390,844).opacity,0);
+ const cursor=new mod.CursorReceiver().accept(JSON.stringify(packet));
+ assert.equal(isolated.call(original,cursor,390,844).width,28);
+ assert.equal(isolated.call(original,cursor,390,844,2,0,0,40).width,40);
+});
