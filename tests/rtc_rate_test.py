@@ -131,4 +131,18 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(result['encodeP95Ms'], 3)
         self.assertTrue(log.called)
 
+    def test_severe_loss_refreshes_reference_once_after_bitrate_recovers(self):
+        s = self.session()
+        s.quality_recovery_floor = 6000
+        s.quality_recovery_pending = False
+        s.last_keyframe = 0
+        keyframes = []
+        s.request_keyframe = lambda: keyframes.append(True)
+        with patch('builtins.print'):
+            for second, loss in [(10, .65), (11, 0), (12, 0), (13, 0), (14, 0), (15, 0)]:
+                with patch('rtc.time.monotonic', return_value=second):
+                    s.feedback({'loss':loss, 'client':'native', 'frames':10, 'sequence':second})
+        self.assertEqual(keyframes, [True])
+        self.assertFalse(s.quality_recovery_pending)
+
 if __name__ == '__main__': unittest.main()

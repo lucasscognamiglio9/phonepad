@@ -190,6 +190,8 @@ class Session:
         requested_kbps = self.lab_config['bitrateKbps'] if self.lab_config else None
         maximum_kbps = max(8000 if hevc else 12000, requested_kbps or default_kbps)
         initial_kbps = requested_kbps or default_kbps
+        self.quality_recovery_floor = initial_kbps
+        self.quality_recovery_pending = False
         self.rate = (RateController(maximum_kbps, initial_kbps,
                                     policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
                      if self.controller_name == 'legacy' else None)
@@ -477,6 +479,7 @@ class Session:
         controller_mode = getattr(self, 'controller_name', 'legacy')
         if controller_mode != 'gcc':
             self.rate.reset()
+            self.quality_recovery_pending = False
         self.touched = time.monotonic()
         self.sample_time = time.monotonic()
         self.last_counts = self.counts.copy()
@@ -517,6 +520,17 @@ class Session:
             self.encoder.set_property('bitrate', target)
             applied_kbps = int(self.encoder.get_property('bitrate'))
             decision = {**self.rate.decision, 'appliedKbps': applied_kbps}
+            # A lost reference frame can leave moving text blocky after the
+            # network and bitrate recover. Refresh it once at a useful rate;
+            # forcing IDRs during congestion would only add more pressure.
+            loss = data.get('loss')
+            if loss is not None and loss >= .08:
+                self.quality_recovery_pending = True
+            elif (getattr(self, 'quality_recovery_pending', False) and loss == 0
+                  and applied_kbps >= getattr(self, 'quality_recovery_floor', 6000)
+                  and time.monotonic() - getattr(self, 'last_keyframe', 0) >= 1):
+                self.request_keyframe()
+                self.quality_recovery_pending = False
         self.touched = time.monotonic()
         now=time.monotonic();elapsed=max(.001,now-self.sample_time)
         rates={key+'Fps':round((value-self.last_counts[key])/elapsed,1) for key,value in self.counts.items()}
