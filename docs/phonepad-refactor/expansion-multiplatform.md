@@ -6,6 +6,15 @@ Estado al 23 de septiembre de 2026. Este alcance sigue a P00–P06; no cambia su
 
 Una app en iPhone o Android controla cualquiera de los equipos guardados: Ubuntu, macOS o Windows. Cada computadora ejecuta su propio servidor y conserva sus permisos e identidad. El teléfono muestra solo nombres de equipos, no detalles técnicos durante el uso normal.
 
+## Prioridad inmediata: transmisión legible
+
+La captura del 23/09/2026 a la 01:23 muestra texto ilegible. En los registros del host, entre 01:22:18 y 01:22:22, el receptor tuvo varios segundos sin cuadros nuevos, pérdida de paquetes de hasta 44% y el bitrate aplicado cayó de 12 000 a 3 796 kb/s. Al inicio del episodio hubo una muestra de 65% de pérdida. Esto confirma una degradación de la recepción durante ese intervalo; la imagen sola no prueba si además hubo escalado o defecto de renderer. El cambio `8f55cd9` pide un cuadro de referencia limpio después de recuperar red y bitrate; se activó después de esa captura y aún requiere prueba física.
+
+1. Reproducir el caso con la versión instalada y registrar, con timestamps pequeños y comparables, cuadros capturados/codificados/recibidos/presentados, pérdida, ruta Tailscale, bitrate, resolución y tiempo hasta volver a leer el texto. Los registros actuales contienen detalles de frames excesivos y no deben servir como única medida de calidad percibida.
+2. Separar causa por etapa. Si el host entrega cuadros nítidos pero el receptor no, revisar transporte, recuperación WebRTC y renderer. Si el host ya codifica texto ilegible, revisar captura, escala y política de compresión. Evaluar el cambio de referencia ya desplegado antes de añadir otra heurística.
+3. Corregir la causa reproducida con el mecanismo estándar disponible en WebRTC/encoder. Preservar un cuadro legible durante interrupciones breves y recuperar el detalle al volver la red, sin dejar congelado un estado engañoso. No subir bitrate, forzar cuadros clave ni bajar resolución globalmente sin medir el efecto en pérdida, latencia y lectura.
+4. Comparar antes/después con la misma página de texto, scroll y rutas Wi-Fi/datos. La entrega se acepta cuando el texto vuelve a ser legible tras las ráfagas, no quedan bloqueos prolongados de cuadros, y el iPhone confirma la mejora. Registrar límites de una red que no entrega paquetes; no prometer calidad constante bajo pérdida total.
+
 ## Entrega 1: selector de equipos
 
 - Al tocar el icono de monitor desde la pantalla principal, abrir un menú Liquid Glass como el menú **+**. Cada fila muestra un punto de estado y el nombre guardado, por ejemplo Windows, Mac o Ubuntu; la última fila dice **Agregar nuevo**. Son ejemplos, no nombres ni cantidad fijos. El equipo activo debe distinguirse sin recargar la interfaz.
