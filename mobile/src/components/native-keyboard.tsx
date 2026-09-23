@@ -19,6 +19,7 @@ import {
   MIN_TOUCH_TARGET,
 } from './keyboard-layout';
 import type { Connection } from '../lib/connection';
+import { offerTextToHostClipboard, transferClipboard } from '../lib/clipboard-transfer';
 import type { AttachmentSource } from '../lib/attachments';
 import type { LateDraft } from '../lib/literal-transfer';
 import type { ActionReceipt } from '../lib/protocol';
@@ -258,6 +259,42 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     const result = dispatchAction(key, ['ctrl']);
     if (!result.accepted) preserveActionContext();
   };
+  const copySelectionToPhone = async () => {
+    if (!canSendKey() || !connection.canClipboard) return;
+    const epoch = connection.capabilities?.sessionEpoch;
+    const operationId = connection.pressAction({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'c' });
+    if (!operationId) { setActionStatus('No se pudo copiar la selección.'); return; }
+    setSending(true); setActionStatus('');
+    try {
+      const receipt = await connection.waitFinalActionReceipt(operationId);
+      if (receipt?.state !== 'executed' || receipt.replayed || epoch !== connection.capabilities?.sessionEpoch) {
+        throw Error('No se confirmó Copiar en el equipo.');
+      }
+      // The focused app may publish its selection just after handling Ctrl+C.
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await transferClipboard(connection, 'phone', new AbortController().signal);
+      setActionStatus('Copiado al iPhone.');
+    } catch (error) {
+      setActionStatus(error instanceof Error ? error.message : 'No se pudo copiar al iPhone.');
+    } finally { setSending(false); }
+  };
+  const pasteDraftWithShortcut = async () => {
+    if (!draft.current || disabled || !connection.canClipboard || !connection.canInput || sending) return;
+    const text = draft.current;
+    setSending(true);
+    try {
+      if (literal.pending && !(await literal.reviewed())) throw Error('Consultá el envío anterior antes de pegar.');
+      await offerTextToHostClipboard(connection, text, new AbortController().signal);
+      const operationId = connection.pressAction({ t: 'k', a: 'combo', mods: ['ctrl'], key: 'v' });
+      if (!operationId) throw Error('El texto quedó en el portapapeles del equipo; no se confirmó Pegar.');
+      const receipt = await connection.waitFinalActionReceipt(operationId);
+      setTextStatus(receipt?.state === 'executed' && !receipt.replayed
+        ? 'Se envió Pegar. Comprobá el campo; conservamos el borrador.'
+        : 'El texto quedó en el portapapeles del equipo. No se confirmó Pegar.');
+    } catch (error) {
+      setTextStatus(error instanceof Error ? error.message : 'No se pudo pegar. Borrador conservado.');
+    } finally { preserveDraft(text); setSending(false); }
+  };
   const submit = () => {
     if (!canSendKey()) return;
     // Enter is the composer submit action; armed modifiers apply to explicit
@@ -473,14 +510,15 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       </GlassSurface>}
       {deliveryIssue && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>
-          Envío interrumpido. Borrador guardado.
+          Borrador guardado. Comprobá el campo antes de volver a enviarlo.
         </Text>
-        <GlassButton label="Continuar sin reenviar" disabled={sending || (!!literal?.pending && !canReview)} onPress={reviewed} />
+        {literal?.pending?.receipt?.state === 'rejected' && <GlassButton label="Pegar borrador en el equipo" disabled={sending || !canReview || !connection.canClipboard} onPress={() => { void pasteDraftWithShortcut(); }} />}
+        <GlassButton label="Volver a editar" disabled={sending || (!!literal?.pending && !canReview)} onPress={reviewed} />
         {!!value && !literal?.pending && <GlassButton label="Descartar borrador" disabled={sending} onPress={discardLocalDraft} />}
       </GlassSurface>}
       {literalMode && !!textStatus && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>{textStatus}</Text>
-        {literal?.pending && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
+        {literal?.pending && !['rejected', 'cancelled', 'dispatched'].includes(literal.pending.receipt?.state ?? '') && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
       </GlassSurface>}
       {!!actionStatus && <GlassSurface style={{ borderRadius: 18, padding: 10 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>{actionStatus}</Text>
@@ -499,6 +537,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="always" bounces={false}
           contentContainerStyle={{ flexGrow: 1, alignItems: 'center', gap: 4 }}>
           <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Copiar" disabled={keysDisabled} onPress={() => clipboard('c')} /></View>
+          <View style={{ flex: 1, minWidth: MIN_TOUCH_TARGET, alignItems: 'center' }}><GlassButton compact label="Al iPhone" disabled={keysDisabled || !connection.canClipboard} onPress={() => { void copySelectionToPhone(); }} /></View>
           {([
             ['Izquierda', 'left', 'ArrowLeft'], ['Derecha', 'right', 'ArrowRight'],
             ['Arriba', 'up', 'ArrowUp'], ['Abajo', 'down', 'ArrowDown'],

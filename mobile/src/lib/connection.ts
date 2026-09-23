@@ -57,6 +57,7 @@ export class Connection {
   private actionOps = new Map<string, ActiveAction>();
   private actionReceipts = new Map<string, ActionReceipt>();
   private actionWaiters = new Map<string, Set<ActionWaiter>>();
+  private finalActionWaiters = new Map<string, Set<ActionWaiter>>();
   get inputEpoch() { return this.inputGeneration; }
   get canInput() { return allowsInput(this.capabilities); }
   get canView() { return allowsPermission(this.capabilities, 'view'); }
@@ -191,6 +192,8 @@ export class Connection {
     this.actionOps.clear(); this.actionReceipts.clear();
     for (const waiters of this.actionWaiters.values()) for (const waiter of waiters) waiter(null);
     this.actionWaiters.clear();
+    for (const waiters of this.finalActionWaiters.values()) for (const waiter of waiters) waiter(null);
+    this.finalActionWaiters.clear();
   }
   private acceptActionReceipt(receipt: ActionReceipt) {
     if (receipt.sessionEpoch && receipt.sessionEpoch !== this.capabilities?.sessionEpoch) return;
@@ -203,6 +206,13 @@ export class Connection {
     if (waiters) {
       this.actionWaiters.delete(receipt.operationId);
       for (const waiter of waiters) waiter(receipt);
+    }
+    if (receipt.state !== 'admitted') {
+      const finalWaiters = this.finalActionWaiters.get(receipt.operationId);
+      if (finalWaiters) {
+        this.finalActionWaiters.delete(receipt.operationId);
+        for (const waiter of finalWaiters) waiter(receipt);
+      }
     }
     this.changed();
   }
@@ -220,6 +230,22 @@ export class Connection {
       waiters.add(waiter); this.actionWaiters.set(operationId, waiters);
       timer = setTimeout(() => {
         waiters.delete(waiter); if (!waiters.size) this.actionWaiters.delete(operationId); resolve(null);
+      }, timeoutMs);
+    });
+  };
+  waitFinalActionReceipt = (operationId: string, timeoutMs = 5000): Promise<ActionReceipt | null> => {
+    const current = this.actionReceipts.get(operationId);
+    if (current && current.state !== 'admitted') return Promise.resolve(current);
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(operationId) || timeoutMs < 0) return Promise.resolve(null);
+    return new Promise(resolve => {
+      const waiters = this.finalActionWaiters.get(operationId) ?? new Set<ActionWaiter>();
+      let timer: ReturnType<typeof setTimeout>;
+      const waiter: ActionWaiter = receipt => {
+        clearTimeout(timer); waiters.delete(waiter); resolve(receipt);
+      };
+      waiters.add(waiter); this.finalActionWaiters.set(operationId, waiters);
+      timer = setTimeout(() => {
+        waiters.delete(waiter); if (!waiters.size) this.finalActionWaiters.delete(operationId); resolve(null);
       }, timeoutMs);
     });
   };

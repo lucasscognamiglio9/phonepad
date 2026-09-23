@@ -9,7 +9,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(path.join(__dirname, 
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX },
 }).outputText;
 function harness() {
-  const alerts = [];
+  const alerts = [], clipboardTransfers = [], clipboardOffers = [];
   const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
   const focusCount = { value: 0 };
   const dimensions = { width: 390, height: 844 };
@@ -59,8 +59,12 @@ function harness() {
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 54, bottom: 34, left: 0, right: 0 }) },
     './glass-surface': { GlassSurface: 'GlassSurface' }, './glass-button': { GlassButton: 'GlassButton' },
     './action-menu': { ActionMenu: 'ActionMenu' }, './keyboard-layout': keyboardLayout, '../lib/protocol': protocol,
+    '../lib/clipboard-transfer': {
+      transferClipboard: async (_connection, direction) => { clipboardTransfers.push(direction); },
+      offerTextToHostClipboard: async (_connection, text) => { clipboardOffers.push(text); },
+    },
   };
-  const exports = {}; vm.runInNewContext(compile('components/native-keyboard.tsx'), { exports, require: name => modules[name] });
+  const exports = {}; vm.runInNewContext(compile('components/native-keyboard.tsx'), { exports, require: name => modules[name], setTimeout, clearTimeout, setInterval, clearInterval, AbortController });
   const props = { connection: { send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted && sent.length <= rejectAfter; } },
     active: false, disabled: false, choosing: false, open: () => { props.active = true; }, close: () => { props.active = false; }, choose: action => chosen.push(action) };
   function render() { index = 0; tree = exports.NativeKeyboard(props); while (effects.length) effects.shift()(); }
@@ -71,7 +75,7 @@ function harness() {
   const type = value => { find('TextInput').props.onChangeText(value); render(); };
   render(); render();
   return {
-    props, sent, chosen, alerts, focusCount: () => focusCount.value, keyboardState, render, tree: () => tree, nodes, find, click, type,
+    props, sent, chosen, alerts, clipboardTransfers, clipboardOffers, focusCount: () => focusCount.value, keyboardState, render, tree: () => tree, nodes, find, click, type,
     keyboard: (event, payload = {}) => (keyboardListeners[event] ?? []).forEach(callback => callback(payload)),
     measure: next => Object.assign(measurement, next),
     resize: next => Object.assign(dimensions, next),
@@ -277,7 +281,7 @@ test('rejected navigation, clipboard and Enter preserve the draft without retry 
     const h = harness(); h.props.active = true; h.render(); h.type('borrador');
     h.click('Teclas extra'); h.reject(); h.click(action);
     assert.equal(h.find('TextInput').props.value, 'borrador', action);
-    assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+    assert.ok(h.find('GlassButton', 'Volver a editar'));
     const sent = h.sent.length;
     h.props.disabled = true; h.render(); h.render();
     h.props.active = false; h.render(); h.render();
@@ -285,7 +289,7 @@ test('rejected navigation, clipboard and Enter preserve the draft without retry 
     h.accept(); h.props.disabled = false; h.props.active = true; h.render(); h.render();
     assert.equal(h.sent.length, sent);
     h.click('Enter'); assert.equal(h.sent.length, sent, 'review is required before another action');
-    h.click('Continuar sin reenviar'); assert.equal(h.sent.length, sent);
+    h.click('Volver a editar'); assert.equal(h.sent.length, sent);
     h.type('borrador!'); assert.deepEqual(h.sent.at(-1), {t:'k', a:'text', text:'!'});
   }
 });
@@ -304,14 +308,14 @@ test('typed modifier shortcut rejection preserves its draft and requires review'
   const h = harness(); h.props.active = true; h.render(); h.click('Teclas extra'); h.click('Ctrl');
   h.reject(); h.type('c');
   assert.equal(h.find('TextInput').props.value, 'c');
-  assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+  assert.ok(h.find('GlassButton', 'Volver a editar'));
 });
 
 test('disconnect preserves a nonempty draft even without a synchronous send failure', () => {
   const h = harness(); h.props.active = true; h.render(); h.type('texto');
   h.props.disabled = true; h.render(); h.render();
   assert.equal(h.find('TextInput').props.value, 'texto');
-  assert.ok(h.find('GlassButton', 'Continuar sin reenviar'));
+  assert.ok(h.find('GlassButton', 'Volver a editar'));
 });
 
 
@@ -436,7 +440,7 @@ test('a late replacement during delivery requires review before another send',as
  h.props.active=true;h.render();h.type('caza');h.click('Enviar texto');h.type('casa');finish({state:'dispatched'});
  await new Promise(resolve=>setImmediate(resolve));h.render();
  assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Enviar texto').props.disabled,true);
- assert.ok(h.find('GlassButton','Continuar sin reenviar'));
+ assert.ok(h.find('GlassButton','Volver a editar'));
 });
 
 test('a modern host without literal input never falls back to layout-dependent text commands',async()=>{
@@ -456,8 +460,8 @@ test('revoking input still allows receipt review and explicit local discard with
  h.props.active=true;h.render();h.type('texto pendiente');
  h.props.connection.literal.pending={text:'texto pendiente'};
  h.props.disabled=true;h.props.canReview=true;h.props.active=false;h.render();h.render();
- assert.equal(h.find('GlassButton','Continuar sin reenviar').props.disabled,false);
- h.click('Continuar sin reenviar');await new Promise(resolve=>setImmediate(resolve));h.render();
+ assert.equal(h.find('GlassButton','Volver a editar').props.disabled,false);
+ h.click('Volver a editar');await new Promise(resolve=>setImmediate(resolve));h.render();
  assert.equal(reviewed,1);assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'texto pendiente');
  h.props.disabled=false;h.render();h.props.disabled=true;h.render();h.render();
  h.click('Descartar borrador');assert.equal(h.find('TextInput').props.value,'texto pendiente');
@@ -494,6 +498,40 @@ test('shortcuts use two horizontal rows with left right up down at every width',
   assert.equal(rows.length,2);
   const labels=row=>h.nodes(row).filter(n=>n.type==='GlassButton').map(n=>n.props.label);
   assert.deepEqual(labels(rows[0]),['Ctrl','Alt','Super','Shift','Esc','Tab']);
-  assert.deepEqual(labels(rows[1]),['Copiar','Izquierda','Derecha','Arriba','Abajo','Pegar']);
+  assert.deepEqual(labels(rows[1]),['Copiar','Al iPhone','Izquierda','Derecha','Arriba','Abajo','Pegar']);
  }
+});
+
+test('selected computer text reaches the iPhone only after Copy executes', async () => {
+ const h = harness();
+ h.props.connection.canClipboard = true;
+ h.props.connection.capabilities = {sessionEpoch:'session-1'};
+ let finish;
+ h.props.connection.pressAction = () => 'copy-1';
+ h.props.connection.waitFinalActionReceipt = () => new Promise(resolve => { finish = resolve; });
+ h.render(); h.click('Teclas extra'); h.click('Al iPhone');
+ assert.equal(h.clipboardTransfers.length, 0);
+ finish({state:'executed'});
+ await new Promise(resolve => setTimeout(resolve, 180)); h.render();
+ assert.deepEqual(h.clipboardTransfers, ['phone']);
+});
+
+test('rejected literal text offers an explicit paste while keeping its draft', async () => {
+ const h = harness();
+ h.props.connection.canClipboard = true;
+ h.props.connection.canInput = true;
+ h.props.connection.inputCapabilities = {version:1};
+ h.props.connection.literal = {draft:'',busy:false,pending:null,
+   send:async text => { h.props.connection.literal.pending = {text,receipt:{state:'rejected'}}; return {state:'rejected'}; },
+   reviewed:async function() { this.pending = null; return true; }};
+ h.props.connection.pressAction = action => { h.sent.push(action); return 'paste-1'; };
+ h.props.connection.waitFinalActionReceipt = async () => ({state:'executed'});
+ h.props.active = true; h.render(); h.type('dictado ¿?'); h.click('Enviar texto');
+ await new Promise(resolve => setImmediate(resolve)); h.render();
+ assert.equal(h.find('GlassButton','Consultar envío'), undefined);
+ h.click('Pegar borrador en el equipo');
+ await new Promise(resolve => setImmediate(resolve)); h.render();
+ assert.deepEqual(h.clipboardOffers, ['dictado ¿?']);
+ assert.equal(h.sent.at(-1).key, 'v');
+ assert.equal(h.find('TextInput').props.value, 'dictado ¿?');
 });

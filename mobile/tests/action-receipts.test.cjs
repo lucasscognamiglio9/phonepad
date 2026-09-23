@@ -57,6 +57,21 @@ test('receipt-aware actions carry ordered identity and resolve provider receipts
   } finally { h.connection.stop(); }
 });
 
+test('clipboard actions wait for execution, not mere admission', async () => {
+  const h = harness();
+  try {
+    const ws = await h.start();
+    const id = h.connection.pressAction({t:'k', a:'combo', mods:['ctrl'], key:'c'});
+    let settled = false;
+    const finished = h.connection.waitFinalActionReceipt(id).then(receipt => { settled = true; return receipt; });
+    ws.receive({t:'receipt', operationId:id, phase:'press', state:'admitted', repeatCount:0, sessionEpoch:'fixture-epoch'});
+    await tick();
+    assert.equal(settled, false);
+    ws.receive({t:'receipt', operationId:id, phase:'press', state:'executed', repeatCount:0, sessionEpoch:'fixture-epoch'});
+    assert.equal((await finished).state, 'executed');
+  } finally { h.connection.stop(); }
+});
+
 test('cancel remains sendable after input revocation and stops local repeats', async () => {
   const h = harness();
   try {
