@@ -11,6 +11,7 @@ import { useKeyboardState } from 'react-native-keyboard-controller';
 import { RTCView, type MediaStream } from '@livekit/react-native-webrtc';
 import { GlassSurface } from '../components/glass-surface';
 import { GlassButton } from '../components/glass-button';
+import { HostMenu } from '../components/host-menu';
 import { LandscapeControls } from '../components/landscape-controls';
 import { TouchSurface } from '../components/touch-surface';
 import { useAttachmentTransfer } from '../components/attachment-transfer';
@@ -29,7 +30,7 @@ const messages: Record<ConnectionState, string> = {
   unauthorized: 'Autorizá este teléfono en el equipo.', paused: 'Sesión pausada. Tocá reconectar.',
   incompatible: 'Las versiones de PhonePad no son compatibles. Actualizá la app y el equipo.',
 };
-export function Control({ origin, onChangeHost }: { origin: string; onChangeHost: () => void }) {
+export function Control({ origin, onSelectHost, initialPreview = false }: { origin: string; onSelectHost: (origin: string) => void; initialPreview?: boolean }) {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const receiverWidth = useRef(width); receiverWidth.current = width;
@@ -38,8 +39,9 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const keyboardHeight = useKeyboardState(state => state.isVisible ? state.height : 0);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
-  const [preview, setPreview] = useState(false), [keyboard, setKeyboard] = useState(false);
+  const [preview, setPreview] = useState(initialPreview), [keyboard, setKeyboard] = useState(false);
   const [options, setOptions] = useState(false);
+  const [hostsOpen, setHostsOpen] = useState(false);
   const [preferences, setPreferences] = useState(() => loadControlPreferences(origin));
   useEffect(() => { setPreferences(loadControlPreferences(origin)); }, [origin]);
   const preferenceWrite = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -126,7 +128,12 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const closeKeyboard = useCallback(() => { Keyboard.dismiss(); setKeyboard(false); }, []);
   const openKeyboard = useCallback(() => setKeyboard(true), []);
   const openOptions = () => { closeKeyboard(); setOptions(true); };
-  const togglePreview = () => { setPreview(p => !p); closeKeyboard(); };
+  const togglePreview = () => { closeKeyboard(); if (preview) setPreview(false); else setHostsOpen(true); };
+  const canSwitchHost = () => {
+    if (!pendingText && !attachments.busy && !attachments.pending) return true;
+    Alert.alert('Hay contenido pendiente', 'Terminá o descartá el texto o los archivos antes de cambiar de equipo.');
+    return false;
+  };
   const controlNotice = state === 'connected' && !inputReady
     ? 'Solo lectura'
     : state === 'connected' && connection.lastRejection ? 'Acción rechazada.' : '';
@@ -170,5 +177,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
      visible={!landscapePreview || keyboard}
       disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} />
     <SessionOptions visible={options} close={() => setOptions(false)} preferences={preferences} change={changePreferences} />
+    <HostMenu visible={hostsOpen} activeOrigin={origin} connected={state === 'connected'} close={() => setHostsOpen(false)}
+      canSwitch={canSwitchHost} select={next => { if (next === origin) setPreview(true); else onSelectHost(next); }} />
   </View>;
 }

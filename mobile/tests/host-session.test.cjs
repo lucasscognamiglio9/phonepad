@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-test('one app switches between saved origins and returning to the picker does not reconnect automatically', () => {
+test('switching computers remounts a fresh session and opens its preview', () => {
   const state = []; let cursor = 0;
   const modules = {
     react: { useState(initial) {
@@ -25,14 +25,12 @@ test('one app switches between saved origins and returning to the picker does no
   const render = () => { cursor = 0; return exports.default(); };
   let tree = render();
   assert.equal(tree.type, 'HostPicker');
-  assert.equal(tree.props.autoSelect, true);
-  for (const origin of ['https://first.example', 'https://second.example:8443']) {
-    tree.props.onSelect(origin); tree = render();
-    assert.equal(tree.type, 'Control');
-    assert.equal(tree.props.origin, origin);
-    assert.equal(tree.key, origin, 'a different host gets a fresh session and editor');
-    tree.props.onChangeHost(); tree = render();
-    assert.equal(tree.type, 'HostPicker');
-    assert.equal(tree.props.autoSelect, false);
-  }
+  tree.props.onSelect('https://first.example'); tree = render();
+  assert.equal(tree.type, 'Control');
+  assert.equal(tree.props.initialPreview, false);
+  assert.equal(tree.key, 'https://first.example');
+  tree.props.onSelectHost('https://second.example'); tree = render();
+  assert.equal(tree.props.origin, 'https://second.example');
+  assert.equal(tree.key, 'https://second.example', 'a different host gets a fresh session and editor');
+  assert.equal(tree.props.initialPreview, true);
 });

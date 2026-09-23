@@ -156,6 +156,7 @@ function harness(options = {}) {
     '../lib/control-preferences': {loadControlPreferences:()=>({mode:'trackpad',gain:1}),saveControlPreferences:()=>{}},
     '../lib/clipboard-transfer': {transferClipboard:async()=>{}},
     '../components/session-options': {SessionOptions:'SessionOptions'},
+    '../components/host-menu': {HostMenu:'HostMenu'},
     react,
     'react/jsx-runtime': {
       jsx: (type, props) => ({ type, props: props || {} }),
@@ -253,7 +254,7 @@ function harness(options = {}) {
     do {
       dirty = false;
       cursor = 0;
-      tree = Control({ origin: options.origin ?? 'https://computer.test', onChangeHost: () => { hostChanges++; } });
+      tree = Control({ origin: options.origin ?? 'https://computer.test', onSelectHost: () => { hostChanges++; } });
       flushEffects();
       if (++passes > 20) throw new Error('Control test harness did not settle');
     } while (dirty);
@@ -302,6 +303,14 @@ function harness(options = {}) {
     all,
     connections,
     hostChanges: () => hostChanges,
+    openPreview: () => {
+      find('GlassButton', 'Ver pantalla').props.onPress();
+      render();
+      const menu = find('HostMenu');
+      menu.props.close();
+      menu.props.select(options.origin ?? 'https://computer.test');
+      render();
+    },
     unmount: () => slots.forEach(slot => { if (slot?.kind === 'effect') slot.cleanup?.(); }),
     alerts,
     uploads,
@@ -329,7 +338,7 @@ test('portrait keeps the composer and contains the preview without safe-area pad
   assert.ok(h.find('NativeKeyboard').props.visible);
   assert.equal(h.find('GlassButton', 'Reconectar').props.label, 'Reconectar');
 
-  h.find('GlassButton', 'Ver pantalla').props.onPress();
+  h.openPreview();
   h.render();
   const rtc = h.find('RTCView');
   assert.ok(rtc, 'preview should mount an RTCView');
@@ -355,7 +364,7 @@ test('mouse settings preserve the mounted composer and expose no removed pages',
  assert.equal(h.find('GlassButton','Equipos'),undefined);
 });
 test('landscape controls stay mounted without toggles or extra input',()=>{
- const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ const h=harness();h.reportConnection('connected');h.openPreview();h.render();
  h.setDimensions(844,390);const rail=h.find('LandscapeControls');
  assert.ok(rail);assert.equal(rail.props.show,undefined);assert.equal(rail.props.hide,undefined);
  rail.props.openOptions();h.render();assert.equal(h.find('SessionOptions').props.visible,true);
@@ -365,7 +374,7 @@ test('landscape controls stay mounted without toggles or extra input',()=>{
 test('landscape preview reserves only the keyboard overlap and avoids Android double resize', () => {
   const h = harness({ keyboardState: { isVisible: false, height: 0 } });
   h.reportConnection('connected');
-  h.find('GlassButton', 'Ver pantalla').props.onPress();
+  h.openPreview();
   h.render();
   h.setDimensions(844, 390);
   h.find('LandscapeControls').props.openKeyboard();
@@ -388,7 +397,7 @@ test('landscape preview handles resize-first and keyboard-state-first event orde
     const keyboardState = { isVisible: false, height: 0 };
     const h = harness({ keyboardState });
     h.reportConnection('connected');
-    h.find('GlassButton', 'Ver pantalla').props.onPress(); h.render();
+    h.openPreview(); h.render();
     h.setDimensions(844, 390);
     h.find('LandscapeControls').props.openKeyboard(); h.render();
     if (order === 'resize-first') h.setDimensions(844, 130);
@@ -399,7 +408,7 @@ test('landscape preview handles resize-first and keyboard-state-first event orde
 });
 
 test('landscape keyboard keeps the rail available and mouse settings dismiss the keyboard', () => {
- const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();h.setDimensions(844,390);
+ const h=harness();h.reportConnection('connected');h.openPreview();h.render();h.setDimensions(844,390);
  h.find('LandscapeControls').props.openKeyboard();h.render();
  assert.equal(h.find('NativeKeyboard').props.active,true);assert.ok(h.find('LandscapeControls'));
  h.find('LandscapeControls').props.openOptions();h.render();
@@ -410,7 +419,7 @@ test('landscape keyboard keeps the rail available and mouse settings dismiss the
 test('returning to portrait restores the same composer position after landscape controls', () => {
   const h = harness();
   h.reportConnection('connected');
-  h.find('GlassButton', 'Ver pantalla').props.onPress();
+  h.openPreview();
   h.render();
   const portraitPath = h.findPath('NativeKeyboard');
   h.setDimensions(844, 390);
@@ -425,7 +434,7 @@ test('returning to portrait restores the same composer position after landscape 
 test('rotation preserves the active composer and mounted preview', () => {
   const h = harness();
   h.reportConnection('connected');
-  h.find('GlassButton', 'Ver pantalla').props.onPress();
+  h.openPreview();
   h.render();
   const rtcPath = h.findPath('RTCView');
   for (let cycle = 0; cycle < 3; cycle++) {
@@ -504,7 +513,7 @@ test('lost upload response reuses the prepared manifest and does not allow chang
  assert.equal(h.uploads[1][0].manifest,first.manifest);assert.equal(h.commands.length,0);
 });
 test('preview stays mounted while reviewing, uploading and closing the attachment sheet',async()=>{
- const h=harness({attachment:photo});h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ const h=harness({attachment:photo});h.reportConnection('connected');h.openPreview();h.render();
  const rtc=h.findPath('RTCView');await choose(h);assert.deepEqual(h.findPath('RTCView'),rtc);
  await send(h);assert.deepEqual(h.findPath('RTCView'),rtc);assert.equal(h.startVideoCount(),1);
 });
@@ -513,7 +522,7 @@ test('preview stays mounted while reviewing, uploading and closing the attachmen
 test('input, video and attachments all use the selected host and unmount closes its resources', async () => {
  for(const origin of ['https://first.example', 'https://second.example:8443']) {
   const h = harness({origin,attachment:photo});h.reportConnection('connected');
-  h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+  h.openPreview();h.render();
   await choose(h);await send(h);
   assert.equal(h.connections[0].origin,origin);
   assert.equal(h.videoStarts[0],origin);
@@ -536,7 +545,7 @@ test('pending text still blocks OTA application after removing the host menu',()
 test('a view-only session can show video while keyboard control stays disabled',()=>{
  const h=harness({canInput:false});h.reportConnection('connected');
  assert.equal(h.find('NativeKeyboard').props.disabled,true);
- h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ h.openPreview();h.render();
  assert.ok(h.find('RTCView'));assert.equal(h.startVideoCount(),1);
  h.setDimensions(844,390);assert.equal(h.find('LandscapeControls').props.disabled,true);
  assert.equal(h.previews[0].disposeCount,0);
@@ -559,7 +568,7 @@ test('native picker suspension does not discard the photos chosen while the cont
 });
 
 test('portrait keyboard reserves space above the composer without recreating video',()=>{
- const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();
+ const h=harness();h.reportConnection('connected');h.openPreview();h.render();
  h.find('NativeKeyboard').props.open();h.render();h.keyboardState.height=300;h.keyboardState.isVisible=true;
  h.find('NativeKeyboard').props.onOcclusionChange(60);h.render();
  assert.equal(h.find('TouchSurface').props.viewportInsetBottom,360);
@@ -567,7 +576,7 @@ test('portrait keyboard reserves space above the composer without recreating vid
  assert.equal(h.startVideoCount(),1);
 });
 test('landscape reserves both control rails and the keyboard button toggles',()=>{
- const h=harness();h.reportConnection('connected');h.find('GlassButton','Ver pantalla').props.onPress();h.render();h.setDimensions(844,390);
+ const h=harness();h.reportConnection('connected');h.openPreview();h.render();h.setDimensions(844,390);
  const surface=h.find('TouchSurface');assert.ok(surface.props.viewportInsetLeft>=70);assert.ok(surface.props.viewportInsetRight>=70);
  h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,true);
  h.find('LandscapeControls').props.openKeyboard();h.render();assert.equal(h.find('NativeKeyboard').props.active,false);
