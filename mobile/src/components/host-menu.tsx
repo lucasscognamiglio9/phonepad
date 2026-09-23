@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Keyboard, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useKeyboardState } from 'react-native-keyboard-controller';
 import { appearance } from './appearance';
 import { GlassSurface } from './glass-surface';
+import { ActionIcon } from './action-icon';
 import { addHost, hostSettingsAdapter, loadSelectedHost, selectHost, type HostSettings, type HostSettingsAdapter } from '../lib/host-settings';
 
 export function HostMenu({ visible, activeOrigin, connected, close, select, canSwitch, adapter = hostSettingsAdapter }: {
@@ -103,8 +104,11 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
           style={{ minHeight: appearance.control.size, flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 12, borderRadius: 14 }}>
           <View style={{ width: 7, height: 7, borderRadius: 4,
             backgroundColor: device.origin === activeOrigin ? (connected ? appearance.color.success : appearance.color.warning) : appearance.color.secondary }} />
+          <ActionIcon action="hosts" size={20} color={appearance.color.text} />
           <Text numberOfLines={1} style={{ color: appearance.color.text, fontSize: 15, flex: 1 }}>{device.name}</Text>
         </Pressable>) : <ActivityIndicator accessibilityLabel="Cargando equipos" color={appearance.color.text} />}
+        <View accessible={false} style={{ height: StyleSheet.hairlineWidth, marginVertical: 4, marginHorizontal: 12,
+          backgroundColor: appearance.color.secondary, opacity: .3 }} />
         {adding ? <View style={{ gap: appearance.control.gap, padding: 6 }}>
           <TextInput accessibilityLabel="Nombre del equipo" placeholder="Nombre" placeholderTextColor={appearance.color.secondary}
             value={name} onChangeText={setName} autoCorrect={false} style={{ color: appearance.color.text, minHeight: appearance.control.size }} />

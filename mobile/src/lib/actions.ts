@@ -14,7 +14,7 @@ export const ACTIONS = {
   keyboard: { label: 'Teclado', symbol: { ios: 'keyboard', android: 'keyboard', web: 'keyboard' }, fallback: '⌨' },
   reconnect: { label: 'Reconectar', symbol: { ios: 'arrow.clockwise', android: 'refresh', web: 'refresh' }, fallback: '↻' },
   screen: { label: 'Ver pantalla', symbol: { ios: 'desktopcomputer', android: 'desktop_windows', web: 'desktop_windows' }, fallback: '▣' },
-  hosts: { label: 'Equipos', symbol: { ios: 'desktopcomputer', android: 'devices', web: 'devices' }, fallback: '▣' },
+  hosts: { label: 'Equipos', symbol: { ios: 'laptopcomputer', android: 'laptop', web: 'laptop' }, fallback: '▣' },
   files: { label: 'Archivos', symbol: { ios: 'paperclip', android: 'attach_file', web: 'attach_file' }, fallback: '▤' },
   camera: { label: 'Cámara', symbol: { ios: 'camera', android: 'photo_camera', web: 'photo_camera' }, fallback: '◎' },
   photos: { label: 'Fotos', symbol: { ios: 'photo.on.rectangle', android: 'photo_library', web: 'photo_library' }, fallback: '▧' },

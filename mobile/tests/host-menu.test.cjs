@@ -25,12 +25,13 @@ function harness(status) {
     react,
     'react/jsx-runtime':{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})},
     'react-native':Object.assign(Object.fromEntries(['ActivityIndicator','Pressable','ScrollView','Text','TextInput','View'].map(key=>[key,key])),{
-      Keyboard:{dismiss:()=>{}},useWindowDimensions:()=>({width:390,height:844}),
+      Keyboard:{dismiss:()=>{}},StyleSheet:{hairlineWidth:1},useWindowDimensions:()=>({width:390,height:844}),
     }),
     'react-native-safe-area-context':{useSafeAreaInsets:()=>({top:54,right:0,bottom:34,left:0})},
     'react-native-keyboard-controller':{useKeyboardState:selector=>selector({isVisible:false,height:0})},
     './appearance':{appearance:{color:{text:'white',secondary:'gray',success:'green',warning:'orange'},control:{size:44,margin:12,gap:8,menuWidth:280,menuRadius:24}}},
     './glass-surface':{GlassSurface:'GlassSurface'},
+    './action-icon':{ActionIcon:'ActionIcon'},
     '../lib/host-settings':{
       hostSettingsAdapter:{},
       loadSelectedHost:async adapter=>({settings:await adapter.load()}),
