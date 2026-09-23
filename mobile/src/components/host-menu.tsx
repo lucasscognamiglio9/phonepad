@@ -26,7 +26,13 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      setAdding(false);
+      setName('');
+      setOrigin('');
+      setError('');
+      return;
+    }
     let current = true;
     setSettings(null);
     setError('');
