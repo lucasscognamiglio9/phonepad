@@ -333,6 +333,15 @@ test('resumed video starts a fresh network baseline instead of replaying past co
 });
 
 
+test('decoded FPS uses frame and timestamp deltas, not the unreliable native instant', () => {
+  const { decodedFrameRate } = load('video.ts', { require: () => ({}) });
+  const old = { id: 'video', ssrc: 1, timestamp: 1000, framesDecoded: 100, framesPerSecond: 389 };
+  assert.equal(decodedFrameRate({ ...old, timestamp: 2000, framesDecoded: 124 }, old), 24);
+  assert.equal(decodedFrameRate({ ...old, timestamp: 2000, framesDecoded: 100 }, old), 0);
+  assert.equal(decodedFrameRate({ ...old, timestamp: 2000, framesDecoded: 99 }, old), null);
+  assert.equal(decodedFrameRate({ ...old, timestamp: 2000, framesDecoded: 124, ssrc: 2 }, old), null);
+});
+
 test('RTC unknowns, stale samples, SSRC switches and counter corrections are not healthy feedback', () => {
   const { networkSample, selectedPair } = load('video.ts', { require: () => ({}) });
   const old = { id: 'v', ssrc: 1, timestamp: 1000, packetsReceived: 100, packetsLost: 5, jitterBufferDelay: 1, jitterBufferEmittedCount: 100 };

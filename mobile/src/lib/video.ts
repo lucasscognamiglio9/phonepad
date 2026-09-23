@@ -33,6 +33,15 @@ export function networkSample(current: Stat | undefined, previous?: Stat) {
   };
 }
 
+export function decodedFrameRate(current: Stat | undefined, previous?: Stat): number | null {
+  if (!current || !previous || current.id !== previous.id || current.ssrc !== previous.ssrc) return null;
+  const now = known(current, 'timestamp'), before = known(previous, 'timestamp');
+  const frames = known(current, 'framesDecoded'), oldFrames = known(previous, 'framesDecoded');
+  if (now === null || before === null || now <= before || now - before > 5000
+      || frames === null || oldFrames === null || frames < oldFrames) return null;
+  return Math.round((frames - oldFrames) * 1000 / (now - before) * 10) / 10;
+}
+
 export function selectedPair(stats: Stat[]): Stat | undefined {
   const transport = stats.find(r => r.type === 'transport' && typeof r.selectedCandidatePairId === 'string');
   if (transport) return stats.find(r => r.type === 'candidate-pair' && r.id === transport.selectedCandidatePairId);
@@ -200,7 +209,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
           op: 'feedback', id, ...sample,
           rtt: known(pair, 'currentRoundTripTime'), route, sequence: ++sequence,
           client: 'native', frames: metric(inbound, 'framesDecoded'),
-          fps: metric(inbound, 'framesPerSecond'), width: metric(inbound, 'frameWidth'), height: metric(inbound, 'frameHeight'),
+          fps: decodedFrameRate(inbound, previous), width: metric(inbound, 'frameWidth'), height: metric(inbound, 'frameHeight'),
           bytes: metric(inbound, 'bytesReceived'), connection: peer.connectionState,
         });
         if (epoch !== feedbackEpoch) return;

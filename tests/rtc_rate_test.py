@@ -129,11 +129,11 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(result['rateDecision']['appliedKbps'], 6000)
         self.assertIsNone(result['rateDecision']['loss'])
         self.assertEqual(result['encodeP95Ms'], 3)
+        self.assertNotIn('freshness', result)
         self.assertTrue(log.called)
 
     def test_severe_loss_refreshes_reference_once_after_bitrate_recovers(self):
         s = self.session()
-        s.quality_recovery_floor = 6000
         s.quality_recovery_pending = False
         s.last_keyframe = 0
         keyframes = []
@@ -142,6 +142,21 @@ class FeedbackTests(unittest.TestCase):
             for second, loss in [(10, .65), (11, 0), (12, 0), (13, 0), (14, 0), (15, 0)]:
                 with patch('rtc.time.monotonic', return_value=second):
                     s.feedback({'loss':loss, 'client':'native', 'frames':10, 'sequence':second})
+        self.assertEqual(keyframes, [True])
+        self.assertFalse(s.quality_recovery_pending)
+
+    def test_recovery_does_not_wait_for_initial_bitrate(self):
+        s = self.session()
+        s.quality_recovery_pending = False
+        s.last_keyframe = 0
+        keyframes = []
+        s.request_keyframe = lambda: keyframes.append(True)
+        with patch('builtins.print'):
+            with patch('rtc.time.monotonic', return_value=10):
+                s.feedback({'loss': .65, 'client': 'native', 'frames': 10, 'sequence': 1})
+            with patch('rtc.time.monotonic', return_value=11):
+                response = s.feedback({'loss': 0, 'client': 'native', 'frames': 11, 'sequence': 2})
+        self.assertLess(response['bitrateKbps'], 6000)
         self.assertEqual(keyframes, [True])
         self.assertFalse(s.quality_recovery_pending)
 

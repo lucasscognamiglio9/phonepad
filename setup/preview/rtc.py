@@ -190,7 +190,6 @@ class Session:
         requested_kbps = self.lab_config['bitrateKbps'] if self.lab_config else None
         maximum_kbps = max(8000 if hevc else 12000, requested_kbps or default_kbps)
         initial_kbps = requested_kbps or default_kbps
-        self.quality_recovery_floor = initial_kbps
         self.quality_recovery_pending = False
         self.rate = (RateController(maximum_kbps, initial_kbps,
                                     policy=os.environ.get('PHONEPAD_RATE_POLICY', 'windowed'))
@@ -520,14 +519,13 @@ class Session:
             self.encoder.set_property('bitrate', target)
             applied_kbps = int(self.encoder.get_property('bitrate'))
             decision = {**self.rate.decision, 'appliedKbps': applied_kbps}
-            # A lost reference frame can leave moving text blocky after the
-            # network and bitrate recover. Refresh it once at a useful rate;
-            # forcing IDRs during congestion would only add more pressure.
+            # A lost reference frame can leave text blocky after packets resume.
+            # Ask for one fresh frame on the first loss-free interval; waiting
+            # for the old bitrate can leave the decoder damaged for seconds.
             loss = data.get('loss')
             if loss is not None and loss >= .08:
                 self.quality_recovery_pending = True
             elif (getattr(self, 'quality_recovery_pending', False) and loss == 0
-                  and applied_kbps >= getattr(self, 'quality_recovery_floor', 6000)
                   and time.monotonic() - getattr(self, 'last_keyframe', 0) >= 1):
                 self.request_keyframe()
                 self.quality_recovery_pending = False
@@ -541,12 +539,14 @@ class Session:
             self.last_diagnostic = now
             metrics = {key: data.get(key) for key in ('frames','fps','width','height','bytes') if isinstance(data.get(key),(int,float)) and math.isfinite(data[key])}
             freshness = getattr(self, 'freshness', None)
+            snapshot = freshness.snapshot(1) if freshness is not None else None
+            compact = ({key: snapshot[key] for key in ('stages', 'latencyMs', 'queueDepth')}
+                       if snapshot is not None else None)
             print('rtc ' + json.dumps({'receiver': metrics, 'sender': rates, 'controller': reported_controller,
                                        'decision': decision, 'gcc': controller.snapshot() if controller else None,
-                                       'freshness': freshness.snapshot() if freshness is not None else None}), flush=True)
+                                       'freshness': compact}), flush=True)
         samples = sorted(self.encode_ms)
-        freshness = getattr(self, 'freshness', None)
-        response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'freshness': freshness.snapshot() if freshness is not None else None, 'media': self.media_snapshot()}
+        response = {**rates, 'sourceCaps': self.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps().to_string() if self.pipeline.get_by_name('capture') else None, 'codec': self.codec + ' / VA-API', 'encodeP95Ms': round(samples[min(len(samples)-1, int(len(samples)*.95))], 2) if samples else None, 'bitrateKbps': applied_kbps, 'controller': reported_controller, 'rateDecision': decision, 'encoderCaps': self.encoder.get_static_pad('sink').get_current_caps().to_string(), 'media': self.media_snapshot()}
         if controller is not None:
             response['gcc'] = controller.snapshot()
         if getattr(self, 'lab_config', None) is not None:
