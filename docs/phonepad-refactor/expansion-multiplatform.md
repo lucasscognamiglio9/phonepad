@@ -59,3 +59,9 @@ Este mapa ordena el solapamiento; no marca tareas antiguas como terminadas ni re
 - El menú debe reutilizar `GlassSurface`, el anclaje del menú **+** y el almacenamiento de equipos. Comparar `@expo/ui` de SDK 58 solo si permite el punto de estado y el mismo comportamiento en iOS/Android sin perder calidad; no agregar una dependencia nativa por el nombre del SDK.
 - Tailscale Serve ya resuelve el acceso HTTPS privado entre dispositivos de la misma red Tailscale. Conservar la autenticación y autorización propias de PhonePad; no construir señalización pública solo para agregar equipos.
 - Mac y Windows deben reutilizar protocolo, servidor y pruebas comunes. Antes de escribir adaptadores de captura/control, comparar una solución existente con el contrato real de PhonePad. No incorporar código ni cambiar de protocolo sin una prueba de compatibilidad, rendimiento, licencia y rollback.
+
+## Migración nativa sin parches frágiles
+
+El parche actual `mobile/plugins/video-renderer.cjs` modifica el archivo `RTCVideoViewManager.m` de `@livekit/react-native-webrtc` durante prebuild. Ajusta frecuencia de presentación y tamaño del drawable Metal. Expo 58 no garantiza que ese problema desaparezca porque el archivo pertenece a WebRTC, no a Expo.
+
+Antes de quitarlo, medir con el WebRTC actualizado si sigue existiendo el defecto. Si ya está corregido, borrar el parche y sus pruebas específicas. Si persiste, preferir una corrección en upstream o una API pública de configuración; mantener una integración nativa propia solo si se puede versionar y probar sin modificar `node_modules`. Exigir la misma nitidez, fluidez y estabilidad en iPhone real antes de adoptar el reemplazo. La rama SDK 57 y su IPA quedan disponibles para rollback.
