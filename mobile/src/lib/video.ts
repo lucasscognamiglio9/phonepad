@@ -50,7 +50,7 @@ export function selectedPair(stats: Stat[]): Stat | undefined {
 }
 
 // Encoded frames stay in native WebRTC/VideoToolbox. JS only signals and samples stats.
-export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void, controlEpoch?: () => string | null, receiverWidth?: () => number, onCursor?: (cursor: CursorState | null) => void) {
+export async function startVideo(origin: string, signal: AbortSignal, show: (stream: MediaStream) => void, failed: (error: Error) => void, controlEpoch?: () => string | null, receiverWidth?: () => number, onCursor?: (cursor: CursorState | null) => void, orientation?: () => string) {
   const peer = new RTCPeerConnection({ iceServers: [] });
   const lifetime = new AbortController();
   const sessionEpoch = controlEpoch?.();
@@ -190,6 +190,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     phase = 'receiving';
     checkActive(); started = true;
     let misses = 0, feedbackEpoch = 0;
+    let previousOrientation = orientation?.();
     const feedback = async () => {
       if (stopped || suspended) return;
       const epoch = feedbackEpoch;
@@ -205,8 +206,12 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
         const delta = (key: string) => Math.max(0, metric(inbound, key) - metric(previous, key));
         if (delta('framesDecoded') > 0) { hasFrames = true; lastFrameAt = Date.now(); }
         const sample = networkSample(inbound, previous);
+        const currentOrientation = orientation?.();
+        const orientationChanged = currentOrientation !== undefined && previousOrientation !== undefined && currentOrientation !== previousOrientation;
+        previousOrientation = currentOrientation;
         const response = await call({
           op: 'feedback', id, ...sample,
+          ...(orientationChanged ? { refreshFrame: true } : {}),
           rtt: known(pair, 'currentRoundTripTime'), route, sequence: ++sequence,
           client: 'native', frames: metric(inbound, 'framesDecoded'),
           fps: decodedFrameRate(inbound, previous), width: metric(inbound, 'frameWidth'), height: metric(inbound, 'frameHeight'),

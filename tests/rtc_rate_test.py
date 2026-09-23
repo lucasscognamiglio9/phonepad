@@ -132,6 +132,14 @@ class FeedbackTests(unittest.TestCase):
         self.assertNotIn('freshness', result)
         self.assertTrue(log.called)
 
+    def test_rotation_requests_clean_frame_without_restarting_session(self):
+        s = self.session()
+        requested = []
+        s.request_keyframe = lambda: requested.append(True)
+        with patch('rtc.time.monotonic', return_value=10), patch('builtins.print'):
+            s.feedback({'client': 'native', 'frames': 10, 'refreshFrame': True})
+        self.assertEqual(requested, [True])
+
     def test_severe_loss_refreshes_reference_once_after_bitrate_recovers(self):
         s = self.session()
         s.quality_recovery_pending = False

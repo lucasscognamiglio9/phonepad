@@ -535,6 +535,8 @@ class Session:
         self.sample_time=now;self.last_counts=self.counts.copy()
         if data.get('client') == 'native' and data.get('frames') == 0:
             self.request_keyframe()
+        if data.get('client') == 'native' and data.get('refreshFrame') is True:
+            self.request_keyframe()
         if data.get('client') == 'native' and now-self.last_diagnostic >= 1:
             self.last_diagnostic = now
             metrics = {key: data.get(key) for key in ('frames','fps','width','height','bytes') if isinstance(data.get(key),(int,float)) and math.isfinite(data[key])}

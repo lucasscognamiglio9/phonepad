@@ -33,6 +33,8 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const receiverWidth = useRef(width); receiverWidth.current = width;
+  const receiverOrientation = useRef(width > height ? 'landscape' : 'portrait');
+  receiverOrientation.current = width > height ? 'landscape' : 'portrait';
   const keyboardHeight = useKeyboardState(state => state.isVisible ? state.height : 0);
   const [state, setState] = useState<ConnectionState>('connecting');
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
@@ -69,7 +71,7 @@ export function Control({ origin, onChangeHost }: { origin: string; onChangeHost
   const [stream, setStream] = useState<MediaStream | null>(null), [videoError, setVideoError] = useState('');
   const connection = useMemo(() => new Connection(origin, setState, () => refreshCapabilities(n => n + 1)), [origin]);
   const video = useMemo(() => new PreviewLifecycle<MediaStream>(
-    (signal, show, failed) => startVideo(origin, signal, show, failed, () => connection.capabilities?.sessionEpoch ?? null, () => receiverWidth.current, setCursor), setStream, setVideoError,
+    (signal, show, failed) => startVideo(origin, signal, show, failed, () => connection.capabilities?.sessionEpoch ?? null, () => receiverWidth.current, setCursor, () => receiverOrientation.current), setStream, setVideoError,
   ), [origin, connection]);
   const pointerGeometry = useMemo(() => selectPointerGeometry(connection.capabilities), [connection, connection.capabilities]);
   const inputReady = state === 'connected' && connection.canInput;
