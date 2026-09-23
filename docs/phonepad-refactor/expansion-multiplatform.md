@@ -8,7 +8,8 @@ Una app en iPhone o Android controla cualquiera de los equipos guardados: Ubuntu
 
 ## Entrega 1: selector de equipos
 
-- Al tocar el icono de monitor desde la pantalla principal, abrir un menú Liquid Glass con los nombres guardados y una última fila, **Agregar nuevo**. Reutilizar el estilo y las medidas del menú **+**.
+- Al tocar el icono de monitor desde la pantalla principal, abrir un menú Liquid Glass como el menú **+**. Cada fila muestra un punto de estado y el nombre guardado, por ejemplo Windows, Mac o Ubuntu; la última fila dice **Agregar nuevo**. Son ejemplos, no nombres ni cantidad fijos. El equipo activo debe distinguirse sin recargar la interfaz.
+- El punto verde indica una conexión confirmada con ese equipo. Si no se ha comprobado su disponibilidad, usar un punto neutro; si falla, indicar que está desconectado. No mostrar a todos los equipos como conectados solo por estar guardados.
 - Tocar el equipo actual abre su preview. Tocar otro cambia la sesión completa —video, input, archivos y portapapeles— y abre su preview. El botón de ocultar pantalla dentro de la preview sigue cerrándola.
 - **Agregar nuevo** pide solo nombre y dirección HTTPS de Tailscale, por ejemplo `https://equipo.tailnet.ts.net`. El servidor actual acepta el origen raíz, sin ruta, consulta ni credenciales. Validar y guardar con el almacenamiento existente; pedir autorización al servidor cuando corresponda.
 - Al cambiar de equipo, cerrar los recursos del anterior sin reenviar acciones. Conservar borradores y transferencias pendientes con revisión explícita antes de cambiar; mostrar un error breve si el nuevo equipo no está disponible. Adaptar posición, scroll, safe areas y accesibilidad a vertical, horizontal y tablets.
@@ -32,7 +33,28 @@ Usar el cliente React Native y el protocolo existentes. Ajustar los controles na
 ## Instalación y mantenimiento con poca fricción
 
 - Para el amigo, distribuir un instalador de Mac y otro de Windows; un solo cliente iPhone muestra ambos equipos. Configurar Tailscale en su Mac, Windows e iPhone y emparejar cada servidor una vez. No compartir claves, sesiones ni la identidad del Ubuntu actual.
-- Mantener firma gratuita del iPhone con su propia cuenta Apple. Su Mac puede firmar e instalar la IPA compatible; la firma personal vence a los siete días. Crear una skill breve y comprobada para instalación inicial, renovación de la misma IPA, actualización OTA compatible y diagnóstico de versión antigua. La skill no debe contener credenciales.
+- Mantener firma gratuita del iPhone con su propia cuenta Apple. Su Mac puede firmar e instalar la IPA compatible; la firma personal vence a los siete días. Entregar un handoff breve para sus agentes: instalación inicial, renovación de la misma IPA, actualización OTA compatible, diagnóstico de versión antigua y comprobación física. Sin credenciales.
 - Entregar builds identificados y rollback para cada plataforma. Una OTA de JavaScript no renueva la firma ni sustituye una IPA cuando cambian componentes nativos.
 
 **Cierre:** una sesión física completa Mac–iPhone, Windows–iPhone y al menos un recorrido Android; instaladores y renovación repetibles por otra persona. Hasta entonces, la única combinación validada es Ubuntu–iPhone.
+
+## Mapa del plan maestro, pendiente de acordar alcance
+
+Este mapa ordena el solapamiento; no marca tareas antiguas como terminadas ni reemplaza todavía el plan maestro.
+
+| Fase original | Relación con este alcance | Decisión pendiente |
+| --- | --- | --- |
+| P00–P06, incluida P01A | Base Ubuntu–iPhone ya implementada en gran parte; siguen correcciones y aceptación física, como dictado, copia al iPhone y legibilidad del video. | Registrar cada corrección con prueba y confirmación en el teléfono. |
+| P07 | Ya hay lista de equipos, origen HTTPS, autenticación y Tailscale. El selector visual y el cambio seguro de sesión siguen pendientes. | Posponer LAN/QR y STUN/TURN públicos mientras Tailscale cubra las conexiones privadas. |
+| P08 | Host Ubuntu actual; el plan original amplía compatibilidad Linux. | Mantener GNOME/Ubuntu como referencia y decidir luego si se amplía a otras distribuciones. |
+| P09 | Celulares como equipos controlados. No es lo mismo que Android como controlador. | Dejar fuera del alcance actual salvo nueva decisión. |
+| P10 | Hosts macOS y Windows sí coinciden. El cliente de escritorio del plan original es otro producto. | Priorizar servidores Mac/Windows y posponer el cliente de escritorio. |
+| P11 | Instaladores, onboarding y mantenimiento coinciden parcialmente. | Limitar por ahora a instalación privada y handoff de firma gratuita; tiendas y despliegue público quedan por decidir. |
+| P12 | Validación por combinación de dispositivos. | Cerrar solo combinaciones probadas físicamente y conservar rollback. |
+
+## Reutilización antes de implementar
+
+- El cliente ya tiene almacenamiento validado de varios equipos, selección de equipo, componentes `GlassSurface` y un menú **+** que resuelve anclaje, teclado, orientación y accesibilidad. Reutilizar esas piezas y sus medidas; no crear otra lista persistente ni dibujar un vidrio falso.
+- Expo SDK 57 ofrece `expo-glass-effect` para el vidrio nativo en iOS compatible y `@expo/ui` para menús nativos. Comparar el menú nativo con el patrón existente mediante un prototipo corto: el resultado debe admitir el punto de estado, la selección y el mismo diseño en iOS/Android. Elegir una sola implementación tras comprobarlo en dispositivos; cualquier dependencia nativa nueva exige build y no solo OTA.
+- Tailscale Serve ya resuelve el acceso HTTPS privado entre dispositivos de la misma red Tailscale. Conservar la autenticación y autorización propias de PhonePad; no construir señalización pública solo para agregar equipos.
+- Mac y Windows deben reutilizar protocolo, servidor y pruebas comunes. Antes de escribir adaptadores de captura/control, comparar una solución existente con el contrato real de PhonePad. No incorporar código ni cambiar de protocolo sin una prueba de compatibilidad, rendimiento, licencia y rollback.
