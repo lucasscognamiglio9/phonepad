@@ -17,6 +17,8 @@ La captura del 23/09/2026 a la 01:23 muestra texto ilegible. En los registros de
 
 ## Entrega 1: selector de equipos
 
+El menú inicial se publicó por OTA el 23/09/2026 (`8e3867e`, canal `personal`). Pasó pruebas locales; falta comprobar su presentación y el cambio entre dos computadoras reales. El indicador verde se reserva para la sesión activa confirmada; los demás equipos quedan neutros hasta conectarse.
+
 - Al tocar el icono de monitor desde la pantalla principal, abrir un menú Liquid Glass como el menú **+**. Cada fila muestra un punto de estado y el nombre guardado, por ejemplo Windows, Mac o Ubuntu; la última fila dice **Agregar nuevo**. Son ejemplos, no nombres ni cantidad fijos. El equipo activo debe distinguirse sin recargar la interfaz.
 - El punto verde indica una conexión confirmada con ese equipo. Si no se ha comprobado su disponibilidad, usar un punto neutro; si falla, indicar que está desconectado. No mostrar a todos los equipos como conectados solo por estar guardados.
 - Tocar el equipo actual abre su preview. Tocar otro cambia la sesión completa —video, input, archivos y portapapeles— y abre su preview. El botón de ocultar pantalla dentro de la preview sigue cerrándola.
