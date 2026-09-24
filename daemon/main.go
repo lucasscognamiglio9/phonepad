@@ -40,6 +40,7 @@ var webEmbed embed.FS
 
 func main() {
 	gatewayPort := flag.Int("gateway-port", 0, "HTTP loopback port for an external HTTPS gateway; 0 disables")
+	localSharePort := flag.Int("local-share-port", 0, "HTTP loopback port for local screen sharing; 0 disables")
 	publicURL := flag.String("public-url", "", "trusted HTTPS origin exposed by private gateway")
 	certPath := flag.String("tls-cert", "", "certificado TLS firmado por una CA confiable (opcional)")
 	keyPath := flag.String("tls-key", "", "clave del certificado TLS (requiere --tls-cert)")
@@ -155,6 +156,9 @@ func main() {
 		}
 		pairURL = *publicURL
 	}
+	if *localSharePort != 0 && (*localSharePort < 1 || *localSharePort > 65535 || *localSharePort == *gatewayPort || *localSharePort == *port) {
+		log.Fatal("puerto local de pantalla inválido")
+	}
 
 	srvOpts = append(srvOpts, server.WithTrustedTailscaleNode(os.Getenv("PHONEPAD_TRUSTED_NODE")))
 	srvOpts = append(srvOpts, server.WithNativeUpdate(os.Getenv("PHONEPAD_NATIVE_UPDATE")))
@@ -163,6 +167,11 @@ func main() {
 	if *gatewayPort != 0 {
 		gateway := &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*gatewayPort)), Handler: srv.RemoteHandler(*publicURL), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 		httpServers = append(httpServers, gateway)
+	}
+	var shareServer *http.Server
+	if *localSharePort != 0 {
+		shareServer = &http.Server{Addr: net.JoinHostPort("127.0.0.1", fmt.Sprint(*localSharePort)), Handler: srv.Handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second}
+		httpServers = append(httpServers, shareServer)
 	}
 
 	var cert tls.Certificate
@@ -220,7 +229,7 @@ func main() {
 	// Server owns hijacked WebSockets; net/http owns the listener goroutines.
 	serveErr := make(chan error, len(httpServers))
 	for i, listener := range httpServers {
-		go serveHTTP(listener, i == 0 && *gatewayPort != 0, serveErr)
+		go serveHTTP(listener, (i == 0 && *gatewayPort != 0) || listener == shareServer, serveErr)
 	}
 	signalCtx, stopSignal := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopSignal()

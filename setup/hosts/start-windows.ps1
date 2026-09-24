@@ -7,8 +7,15 @@ $status = & $tailscale status --json | ConvertFrom-Json
 $dns = $status.Self.DNSName.TrimEnd('.')
 if ($status.BackendState -ne 'Running' -or $dns -notmatch '\.ts\.net$') { throw 'Tailscale debe estar conectado y tener MagicDNS activo.' }
 Write-Host "PhonePad: https://$dns"
-& $tailscale serve --bg --https=443 http://127.0.0.1:8081
-$daemon = Start-Process -FilePath (Join-Path $PSScriptRoot 'phonepad-daemon.exe') -ArgumentList @('--gateway-port', '8081', '--public-url', "https://$dns") -PassThru
+$serveStatus = (& $tailscale serve status --json | Out-String).Trim()
+if ($serveStatus -match '127\.0\.0\.1:8081') {
+    # PhonePad is already configured.
+} elseif ($serveStatus -eq '{}' -or $serveStatus -eq 'null') {
+    & $tailscale serve --bg --https=443 http://127.0.0.1:8081
+} else {
+    throw 'Ya existe otra configuración Tailscale Serve. Revisala antes de iniciar PhonePad.'
+}
+$daemon = Start-Process -FilePath (Join-Path $PSScriptRoot 'phonepad-daemon.exe') -ArgumentList @('--gateway-port', '8081', '--local-share-port', '8082', '--public-url', "https://$dns") -PassThru
 Start-Sleep -Seconds 2
-Start-Process 'https://localhost:8080/share'
+Start-Process 'http://127.0.0.1:8082/share'
 Wait-Process -Id $daemon.Id

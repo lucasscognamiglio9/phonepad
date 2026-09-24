@@ -32,7 +32,10 @@ func (nativeHostClipboard) Copy(path string, kind clipboardKind, _ string) error
 			var err error
 			prepared, cleanup, err = clipboardPNG(path)
 			if err != nil {
-				return err
+				prepared, cleanup, err = macOSPNG(ctx, path)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		defer cleanup()
@@ -79,4 +82,24 @@ end run`
 		return cmd.Run()
 	}
 	return errors.New("native clipboard unavailable")
+}
+
+func macOSPNG(ctx context.Context, path string) (string, func(), error) {
+	if runtime.GOOS != "darwin" {
+		return "", func() {}, os.ErrInvalid
+	}
+	file, cleanup, err := newClipboardTemp(os.TempDir())
+	if err != nil {
+		return "", func() {}, err
+	}
+	if err = file.Close(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	cmd := exec.CommandContext(ctx, "sips", "-s", "format", "png", path, "--out", file.Name())
+	if err = cmd.Run(); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return file.Name(), cleanup, nil
 }

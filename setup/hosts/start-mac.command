@@ -12,10 +12,18 @@ if [[ -z "$dns" || "$dns" != *.ts.net ]]; then
   exit 1
 fi
 echo "PhonePad: https://$dns"
-tailscale serve --bg --https=443 http://127.0.0.1:8081
-./phonepad-daemon --gateway-port 8081 --public-url "https://$dns" &
+serve_status=$(tailscale serve status --json)
+if [[ "$serve_status" == *'127.0.0.1:8081'* ]]; then
+  :
+elif [[ "$serve_status" == '{}' || "$serve_status" == 'null' ]]; then
+  tailscale serve --bg --https=443 http://127.0.0.1:8081
+else
+  echo 'Ya existe otra configuración Tailscale Serve. Revisala antes de iniciar PhonePad.'
+  exit 1
+fi
+./phonepad-daemon --gateway-port 8081 --local-share-port 8082 --public-url "https://$dns" &
 daemon_pid=$!
 trap 'kill $daemon_pid 2>/dev/null || true' EXIT
 sleep 2
-open https://localhost:8080/share
+open http://127.0.0.1:8082/share
 wait $daemon_pid
