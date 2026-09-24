@@ -22,6 +22,7 @@ func TestDesktopAccess(t *testing.T) {
 		{"/share", "127.0.0.1:1234", "", 200},
 		{"/api/desktop?role=publisher", "192.168.1.2:1234", "https://phonepad", 403},
 		{"/api/desktop?role=publisher", "127.0.0.1:1234", "", 403},
+		{"/api/desktop?role=publisher", "127.0.0.1:1234", "https://other.example", 403},
 		{"/api/desktop?token=wrong", "192.168.1.2:1234", "", 401},
 	} {
 		r := httptest.NewRequest("GET", tc.path, nil)

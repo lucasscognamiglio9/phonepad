@@ -7,6 +7,7 @@ on:
       - '.github/workflows/host-platforms.yml'
       - 'daemon/**'
       - 'setup/preview/**'
+      - 'setup/hosts/**'
   workflow_dispatch:
 
 permissions:
@@ -36,8 +37,16 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          zsh -n setup/hosts/start-mac.command
           value=$(printf '{"Self":{"DNSName":"mac.tailnet.ts.net."}}' | plutil -extract Self.DNSName raw -o - -)
           test "$value" = 'mac.tailnet.ts.net.'
+      - name: Check Windows launcher syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('setup/hosts/start-windows.ps1', [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { throw ($errors | Out-String) }
       - name: Stage host bundle
         if: success()
         shell: bash

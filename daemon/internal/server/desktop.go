@@ -56,7 +56,7 @@ func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Browsers must originate from this local page, never an unrelated website.
-		if r.Header.Get("Origin") == "" {
+		if !sameOrigin(r) {
 			http.Error(w, "origin required", 403)
 			return
 		}

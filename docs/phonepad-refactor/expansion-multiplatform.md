@@ -9,8 +9,8 @@ Una sola app en el teléfono se conecta al servidor de cada computadora. El men�
 | Combinación | Uso en el plan | Estado |
 | --- | --- | --- |
 | Ubuntu + tu iPhone | Referencia y comparación | Funciona; siguen pruebas de calidad bajo pérdida y detalles de entrada. |
-| Mac M1 + iPhone | Entrega macOS | Código y build pendientes; aceptación real al instalar en la Mac de tu amigo. |
-| Windows + iPhone | Entrega Windows | Código y build pendientes; aceptación real al instalar en la computadora de tu amigo. |
+| Mac M1 + iPhone | Entrega macOS | Servidor y paquete compilan; pruebas compartidas pasan en runner Apple Silicon. Captura y control físicos pendientes. |
+| Windows + iPhone | Entrega Windows | Servidor y paquete compilan; pruebas compartidas pasan en runner Windows. Captura y control físicos pendientes. |
 | Mac/Windows + iPhone de tu amigo | Comprobar que otra persona puede instalar y mantener la app | Primera aceptación real de Mac y Windows al instalar; no requiere prestarnos los equipos. |
 
 Tu iPhone serviría para probar cualquier host disponible, pero ahora no tenemos Mac ni Windows accesibles. No dependeremos de pedirle prestados los equipos a tu amigo.
@@ -27,7 +27,7 @@ Mantener el protocolo, autenticación, estados de sesión y pruebas que ya usa U
 
 Construir el servidor Mac con captura y control del sistema, permisos guiados, arranque y desinstalación. [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos) es la API de Apple para captura. Elegir el resto de los adaptadores por contrato y documentación oficial; confirmar su comportamiento durante la instalación real. Exponer el servidor por HTTPS privado con [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
 
-**Antes de entregar:** build y pruebas automatizadas macOS en un runner Apple Silicon. Captura, permisos y control reales quedan sin confirmar hasta la instalación.
+**Candidato disponible:** build y pruebas automatizadas macOS en un runner Apple Silicon. Captura, permisos y control reales quedan sin confirmar hasta la instalación. La captura usa el permiso y codificador WebRTC del navegador local; no se añadió un capturador nativo propio.
 
 ### 3. Preparar el cambio de equipo
 
@@ -37,7 +37,7 @@ El menú existente debe cambiar la sesión completa sin repetir acciones ni perd
 
 Reutilizar el contrato común. Evaluar [Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) para video y las APIs públicas de entrada de Windows para mouse y teclado; verificar sus límites en la computadora real. Preparar instalador, inicio, actualización y desinstalación. Preparar su conexión privada por Tailscale.
 
-**Antes de entregar:** build y pruebas automatizadas Windows, instalador verificable y capacidades reales declaradas. El video, la entrada y el cambio entre equipos siguen pendientes de instalación real.
+**Candidato disponible:** build y pruebas automatizadas Windows, paquete descargable y capacidades declaradas. El video, la entrada y el cambio entre equipos siguen pendientes de instalación real. La captura usa el permiso y codificador WebRTC del navegador local.
 
 ### 5. Entregarlo a tu amigo
 
@@ -55,6 +55,6 @@ P00–P06 siguen como base Ubuntu–iPhone con sus criterios físicos pendientes
 
 ## Cuándo termina esta tarea
 
-Primero entregar código, instaladores y pruebas automatizadas aprobadas en macOS Apple Silicon y Windows. Eso significa **candidato listo para instalar**, no compatibilidad confirmada. La tarea termina solo cuando tu amigo instala ambos servidores, usa PhonePad desde un iPhone, alterna entre Mac y Windows, y confirma video legible, cursor, mouse, teclado y dictado, archivos, portapapeles, permisos y reconexión. Debe poder repetir la instalación y recuperar una versión anterior.
+El código, paquetes de host y pruebas automatizadas están listos. Eso significa **candidato listo para instalar**, no compatibilidad confirmada. La tarea termina solo cuando tu amigo instala ambos servidores, usa PhonePad desde un iPhone, alterna entre Mac y Windows, y confirma video legible, cursor, mouse, teclado y dictado, archivos, portapapeles, permisos y reconexión. Debe poder repetir la instalación y recuperar una versión anterior.
 
 No necesitamos que preste sus computadoras. Sí necesitaremos su participación al instalar y probar la primera versión, o resultados de los agentes que ejecute allí. Sin esa observación no puedo afirmar honestamente que ScreenCaptureKit, permisos e input funcionan en sus equipos. Android queda fuera de esta tarea.
