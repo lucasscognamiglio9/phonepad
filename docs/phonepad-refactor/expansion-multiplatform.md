@@ -1,6 +1,6 @@
 # PhonePad: equipos y plataformas
 
-Estado al 24 de septiembre de 2026. Este plan organiza la expansión; no declara compatibles equipos que todavía no se probaron.
+Estado al 24 de septiembre de 2026. No tenemos acceso a una Mac ni a Windows para pruebas presenciales. El plan separa código verificable en CI de aceptación en los equipos de destino.
 
 ## Resultado y dispositivos de prueba
 
@@ -9,11 +9,11 @@ Una sola app en el teléfono se conecta al servidor de cada computadora. El men�
 | Combinación | Uso en el plan | Estado |
 | --- | --- | --- |
 | Ubuntu + tu iPhone | Referencia y comparación | Funciona; siguen pruebas de calidad bajo pérdida y detalles de entrada. |
-| Mac M1 + tu iPhone | Desarrollo y aceptación de macOS | Pendiente de servidor Mac y acceso a esa computadora. |
-| Windows + tu iPhone | Desarrollo y aceptación de Windows | Pendiente de servidor Windows y acceso a esa computadora. |
-| Mac/Windows + iPhone de tu amigo | Comprobar que otra persona puede instalar y mantener la app | Paso final de distribución. No hace falta para validar compatibilidad con Mac o Windows. |
+| Mac M1 + iPhone | Entrega macOS | Código y build pendientes; aceptación real al instalar en la Mac de tu amigo. |
+| Windows + iPhone | Entrega Windows | Código y build pendientes; aceptación real al instalar en la computadora de tu amigo. |
+| Mac/Windows + iPhone de tu amigo | Comprobar que otra persona puede instalar y mantener la app | Primera aceptación real de Mac y Windows al instalar; no requiere prestarnos los equipos. |
 
-Tu iPhone basta para probar Mac y Windows. El de tu amigo interviene solo cuando comprobemos la instalación independiente y la renovación de su firma gratuita.
+Tu iPhone serviría para probar cualquier host disponible, pero ahora no tenemos Mac ni Windows accesibles. No dependeremos de pedirle prestados los equipos a tu amigo.
 
 ## Trabajo en orden
 
@@ -23,31 +23,30 @@ Mantener el protocolo, autenticación, estados de sesión y pruebas que ya usa U
 
 **Salida:** contrato y pruebas comunes ejecutables sin depender de `uinput`, GNOME ni PipeWire. Ubuntu sigue funcionando igual.
 
-### 2. Hacer funcionar Mac con tu iPhone
+### 2. Construir el servidor Mac
 
-Construir el servidor Mac con captura y control del sistema, permisos guiados, arranque y desinstalación. [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos) es la API de Apple para captura. Elegir el resto de los adaptadores tras probarlos en esa Mac, no por analogía con Linux. Exponer el servidor por HTTPS privado con [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) y emparejarlo con tu iPhone.
+Construir el servidor Mac con captura y control del sistema, permisos guiados, arranque y desinstalación. [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit/capturing-screen-content-in-macos) es la API de Apple para captura. Elegir el resto de los adaptadores por contrato y documentación oficial; confirmar su comportamiento durante la instalación real. Exponer el servidor por HTTPS privado con [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
 
-**Aceptación:** desde tu iPhone, video legible, cursor, mouse, teclado, texto dictado, archivos, portapapeles, pausa y reconexión. Instalar desde cero y repetir la prueba después de reiniciar la Mac.
+**Antes de entregar:** build y pruebas automatizadas macOS en un runner Apple Silicon. Captura, permisos y control reales quedan sin confirmar hasta la instalación.
 
-### 3. Probar el cambio Ubuntu ↔ Mac
+### 3. Preparar el cambio de equipo
 
-Guardar ambos en el menú existente. Cambiar de equipo debe cerrar la sesión anterior sin repetir acciones ni perder contenido pendiente. Comprobar que el indicador verde corresponde solo a la sesión conectada y que una Mac apagada no rompe la sesión Ubuntu. Si este recorrido falla, corregir el selector antes de añadir otro host.
+El menú existente debe cambiar la sesión completa sin repetir acciones ni perder contenido pendiente. Verificar el contrato y estados con pruebas automatizadas; el cambio real entre hosts se acepta al disponer de ambos.
 
-### 4. Hacer funcionar Windows con tu iPhone
+### 4. Construir el servidor Windows
 
-Reutilizar el contrato común. Evaluar [Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) para video y las APIs públicas de entrada de Windows para mouse y teclado; verificar sus límites en la computadora real. Preparar instalador, inicio, actualización y desinstalación. Emparejarlo por Tailscale con tu iPhone.
+Reutilizar el contrato común. Evaluar [Windows Graphics Capture](https://learn.microsoft.com/en-us/windows/uwp/audio-video-camera/screen-capture) para video y las APIs públicas de entrada de Windows para mouse y teclado; verificar sus límites en la computadora real. Preparar instalador, inicio, actualización y desinstalación. Preparar su conexión privada por Tailscale.
 
-**Aceptación:** repetir el recorrido de Mac y cambiar entre Ubuntu, Mac y Windows sin mezclar sesiones. Si una función no tiene equivalente, anunciarla como no disponible y acordar una alternativa comprobada.
+**Antes de entregar:** build y pruebas automatizadas Windows, instalador verificable y capacidades reales declaradas. El video, la entrada y el cambio entre equipos siguen pendientes de instalación real.
 
 ### 5. Entregarlo a tu amigo
 
-Después de validar las tres computadoras con tu iPhone, dar a tu amigo los instaladores y un handoff breve para sus agentes: configurar Tailscale, emparejar, instalar la app con su cuenta Apple, renovar la firma gratuita de siete días, aplicar OTA compatible y reconocer una versión antigua. Probar que puede repetir los pasos con su iPhone. No compartir tus claves, sesiones ni identidad de Ubuntu.
+Después de pasar los builds y pruebas por plataforma, dar a tu amigo los instaladores y un handoff breve para sus agentes: configurar Tailscale, emparejar, instalar la app con su cuenta Apple, renovar la firma gratuita de siete días, aplicar OTA compatible y reconocer una versión antigua. Su instalación es la primera prueba real de Mac y Windows: registrar video, input, archivos, portapapeles, reconexión y cambio de equipo. Corregir cualquier fallo antes de declarar compatibilidad. No compartir tus claves, sesiones ni identidad de Ubuntu.
 
 ## Reglas de ejecución
 
 - Cada etapa conserva un build anterior instalable y un modo de volver atrás. Una prueba de compilación no cierra una combinación de dispositivos.
 - Tailscale Serve da acceso HTTPS dentro de la tailnet; PhonePad mantiene su propio emparejamiento y permisos. No hace falta red pública, QR ni señalización nueva para este alcance.
-- La app actual usa Expo SDK 57. Evaluar SDK 58 en una rama separada y migrar solo cuando el build nativo y el recorrido en tu iPhone pase. Una OTA no sustituye la IPA al cambiar código nativo.
 - Conservar la investigación de calidad de transmisión como trabajo transversal. La pérdida de paquetes observada en septiembre volvió el texto ilegible; las correcciones de recuperación están publicadas, pero falta medir y confirmar el resultado bajo pérdida real.
 
 ## Relación con el plan maestro
@@ -56,8 +55,6 @@ P00–P06 siguen como base Ubuntu–iPhone con sus criterios físicos pendientes
 
 ## Cuándo termina esta tarea
 
-La compatibilidad técnica Mac/Windows termina cuando tu iPhone controla ambas computadoras reales, alterna entre ellas y Ubuntu sin mezclar sesiones, y los instaladores se pueden repetir desde cero. El recorrido de aceptación incluye video legible, cursor, mouse, teclado y dictado, archivos y portapapeles, permisos, reconexión tras suspensión o reinicio y recuperación ante un equipo apagado. El resultado debe quedar documentado con versiones de los builds y forma de volver a la anterior. Compilar en Linux o pasar pruebas simuladas no basta.
+Primero entregar código, instaladores y pruebas automatizadas aprobadas en macOS Apple Silicon y Windows. Eso significa **candidato listo para instalar**, no compatibilidad confirmada. La tarea termina solo cuando tu amigo instala ambos servidores, usa PhonePad desde un iPhone, alterna entre Mac y Windows, y confirma video legible, cursor, mouse, teclado y dictado, archivos, portapapeles, permisos y reconexión. Debe poder repetir la instalación y recuperar una versión anterior.
 
-La entrega para tu amigo se considera completa después, cuando reciba los instaladores y el handoff de firma gratuita y pueda ejecutar esa instalación con sus agentes. Su iPhone no es requisito para cerrar la compatibilidad técnica.
-
-Puedo avanzar con el contrato y el código común sin ayuda. Para cerrar Mac y Windows necesito acceso temporal a cada computadora, directamente o mediante un agente ejecutando allí las pruebas y compartiendo los resultados. Tu participación con el iPhone se concentra en los recorridos de aceptación de cada host. Android queda fuera de esta tarea y se planificará en otro momento.
+No necesitamos que preste sus computadoras. Sí necesitaremos su participación al instalar y probar la primera versión, o resultados de los agentes que ejecute allí. Sin esa observación no puedo afirmar honestamente que ScreenCaptureKit, permisos e input funcionan en sus equipos. Android queda fuera de esta tarea.
