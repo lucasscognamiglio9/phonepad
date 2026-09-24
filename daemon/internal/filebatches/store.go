@@ -1478,15 +1478,6 @@ func writeJSONAtomic(path string, value any) error {
 	return os.Chmod(path, 0600)
 }
 
-func syncDir(path string) error {
-	directory, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer directory.Close()
-	return directory.Sync()
-}
-
 func invalidf(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, args...))
 }
