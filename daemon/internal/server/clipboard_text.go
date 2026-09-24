@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"phonepad/daemon/internal/input"
+	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -18,7 +19,11 @@ const maxClipboardText = 128 << 10
 
 func readDesktopClipboardText(ctx context.Context) (string, error) {
 	var command *exec.Cmd
-	if os.Getenv("WAYLAND_DISPLAY") != "" {
+	if runtime.GOOS == "darwin" {
+		command = exec.CommandContext(ctx, "pbpaste")
+	} else if runtime.GOOS == "windows" {
+		command = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Clipboard -Raw")
+	} else if os.Getenv("WAYLAND_DISPLAY") != "" {
 		command = exec.CommandContext(ctx, "wl-paste", "--no-newline", "--type", "text/plain")
 	} else if os.Getenv("DISPLAY") != "" {
 		command = exec.CommandContext(ctx, "xclip", "-selection", "clipboard", "-o", "-t", "UTF8_STRING")

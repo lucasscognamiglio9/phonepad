@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,9 @@ func (c xClipboard) Copy(path string, kind clipboardKind, mediaType string) erro
 // receives a normal unavailable error instead of a panic when no session is
 // attached.
 func systemClipboard() clipboardWriter {
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		return nativeHostClipboard{}
+	}
 	var native clipboardWriter
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
 		native = wlClipboard{copy: runWLClipboard}
