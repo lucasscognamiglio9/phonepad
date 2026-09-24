@@ -1,7 +1,6 @@
 package privatefs
 
 import (
-	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -62,15 +61,25 @@ func IsPrivate(path string, directory bool) (bool, error) {
 	}
 	sddl := sd.String()
 	if !strings.Contains(sddl, "D:P") {
-		return false, fmt.Errorf("private DACL not protected: %s", sddl)
+		return false, nil
 	}
 	aces := aceSID.FindAllStringSubmatch(sddl, -1)
 	if len(aces) == 0 {
-		return false, fmt.Errorf("private DACL has no ACEs: %s", sddl)
+		return false, nil
 	}
 	for _, ace := range aces {
-		if ace[1] != sid && ace[1] != "SY" && ace[1] != "S-1-5-18" {
-			return false, fmt.Errorf("private DACL contains unexpected trustee: %s", sddl)
+		if ace[1] == "SY" || ace[1] == "S-1-5-18" {
+			continue
+		}
+		// Windows serializes well-known account SIDs as short SDDL aliases
+		// (for example LA for the runner's local Administrator account).
+		trustee, err := windows.SecurityDescriptorFromString("O:" + ace[1])
+		if err != nil {
+			return false, err
+		}
+		owner, _, err := trustee.Owner()
+		if err != nil || owner.String() != sid {
+			return false, err
 		}
 	}
 	return true, nil
