@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 	"unicode"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 const (
@@ -868,16 +870,22 @@ func (s *Store) ensureStorageLocked() error {
 	} else {
 		return err
 	}
+	if err := privatefs.Secure(s.root, true); err != nil {
+		return err
+	}
 	stagingRoot := filepath.Join(s.root, stagingDirName)
 	if info, err := os.Lstat(stagingRoot); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return conflictf("staging root is not a directory")
 		}
-		if err := os.Chmod(stagingRoot, 0700); err != nil {
+		if err := privatefs.Secure(stagingRoot, true); err != nil {
 			return err
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
 		if err := os.Mkdir(stagingRoot, 0700); err != nil {
+			return err
+		}
+		if err := privatefs.Secure(stagingRoot, true); err != nil {
 			return err
 		}
 	} else {
@@ -922,6 +930,9 @@ func (s *Store) createStageLocked(m Manifest, stage string) (err error) {
 	if err := os.Mkdir(stage, 0700); err != nil {
 		return err
 	}
+	if err := privatefs.Secure(stage, true); err != nil {
+		return err
+	}
 	ownerWritten := false
 	success := false
 	defer func() {
@@ -952,6 +963,10 @@ func (s *Store) createStageLocked(m Manifest, stage string) (err error) {
 	for i := range m.Files {
 		file, err := os.OpenFile(stageFilePath(stage, i), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 		if err != nil {
+			return err
+		}
+		if err := privatefs.Secure(stageFilePath(stage, i), false); err != nil {
+			_ = file.Close()
 			return err
 		}
 		if err := file.Sync(); err != nil {
@@ -1450,7 +1465,7 @@ func writeJSONAtomic(path string, value any) error {
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0600); err != nil {
+	if err := privatefs.Secure(temporaryName, false); err != nil {
 		_ = temporary.Close()
 		return err
 	}
@@ -1475,7 +1490,7 @@ func writeJSONAtomic(path string, value any) error {
 	if err := os.Rename(temporaryName, path); err != nil {
 		return err
 	}
-	return os.Chmod(path, 0600)
+	return privatefs.Secure(path, false)
 }
 
 func invalidf(format string, args ...any) error {

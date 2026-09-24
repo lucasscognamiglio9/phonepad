@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 func TestPrivateFileTransfer(t *testing.T) {
@@ -57,8 +59,8 @@ func TestPrivateFileTransfer(t *testing.T) {
 		if !strings.HasPrefix(f.Name(), "original-") {
 			t.Fatal("unsafe name", f.Name())
 		}
-		info, _ := f.Info()
-		if info.Mode().Perm() != 0600 {
+		private, err := privatefs.IsPrivate(filepath.Join(s.uploadDir, f.Name()), false)
+		if err != nil || !private {
 			t.Fatal("attachment not private")
 		}
 	}

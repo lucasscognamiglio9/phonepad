@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 const fileName = "pairing.json"
@@ -49,7 +51,7 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := privatefs.Secure(dir, true); err != nil {
 		return nil, err
 	}
 
@@ -67,7 +69,7 @@ func Open(dir string) (*Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := os.Chmod(path, 0o600); err != nil {
+		if err := privatefs.Secure(path, false); err != nil {
 			return nil, err
 		}
 		// Opening a legacy file does not rewrite it or rotate its credential.
@@ -194,6 +196,9 @@ func (s *Store) saveLocked() error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
+	if err := privatefs.Secure(s.dir, true); err != nil {
+		return err
+	}
 	b, err := json.Marshal(s.st)
 	if err != nil {
 		return err
@@ -211,7 +216,7 @@ func (s *Store) saveLocked() error {
 		_ = tmp.Close()
 		_ = os.Remove(tmpName)
 	}
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := privatefs.Secure(tmpName, false); err != nil {
 		cleanup()
 		return fmt.Errorf("permisos de pairing: %w", err)
 	}

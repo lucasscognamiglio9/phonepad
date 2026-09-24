@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"phonepad/daemon/internal/input"
+	"phonepad/daemon/internal/privatefs"
 )
 
 const maxUpload = 100 << 20
@@ -137,12 +138,20 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "storage unavailable", 507)
 				return
 			}
+			if err = privatefs.Secure(dir, true); err != nil {
+				http.Error(w, "storage unavailable", 507)
+				return
+			}
 			file, err = os.CreateTemp(dir, ".receiving-*")
 			if err != nil {
 				http.Error(w, "storage unavailable", 507)
 				return
 			}
 			receivingPath = file.Name()
+			if err = privatefs.Secure(receivingPath, false); err != nil {
+				http.Error(w, "storage unavailable", 507)
+				return
+			}
 			mediaType = clipboardMediaType(part.Header.Get("Content-Type"))
 			size, err = io.Copy(file, io.LimitReader(part, maxUpload+1))
 			if size > maxUpload {

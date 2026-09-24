@@ -6,12 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 func TestOpen_RejectsMalformedShortToken(t *testing.T) {
 	dir := t.TempDir()
 	b, _ := json.Marshal(state{Token: "short", Paired: true})
 	if err := os.WriteFile(filepath.Join(dir, fileName), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := privatefs.Secure(filepath.Join(dir, fileName), false); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Open(dir)
@@ -22,12 +27,9 @@ func TestOpen_RejectsMalformedShortToken(t *testing.T) {
 	if readErr != nil || string(kept) != string(b) {
 		t.Fatal("opening invalid config destroyed the existing file")
 	}
-	st, err := os.Stat(filepath.Join(dir, fileName))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Mode().Perm() != 0o600 {
-		t.Errorf("pairing.json mode=%o, want 0600", st.Mode().Perm())
+	private, err := privatefs.IsPrivate(filepath.Join(dir, fileName), false)
+	if err != nil || !private {
+		t.Errorf("pairing.json private=%v, err=%v", private, err)
 	}
 }
 

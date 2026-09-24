@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 func testSquareCalibration() PointerGeometry {
@@ -35,8 +37,8 @@ func TestPointerCalibrationRoundTripsPerDeviceAndKeepsUnknownEntries(t *testing.
 	if err != nil || !ok || got.SideMM != second.SideMM {
 		t.Fatalf("LoadPointerCalibration(spare) = (%+v, %v, %v)", got, ok, err)
 	}
-	if mode, err := os.Stat(path); err != nil || mode.Mode().Perm() != 0o600 {
-		t.Fatalf("calibration file mode = %v, err=%v, want 0600", mode.Mode().Perm(), err)
+	if private, err := privatefs.IsPrivate(path, false); err != nil || !private {
+		t.Fatalf("calibration file private=%v, err=%v", private, err)
 	}
 }
 

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+
+	"phonepad/daemon/internal/privatefs"
 )
 
 const (
@@ -134,13 +136,16 @@ func SavePointerCalibration(path, deviceID string, profile PointerGeometry) erro
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
+	if err := privatefs.Secure(filepath.Dir(path), true); err != nil {
+		return err
+	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".pointer-geometry-*.tmp")
 	if err != nil {
 		return err
 	}
 	tmpName := tmp.Name()
 	cleanup := func() { _ = tmp.Close(); _ = os.Remove(tmpName) }
-	if err := tmp.Chmod(0o600); err != nil {
+	if err := privatefs.Secure(tmpName, false); err != nil {
 		cleanup()
 		return err
 	}
