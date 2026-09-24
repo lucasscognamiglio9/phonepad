@@ -47,6 +47,33 @@ func TestTailIdentity(t *testing.T) {
 		t.Fatal("offline accepted")
 	}
 }
+func TestTrustedTailscaleLogin(t *testing.T) {
+	s := New(staticAuth("secret"), &fakeInjector{}, nil, "https://mac.tailnet.ts.net", WithTrustedTailscaleLogin("Friend@Example.com"))
+	for _, tc := range []struct {
+		login, source, funnel string
+		status                int
+	}{
+		{"friend@example.com", "100.100.1.2", "", 204},
+		{"other@example.com", "100.100.1.2", "", 401},
+		{"friend@example.com", "", "", 401},
+		{"friend@example.com", "100.100.1.2, 100.100.1.3", "", 401},
+		{"friend@example.com", "100.100.1.2", "?1", 401},
+	} {
+		r := httptest.NewRequest("GET", "https://mac.tailnet.ts.net/api/auth", nil)
+		r.RemoteAddr = "127.0.0.1:8081"
+		r.Header.Set("Origin", "https://mac.tailnet.ts.net")
+		r.Header.Set("Tailscale-User-Login", tc.login)
+		r.Header.Set("X-Forwarded-For", tc.source)
+		if tc.funnel != "" {
+			r.Header.Set("Tailscale-Funnel-Request", tc.funnel)
+		}
+		w := httptest.NewRecorder()
+		s.RemoteHandler("https://mac.tailnet.ts.net").ServeHTTP(w, r)
+		if w.Code != tc.status {
+			t.Errorf("%+v: %d", tc, w.Code)
+		}
+	}
+}
 func TestTrustedGatewayBoundary(t *testing.T) {
 	s := New(staticAuth("secret"), &fakeInjector{}, nil, "https://phone.example")
 	s.trustedPeer = func(r *http.Request) bool { return r.Header.Get("X-Forwarded-For") == "100.118.23.97" }

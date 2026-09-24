@@ -9,7 +9,15 @@ package input
 #include <stdio.h>
 #include <stdlib.h>
 
-static int pp_accessibility_trusted(void) { return AXIsProcessTrusted(); }
+static int pp_accessibility_trusted(void) {
+    CFMutableDictionaryRef options = CFDictionaryCreateMutable(kCFAllocatorDefault, 1,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    if (!options) return AXIsProcessTrusted();
+    CFDictionarySetValue(options, kAXTrustedCheckOptionPrompt, kCFBooleanTrue);
+    Boolean trusted = AXIsProcessTrustedWithOptions(options);
+    CFRelease(options);
+    return trusted;
+}
 
 static char* pp_focused_editable(void) {
     AXUIElementRef system = AXUIElementCreateSystemWide();

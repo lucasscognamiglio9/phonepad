@@ -5,10 +5,17 @@ if ! command -v tailscale >/dev/null; then
   echo 'Instalá Tailscale e iniciá sesión antes de abrir PhonePad.'
   exit 1
 fi
-dns=$(tailscale status --json | /usr/bin/plutil -extract Self.DNSName raw -o - - 2>/dev/null || true)
+tail_status=$(tailscale status --json)
+dns=$(printf '%s' "$tail_status" | /usr/bin/plutil -extract Self.DNSName raw -o - - 2>/dev/null || true)
 dns=${dns%.}
 if [[ -z "$dns" || "$dns" != *.ts.net ]]; then
   echo 'Tailscale debe estar conectado y tener MagicDNS activo.'
+  exit 1
+fi
+user_id=$(printf '%s' "$tail_status" | /usr/bin/plutil -extract Self.UserID raw -o - - 2>/dev/null || true)
+login=$(printf '%s' "$tail_status" | /usr/bin/plutil -extract "User.$user_id.LoginName" raw -o - - 2>/dev/null || true)
+if [[ -z "$login" ]]; then
+  echo 'No se pudo identificar la cuenta Tailscale del equipo.'
   exit 1
 fi
 echo "PhonePad: https://$dns"
@@ -21,7 +28,7 @@ else
   echo 'Ya existe otra configuración Tailscale Serve. Revisala antes de iniciar PhonePad.'
   exit 1
 fi
-./phonepad-daemon --gateway-port 8081 --local-share-port 8082 --public-url "https://$dns" &
+PHONEPAD_TRUSTED_LOGIN="$login" ./phonepad-daemon --gateway-port 8081 --local-share-port 8082 --public-url "https://$dns" &
 daemon_pid=$!
 trap 'kill $daemon_pid 2>/dev/null || true' EXIT
 sleep 2

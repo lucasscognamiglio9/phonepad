@@ -160,7 +160,11 @@ func main() {
 		log.Fatal("puerto local de pantalla inválido")
 	}
 
-	srvOpts = append(srvOpts, server.WithTrustedTailscaleNode(os.Getenv("PHONEPAD_TRUSTED_NODE")))
+	if login := os.Getenv("PHONEPAD_TRUSTED_LOGIN"); login != "" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows") {
+		srvOpts = append(srvOpts, server.WithTrustedTailscaleLogin(login))
+	} else {
+		srvOpts = append(srvOpts, server.WithTrustedTailscaleNode(os.Getenv("PHONEPAD_TRUSTED_NODE")))
+	}
 	srvOpts = append(srvOpts, server.WithNativeUpdate(os.Getenv("PHONEPAD_NATIVE_UPDATE")))
 	srv := server.New(pair, inj, webFS, pairURL, srvOpts...)
 	var httpServers []*http.Server

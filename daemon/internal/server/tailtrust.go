@@ -7,12 +7,29 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
 type trustedNodeKey struct{}
 
 func trustedNode(r *http.Request) bool { v, _ := r.Context().Value(trustedNodeKey{}).(bool); return v }
+
+// Serve sets this login header after authenticating the source device. The
+// caller is only reached through RemoteHandler's loopback gateway check.
+func WithTrustedTailscaleLogin(login string) Option {
+	return func(s *Server) {
+		login = strings.TrimSpace(strings.ToLower(login))
+		if login == "" || strings.ContainsAny(login, "\r\n") {
+			return
+		}
+		s.trustedPeer = func(r *http.Request) bool {
+			return r.Header.Get("Tailscale-Funnel-Request") == "" &&
+				net.ParseIP(r.Header.Get("X-Forwarded-For")) != nil &&
+				strings.EqualFold(r.Header.Get("Tailscale-User-Login"), login)
+		}
+	}
+}
 
 // Serve overwrites the source header. Trust it only on the dedicated loopback
 // gateway, then resolve it through tailscaled and match the pinned stable node.

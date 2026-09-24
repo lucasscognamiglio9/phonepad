@@ -38,8 +38,11 @@ jobs:
         shell: bash
         run: |
           zsh -n setup/hosts/start-mac.command
-          value=$(printf '{"Self":{"DNSName":"mac.tailnet.ts.net."}}' | plutil -extract Self.DNSName raw -o - -)
+          fixture='{"Self":{"DNSName":"mac.tailnet.ts.net.","UserID":123},"User":{"123":{"LoginName":"friend@example.com"}}}'
+          value=$(printf '%s' "$fixture" | plutil -extract Self.DNSName raw -o - -)
           test "$value" = 'mac.tailnet.ts.net.'
+          login=$(printf '%s' "$fixture" | plutil -extract User.123.LoginName raw -o - -)
+          test "$login" = 'friend@example.com'
       - name: Check Windows launcher syntax
         if: runner.os == 'Windows'
         shell: pwsh
@@ -47,6 +50,8 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile('setup/hosts/start-windows.ps1', [ref]$null, [ref]$errors) | Out-Null
           if ($errors) { throw ($errors | Out-String) }
+          $status = '{"Self":{"UserID":123},"User":{"123":{"LoginName":"friend@example.com"}}}' | ConvertFrom-Json
+          if ($status.User.PSObject.Properties["$($status.Self.UserID)"].Value.LoginName -ne 'friend@example.com') { throw 'Tailscale login parser failed' }
       - name: Stage host bundle
         if: success()
         shell: bash

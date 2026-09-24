@@ -6,6 +6,8 @@ if (-not (Test-Path $tailscale)) { throw 'Instalá Tailscale e iniciá sesión a
 $status = & $tailscale status --json | ConvertFrom-Json
 $dns = $status.Self.DNSName.TrimEnd('.')
 if ($status.BackendState -ne 'Running' -or $dns -notmatch '\.ts\.net$') { throw 'Tailscale debe estar conectado y tener MagicDNS activo.' }
+$login = $status.User.PSObject.Properties["$($status.Self.UserID)"].Value.LoginName
+if (-not $login) { throw 'No se pudo identificar la cuenta Tailscale del equipo.' }
 Write-Host "PhonePad: https://$dns"
 $serveStatus = (& $tailscale serve status --json | Out-String).Trim()
 if ($serveStatus -match '127\.0\.0\.1:8081') {
@@ -15,6 +17,7 @@ if ($serveStatus -match '127\.0\.0\.1:8081') {
 } else {
     throw 'Ya existe otra configuración Tailscale Serve. Revisala antes de iniciar PhonePad.'
 }
+$env:PHONEPAD_TRUSTED_LOGIN = $login
 $daemon = Start-Process -FilePath (Join-Path $PSScriptRoot 'phonepad-daemon.exe') -ArgumentList @('--gateway-port', '8081', '--local-share-port', '8082', '--public-url', "https://$dns") -PassThru
 Start-Sleep -Seconds 2
 Start-Process 'http://127.0.0.1:8082/share'
