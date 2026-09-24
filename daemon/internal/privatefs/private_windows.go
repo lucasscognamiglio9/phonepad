@@ -1,6 +1,7 @@
 package privatefs
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -61,15 +62,15 @@ func IsPrivate(path string, directory bool) (bool, error) {
 	}
 	sddl := sd.String()
 	if !strings.Contains(sddl, "D:P") {
-		return false, nil
+		return false, fmt.Errorf("private DACL not protected: %s", sddl)
 	}
 	aces := aceSID.FindAllStringSubmatch(sddl, -1)
 	if len(aces) == 0 {
-		return false, nil
+		return false, fmt.Errorf("private DACL has no ACEs: %s", sddl)
 	}
 	for _, ace := range aces {
 		if ace[1] != sid && ace[1] != "SY" && ace[1] != "S-1-5-18" {
-			return false, nil
+			return false, fmt.Errorf("private DACL contains unexpected trustee: %s", sddl)
 		}
 	}
 	return true, nil
