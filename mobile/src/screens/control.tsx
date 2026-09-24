@@ -175,7 +175,7 @@ export function Control({ origin, onSelectHost, initialPreview = false }: { orig
       onPendingChange={setPendingText} onOcclusionChange={setComposerHeight}
       canReview={state === 'connected'} allowAttachments={state === 'connected' && connection.canTransfer}
      visible={!landscapePreview || keyboard}
-      disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} />
+      disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} offerClipboardImage={attachments.offerClipboardImage} />
     <SessionOptions visible={options} close={() => setOptions(false)} preferences={preferences} change={changePreferences} />
     <HostMenu visible={hostsOpen} activeOrigin={origin} connected={state === 'connected'} close={() => setHostsOpen(false)}
       canSwitch={canSwitchHost} select={next => { if (next === origin) setPreview(true); else onSelectHost(next); }} />

@@ -6,6 +6,9 @@ import { attachmentBatch, chooseAttachments, type AttachmentBatch, type Attachme
 import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimits, type PreparedBatch, type TransferLimits } from '../lib/file-transfer';
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassButton } from './glass-button';
+import { Buffer } from 'buffer';
+import { File, Paths } from 'expo-file-system';
+import type { ClipboardImage } from 'expo-clipboard';
 
 export function useAttachmentTransfer(origin: string, connected: boolean, paste: () => boolean, canClipboard = true, sessionEpoch?: string | null) {
   const insets = useSafeAreaInsets();
@@ -21,6 +24,8 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const preparedRef = useRef<PreparedBatch | null>(null);
   const selectionRef = useRef<AttachmentBatch | null>(null);
   const uploading = useRef(false);
+  const clipboardImageFile = useRef<File | null>(null);
+  const clearClipboardImage = () => { try { clipboardImageFile.current?.delete(); } catch {} clipboardImageFile.current = null; };
   const permissions = useRef({ connected, canClipboard });
   const epoch = useRef(sessionEpoch);
   useEffect(() => { if (epoch.current !== sessionEpoch) request.current?.abort(); epoch.current = sessionEpoch; }, [sessionEpoch]);
@@ -40,7 +45,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         setProblem('Hay un lote pendiente. Podés consultar y reanudar el mismo envío.');
       }
     } catch { setProblem('No se pudo recuperar la selección anterior.'); }
-    return () => { alive.current = false; request.current?.abort(); };
+    return () => { alive.current = false; request.current?.abort(); clearClipboardImage(); };
   }, [origin]);
 
   const run = async (work: (signal: AbortSignal) => Promise<void>, upload = false) => {
@@ -72,6 +77,25 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     });
   };
 
+  const offerClipboardImage = (image: ClipboardImage) => {
+    if (selectionRef.current) { setVisible(true); return; }
+    if (!permissions.current.connected) { setProblem('El equipo no permite recibir imágenes en esta sesión.'); return; }
+    void run(async signal => {
+      const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
+      const match = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(image.data);
+      if (!match) throw Error('No se pudo leer la imagen copiada.');
+      const estimatedBytes = Math.floor(match[2].length * 3 / 4);
+      if (estimatedBytes > limits.maxBytes) throw Error('La imagen supera el tamaño permitido por la computadora.');
+      const bytes = Buffer.from(match[2], 'base64');
+      if (signal.aborted || !alive.current) return;
+      const file = new File(Paths.cache, `phonepad-clipboard-${Date.now()}.${match[1] === 'jpeg' ? 'jpg' : 'png'}`);
+      file.create(); file.write(new Uint8Array(bytes));
+      clearClipboardImage(); clipboardImageFile.current = file;
+      select(attachmentBatch([{ uri: file.uri, name: `Imagen copiada.${match[1] === 'jpeg' ? 'jpg' : 'png'}`, type: `image/${match[1]}`, size: bytes.length }]));
+      setLimits(limits); setVisible(true);
+    });
+  };
+
   const send = () => void run(async signal => {
     if (!permissions.current.connected) throw Error('El equipo no permite recibir archivos en esta sesión.');
     const batch = selectionRef.current;
@@ -96,6 +120,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     // Local cleanup is safe only after the remote receipt. A lost receipt keeps
     // the manifest so the next attempt can query instead of duplicating work.
     discardPreparedBatch(saved.manifest.id);
+    clearClipboardImage();
     remember(null); select(null); setVisible(false);
     if (receipt.clipboard?.state === 'ready' && !receipt.clipboard.replayed) {
       Alert.alert('Listo para pegar', `${receipt.files.length} archivos`, [
@@ -118,6 +143,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       discardPreparedBatch(saved.manifest.id);
     }
     if (!alive.current) return;
+    clearClipboardImage();
     remember(null); select(null); setVisible(false);
   });
 
@@ -125,6 +151,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     if (busy || preparedRef.current || !selectionRef.current) return;
     const items = selectionRef.current.items.filter((_, i) => i !== index);
     select(items.length ? attachmentBatch(items) : null);
+    if (!items.length) clearClipboardImage();
     if (!items.length) setVisible(false);
   };
   const total = prepared?.manifest.files.reduce((n, f) => n + f.bytes, 0)
@@ -158,5 +185,5 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       </View>
     </Modal>
   </>;
-  return { choose, busy, pending: !!selection, panel };
+  return { choose, offerClipboardImage, busy, pending: !!selection, panel };
 }

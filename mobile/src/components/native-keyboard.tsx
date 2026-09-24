@@ -1,4 +1,5 @@
 import { appearance } from './appearance';
+import * as Clipboard from 'expo-clipboard';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Keyboard, Platform, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import Animated, { ReduceMotion, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
@@ -21,6 +22,7 @@ import {
 import type { Connection } from '../lib/connection';
 import { offerTextToHostClipboard, transferClipboard } from '../lib/clipboard-transfer';
 import type { AttachmentSource } from '../lib/attachments';
+import type { ClipboardImage } from 'expo-clipboard';
 import type { LateDraft } from '../lib/literal-transfer';
 import type { ActionReceipt } from '../lib/protocol';
 import { textCommands } from '../lib/protocol';
@@ -38,10 +40,11 @@ const ACTION_REPEAT_INITIAL_DELAY_MS = 350;
 const ACTION_REPEAT_INTERVAL_MS = 70;
 
 // Keep text state here: typing must not rerender the video or restart its stream.
-export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange, onOcclusionChange,
+export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, offerClipboardImage, visible = true, onPendingChange, onOcclusionChange,
   canReview = !disabled, allowAttachments = !disabled }: {
   connection: Connection; active: boolean; open: () => void; close: () => void;
   disabled: boolean; choosing: boolean; choose: (source: AttachmentSource) => void;
+  offerClipboardImage: (image: ClipboardImage) => void;
   visible?: boolean;
   onPendingChange?: (pending: boolean) => void;
   onOcclusionChange?: (height: number) => void;
@@ -59,6 +62,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [textStatus, setTextStatus] = useState('');
   const previous = useRef('');
   const draft = useRef(literal?.draft ?? '');
+  const selection = useRef({ start: 0, end: 0 });
   const interrupted = useRef(!!literal?.lateDraft);
   const editorGeneration = useRef(0);
   const confirmedText = useRef('');
@@ -487,6 +491,18 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     // correctly, then keep it current through layout and keyboard callbacks.
     measureAnchorRef.current();
   };
+  const pasteText = (text: string) => {
+    if (disabled || sending || !text) return;
+    const current = draft.current;
+    const start = Math.min(selection.current.start, current.length);
+    const end = Math.min(selection.current.end, current.length);
+    const next = current.slice(0, start) + text + current.slice(end);
+    draft.current = next;
+    if (literal) literal.draft = next;
+    setValue(next);
+    selection.current = { start: start + text.length, end: start + text.length };
+    input.current?.focus();
+  };
   return <View pointerEvents={visible ? 'box-none' : 'none'} style={{ position: 'absolute', inset: 0, display: visible ? 'flex' : 'none' }}>
     <ActionMenu anchor={visible ? menuAnchor : null} close={dismissMenu} choose={chooseAction} onDismiss={onMenuDismiss}
       attachmentsAllowed={allowAttachments} />
@@ -494,6 +510,15 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       offset={{ closed: 0, opened: keyboardStickyOpenedOffset(windowResize, closedBottom, COMPOSER_OPEN_GAP) }}
       style={{ position: 'absolute', bottom: closedBottom, alignSelf: 'center' }}>
       <Animated.View pointerEvents="box-none" onLayout={event => onOcclusionChange?.(event.nativeEvent.layout.height + COMPOSER_OPEN_GAP)} style={[{ gap: 8 }, style]}>
+      {active && Clipboard.isPasteButtonAvailable && <View style={{ alignSelf: 'flex-start' }}>
+        <Clipboard.ClipboardPasteButton acceptedContentTypes={['plain-text', 'image']} displayMode="iconAndLabel"
+          backgroundColor={appearance.color.background} foregroundColor={appearance.color.text}
+          style={{ width: 100, height: 40 }} onPress={item => {
+            if (item.type === 'text') pasteText(item.text);
+            else if (allowAttachments) { close(); offerClipboardImage(item); }
+            else Alert.alert('No se puede pegar la imagen', 'La computadora no admite archivos en esta sesión.');
+          }} />
+      </View>}
       {lateDraft && <GlassSurface style={{ borderRadius: 18, padding: 12 }}>
         <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.text, fontSize: 14 }}>
           {lateDraft.duplicate
@@ -583,6 +608,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                 previous.current = text; draft.current = text; setValue(text);
               }
             }} editable={!disabled && !sending} multiline
+            contextMenuHidden={false} onSelectionChange={event => { selection.current = event.nativeEvent.selection; }}
             maxLength={literalMode ? undefined : 2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
             placeholder="Escribir…" placeholderTextColor={appearance.color.secondary} accessibilityLabel="Escribir en la computadora"
             onFocus={() => { if (visible && !menuInteraction.current) open(); }}
