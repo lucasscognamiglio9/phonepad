@@ -386,7 +386,7 @@ func rebuildAndReexecContext(ctx context.Context, src string) {
 		return
 	}
 	log.Printf("dev: recompilado OK → re-ejecutando")
-	if err := syscall.Exec(self, os.Args, os.Environ()); err != nil {
+	if err := reexecCurrent(self, os.Args, os.Environ()); err != nil {
 		log.Printf("dev: re-exec falló: %v", err)
 	}
 }

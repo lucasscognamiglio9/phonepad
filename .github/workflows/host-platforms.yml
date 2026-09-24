@@ -29,5 +29,6 @@ jobs:
         working-directory: daemon
         run: go test -mod=vendor ./internal/...
       - name: Build daemon
+        if: always()
         working-directory: daemon
         run: go build -mod=vendor -o phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} .
