@@ -61,7 +61,7 @@ func TestPrivateFileTransfer(t *testing.T) {
 		}
 		private, err := privatefs.IsPrivate(filepath.Join(s.uploadDir, f.Name()), false)
 		if err != nil || !private {
-			t.Fatal("attachment not private")
+			t.Fatalf("attachment not private: %v", err)
 		}
 	}
 	if w := request("truncated.txt", "partial", "https://phone.example", true, false); w.Code != 400 {

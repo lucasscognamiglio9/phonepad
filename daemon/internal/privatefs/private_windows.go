@@ -1,6 +1,7 @@
 package privatefs
 
 import (
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -49,7 +50,7 @@ func IsPrivate(path string, directory bool) (bool, error) {
 		return false, err
 	}
 	if directory != info.IsDir() {
-		return false, nil
+		return false, fmt.Errorf("unexpected file type: %v", info.Mode())
 	}
 	sid, err := userSID()
 	if err != nil {
@@ -61,11 +62,11 @@ func IsPrivate(path string, directory bool) (bool, error) {
 	}
 	sddl := sd.String()
 	if !strings.Contains(sddl, "D:P") {
-		return false, nil
+		return false, fmt.Errorf("unprotected ACL: %s", sddl)
 	}
 	aces := aceSID.FindAllStringSubmatch(sddl, -1)
 	if len(aces) == 0 {
-		return false, nil
+		return false, fmt.Errorf("ACL has no entries: %s", sddl)
 	}
 	for _, ace := range aces {
 		if ace[1] == "SY" || ace[1] == "S-1-5-18" {
@@ -79,7 +80,7 @@ func IsPrivate(path string, directory bool) (bool, error) {
 		}
 		owner, _, err := trustee.Owner()
 		if err != nil || owner.String() != sid {
-			return false, err
+			return false, fmt.Errorf("unexpected trustee in ACL: %s (%v)", sddl, err)
 		}
 	}
 	return true, nil
