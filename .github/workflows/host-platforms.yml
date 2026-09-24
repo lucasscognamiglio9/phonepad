@@ -1,0 +1,33 @@
+name: Host platforms
+
+on:
+  push:
+    branches: [refactor/p00-baseline]
+    paths:
+      - '.github/workflows/host-platforms.yml'
+      - 'daemon/**'
+      - 'setup/preview/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  daemon:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+      - name: Test shared server
+        working-directory: daemon
+        run: go test -mod=vendor ./internal/...
+      - name: Build daemon
+        working-directory: daemon
+        run: go build -mod=vendor -o phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} .
