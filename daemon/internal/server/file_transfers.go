@@ -285,15 +285,6 @@ func readTransferClipboard(folder string) transferClipboard {
 	return receipt
 }
 
-func syncTransferDirectory(path string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return f.Sync()
-}
-
 func (s *Server) copyTransfer(status filebatches.Status, permit mutationPermit) (*transferClipboard, error) {
 	root, err := s.batchRoot()
 	if err != nil {
