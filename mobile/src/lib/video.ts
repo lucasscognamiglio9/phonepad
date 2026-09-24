@@ -190,7 +190,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     phase = 'receiving';
     checkActive(); started = true;
     let misses = 0, feedbackEpoch = 0;
-    let previousOrientation = orientation?.();
+    let acknowledgedOrientation = orientation?.();
     const feedback = async () => {
       if (stopped || suspended) return;
       const epoch = feedbackEpoch;
@@ -207,8 +207,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
         if (delta('framesDecoded') > 0) { hasFrames = true; lastFrameAt = Date.now(); }
         const sample = networkSample(inbound, previous);
         const currentOrientation = orientation?.();
-        const orientationChanged = currentOrientation !== undefined && previousOrientation !== undefined && currentOrientation !== previousOrientation;
-        previousOrientation = currentOrientation;
+        const orientationChanged = currentOrientation !== undefined && acknowledgedOrientation !== undefined && currentOrientation !== acknowledgedOrientation;
         const response = await call({
           op: 'feedback', id, ...sample,
           ...(orientationChanged ? { refreshFrame: true } : {}),
@@ -218,6 +217,9 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
           bytes: metric(inbound, 'bytesReceived'), connection: peer.connectionState,
         });
         if (epoch !== feedbackEpoch) return;
+        // A failed request must not consume the rotation. Retry the refresh
+        // with the next feedback until the host acknowledges it.
+        acknowledgedOrientation = currentOrientation;
         media.accept(response.media);
         diagnostics = response && typeof response === 'object' ? {
           encodeP95Ms: known(response, 'encodeP95Ms'), bitrateKbps: known(response, 'bitrateKbps'),

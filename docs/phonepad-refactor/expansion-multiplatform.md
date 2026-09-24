@@ -1,6 +1,6 @@
 # PhonePad: equipos y plataformas
 
-Estado al 23 de septiembre de 2026. Este alcance sigue a P00–P06; no cambia sus estados ni declara compatibilidad física que no se haya probado.
+Estado al 24 de septiembre de 2026. Este alcance sigue a P00–P06; no cambia sus estados ni declara compatibilidad física que no se haya probado.
 
 ## Resultado buscado
 
@@ -8,7 +8,7 @@ Una app en iPhone o Android controla cualquiera de los equipos guardados: Ubuntu
 
 ## Prioridad inmediata: transmisión legible
 
-La captura del 23/09/2026 a la 01:23 muestra texto ilegible. En los registros del host, entre 01:22:18 y 01:22:22, el receptor tuvo varios segundos sin cuadros nuevos, pérdida de paquetes de hasta 44% y el bitrate aplicado cayó de 12 000 a 3 796 kb/s. Al inicio del episodio hubo una muestra de 65% de pérdida. Esto confirma una degradación de la recepción durante ese intervalo; la imagen sola no prueba si además hubo escalado o defecto de renderer. El cambio `8f55cd9` pide un cuadro de referencia limpio después de recuperar red y bitrate; se activó después de esa captura y aún requiere prueba física.
+La captura del 23/09/2026 a la 01:23 muestra texto ilegible. En los registros del host, entre 01:22:18 y 01:22:22, el receptor tuvo varios segundos sin cuadros nuevos, pérdida de paquetes de hasta 44% y el bitrate aplicado cayó de 12 000 a 3 796 kb/s. Al inicio del episodio hubo una muestra de 65% de pérdida. Esto confirma una degradación de la recepción durante ese intervalo; la imagen sola no prueba si además hubo escalado o defecto de renderer. `8f55cd9` pide un cuadro de referencia limpio después de recuperar red y bitrate. `252157a` lo pide al girar el dispositivo. El siguiente ajuste conserva el pedido de giro si falla el feedback y lo repite hasta recibir respuesta. Falta comprobar físicamente la recuperación bajo pérdida.
 
 1. Reproducir el caso con la versión instalada y registrar, con timestamps pequeños y comparables, cuadros capturados/codificados/recibidos/presentados, pérdida, ruta Tailscale, bitrate, resolución y tiempo hasta volver a leer el texto. Los registros actuales contienen detalles de frames excesivos y no deben servir como única medida de calidad percibida.
 2. Separar causa por etapa. Si el host entrega cuadros nítidos pero el receptor no, revisar transporte, recuperación WebRTC y renderer. Si el host ya codifica texto ilegible, revisar captura, escala y política de compresión. Evaluar el cambio de referencia ya desplegado antes de añadir otra heurística.
@@ -17,7 +17,7 @@ La captura del 23/09/2026 a la 01:23 muestra texto ilegible. En los registros de
 
 ## Entrega 1: selector de equipos
 
-El menú inicial se publicó por OTA el 23/09/2026 (`8e3867e`, canal `personal`). Pasó pruebas locales; falta comprobar su presentación y el cambio entre dos computadoras reales. El indicador verde se reserva para la sesión activa confirmada; los demás equipos quedan neutros hasta conectarse.
+El menú se publicó por OTA y el usuario confirmó su presentación en el iPhone con un equipo guardado. `921929d` cierra el formulario al cerrar el menú; `34dfea5` añade iconos y divisor. Falta comprobar el cambio entre dos computadoras reales. El indicador verde se reserva para la sesión activa confirmada; los demás equipos quedan neutros hasta conectarse.
 
 - Al tocar el icono de monitor desde la pantalla principal, abrir un menú Liquid Glass como el menú **+**. Cada fila muestra un punto de estado y el nombre guardado, por ejemplo Windows, Mac o Ubuntu; la última fila dice **Agregar nuevo**. Son ejemplos, no nombres ni cantidad fijos. El equipo activo debe distinguirse sin recargar la interfaz.
 - El punto verde indica una conexión confirmada con ese equipo. Si no se ha comprobado su disponibilidad, usar un punto neutro; si falla, indicar que está desconectado. No mostrar a todos los equipos como conectados solo por estar guardados.
@@ -55,8 +55,8 @@ Este mapa ordena el solapamiento; no marca tareas antiguas como terminadas ni re
 
 | Fase original | Relación con este alcance | Decisión pendiente |
 | --- | --- | --- |
-| P00–P06, incluida P01A | Base Ubuntu–iPhone ya implementada en gran parte; siguen correcciones y aceptación física, como dictado, copia al iPhone y legibilidad del video. | Registrar cada corrección con prueba y confirmación en el teléfono. |
-| P07 | Ya hay lista de equipos, origen HTTPS, autenticación y Tailscale. El selector visual y el cambio seguro de sesión siguen pendientes. | Posponer LAN/QR y STUN/TURN públicos mientras Tailscale cubra las conexiones privadas. |
+| P00–P06, incluida P01A | Base Ubuntu–iPhone implementada en gran parte. El usuario confirmó el dictado y envío a ChatGPT tras activar el pegado alternativo del host. Siguen la prueba física de pegado de imágenes, copia al iPhone y legibilidad del video bajo pérdida. | Registrar cada corrección con prueba y confirmación en el teléfono. |
+| P07 | Ya hay lista de equipos, origen HTTPS, autenticación, Tailscale y selector visual validado con un equipo. El cambio seguro entre dos equipos reales sigue pendiente. | Posponer LAN/QR y STUN/TURN públicos mientras Tailscale cubra las conexiones privadas. |
 | P08 | Host Ubuntu actual; el plan original amplía compatibilidad Linux. | Mantener GNOME/Ubuntu como referencia y decidir luego si se amplía a otras distribuciones. |
 | P09 | Celulares como equipos controlados. No es lo mismo que Android como controlador. | Dejar fuera del alcance actual salvo nueva decisión. |
 | P10 | Hosts macOS y Windows sí coinciden. El cliente de escritorio del plan original es otro producto. | Priorizar servidores Mac/Windows y posponer el cliente de escritorio. |
