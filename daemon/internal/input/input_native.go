@@ -152,7 +152,7 @@ func nativeKeyName(key string) string {
 
 func (d *nativeDevice) Special(key string) { _ = d.SpecialAction(context.Background(), key) }
 func (d *nativeDevice) SpecialAction(ctx context.Context, key string) ActionResult {
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
 	}
 	name := nativeKeyName(key)
@@ -174,7 +174,7 @@ func (d *nativeDevice) Combo(mods []string, key string) {
 	_ = d.ComboAction(context.Background(), mods, key)
 }
 func (d *nativeDevice) ComboAction(ctx context.Context, mods []string, key string) ActionResult {
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return ActionResult{State: "rejected", Detail: "cancelled_before_dispatch"}
 	}
 	name := nativeKeyName(key)
@@ -308,7 +308,7 @@ func (d *nativeDevice) Reset() {
 func (d *nativeDevice) Close() { d.Reset(); d.mu.Lock(); d.closed = true; d.mu.Unlock() }
 
 func (d *nativeDevice) LiteralFocus(ctx context.Context) LiteralResult {
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return LiteralResult{State: "rejected", Detail: "cancelled_before_dispatch"}
 	}
 	focus, err := nativeFocus()
@@ -322,7 +322,7 @@ func (d *nativeDevice) LiteralText(ctx context.Context, value, target string) Li
 	if !utf8.ValidString(value) || value == "" || len(value) > 128*1024 || len(target) != 64 {
 		return LiteralResult{State: "rejected", Detail: "invalid_literal"}
 	}
-	if ctx.Err() != nil {
+	if ctx != nil && ctx.Err() != nil {
 		return LiteralResult{State: "rejected", Detail: "cancelled_before_dispatch"}
 	}
 	focus, err := nativeFocus()

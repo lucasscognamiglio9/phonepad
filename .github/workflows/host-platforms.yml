@@ -32,3 +32,26 @@ jobs:
         if: always()
         working-directory: daemon
         run: go build -mod=vendor -o phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} .
+      - name: Check Mac hostname parser
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          value=$(printf '{"Self":{"DNSName":"mac.tailnet.ts.net."}}' | plutil -extract Self.DNSName raw -o - -)
+          test "$value" = 'mac.tailnet.ts.net.'
+      - name: Stage host bundle
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp daemon/phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} dist/
+          if [ "${{ runner.os }}" = 'macOS' ]; then
+            cp setup/hosts/start-mac.command dist/
+            chmod +x dist/start-mac.command dist/phonepad-daemon
+          else
+            cp setup/hosts/start-windows.ps1 dist/
+          fi
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: phonepad-host-${{ matrix.runner }}
+          path: dist/
