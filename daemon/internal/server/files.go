@@ -76,11 +76,11 @@ func (s *Server) handleFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	var receivingPath string
 	defer func() {
-		if receivingPath != "" {
-			_ = os.Remove(receivingPath)
-		}
 		if file != nil {
 			_ = file.Close()
+		}
+		if receivingPath != "" {
+			_ = os.Remove(receivingPath)
 		}
 	}()
 

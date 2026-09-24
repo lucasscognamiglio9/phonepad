@@ -29,6 +29,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body io.Reader
+	var requestData []byte
 	operation := "status"
 	if rtc {
 		if !sameOrigin(r) {
@@ -45,6 +46,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		body = bytes.NewReader(data)
+		requestData = data
 		var action struct {
 			Op string `json:"op"`
 		}
@@ -82,6 +84,10 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		if operation == "status" || operation == "start" || operation == "feedback" || operation == "resume" {
 			observation = s.beginMediaObservation()
 		}
+	}
+	if s.browserPreview {
+		s.handleBrowserPreview(w, ctx, path, operation, requestData)
+		return
 	}
 	req, _ := http.NewRequestWithContext(ctx, r.Method, "http://preview"+path, body)
 	if rtc {

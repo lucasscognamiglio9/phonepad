@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -112,6 +113,9 @@ func main() {
 	var srvOpts []server.Option
 	if *demo {
 		srvOpts = append(srvOpts, server.WithDemo())
+	}
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		srvOpts = append(srvOpts, server.WithBrowserPreview())
 	}
 	calibrationPath := filepath.Join(configDir(), "pointer-geometry.json")
 	if profile, ok, calibrationErr := input.LoadPointerCalibration(calibrationPath, input.MobilePointerGeometryDeviceID); calibrationErr != nil {

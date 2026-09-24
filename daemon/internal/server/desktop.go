@@ -16,6 +16,7 @@ import (
 type desktopRelay struct {
 	mu                sync.Mutex
 	publisher, viewer *websocket.Conn
+	browser           *browserPreviewSession
 }
 
 func writeSignal(c *websocket.Conn, data []byte) {
@@ -97,6 +98,7 @@ func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
 		if publisher && relay.publisher == c {
 			relay.publisher = nil
 			other = relay.viewer
+			relay.browser = nil
 		}
 		if !publisher && relay.viewer == c {
 			relay.viewer = nil
@@ -128,13 +130,23 @@ func (s *Server) handleDesktop(w http.ResponseWriter, r *http.Request) {
 		}
 		relay.mu.Lock()
 		var target *websocket.Conn
+		var browser *browserPreviewSession
 		if publisher && relay.publisher == c {
-			target = relay.viewer
+			if relay.browser == nil {
+				target = relay.viewer
+			}
+			browser = relay.browser
 		}
 		if !publisher && relay.viewer == c {
 			target = relay.publisher
 		}
 		relay.mu.Unlock()
+		if publisher && msg.Type == "offer" && browser != nil {
+			select {
+			case browser.offers <- data:
+			default:
+			}
+		}
 		writeSignal(target, data)
 	}
 }

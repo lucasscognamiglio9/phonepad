@@ -112,6 +112,10 @@
     for (const track of stream.getTracks()) {
       const sender = current.addTrack(track, stream);
       if (track.kind === "video") {
+		const transceiver = current.getTransceivers().find(t => t.sender === sender);
+		const codecs = RTCRtpSender.getCapabilities?.("video")?.codecs;
+		const h264 = codecs?.filter(codec => codec.mimeType.toLowerCase() === "video/h264");
+		if (transceiver?.setCodecPreferences && h264?.length) transceiver.setCodecPreferences(h264);
         const params = sender.getParameters();
         if (!params.encodings?.length) params.encodings = [{}];
         params.encodings[0].maxBitrate = profile.bitrate;
@@ -123,6 +127,15 @@
     const description = await current.createOffer();
     if (gen !== generation) return;
     await current.setLocalDescription(description);
+	await new Promise((resolve, reject) => {
+		if (current.iceGatheringState === "complete") { resolve(); return; }
+		const timeout = setTimeout(() => { current.removeEventListener("icegatheringstatechange", changed); reject(Error("ICE gathering timed out")); }, 8000);
+		function changed() {
+			if (current.iceGatheringState !== "complete") return;
+			clearTimeout(timeout); current.removeEventListener("icegatheringstatechange", changed); resolve();
+		}
+		current.addEventListener("icegatheringstatechange", changed);
+	});
     send({type:"offer", description:current.localDescription});
     timer = setInterval(() => sampleStats(current).catch(() => {}), 1000);
   }

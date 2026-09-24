@@ -49,6 +49,7 @@ type Server struct {
 	pairExpires       time.Time
 
 	desktop desktopRelay
+	browserPreview bool
 	auth    Authenticator
 	inj     input.Injector
 	mux     *http.ServeMux
@@ -128,6 +129,10 @@ const (
 type Option func(*Server)
 
 func WithDemo() Option { return func(s *Server) { s.demo = true } }
+
+// WithBrowserPreview uses the existing local browser publisher as the screen
+// capture provider. The publisher requires an explicit screen-share grant.
+func WithBrowserPreview() Option { return func(s *Server) { s.browserPreview = true } }
 
 // WithPointerCalibration enables the persisted square profile for peers that
 // explicitly request the P04 extension. Invalid profiles are ignored here so
