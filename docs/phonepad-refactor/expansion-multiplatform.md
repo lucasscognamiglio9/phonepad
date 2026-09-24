@@ -4,7 +4,7 @@ Estado al 24 de septiembre de 2026. No tenemos acceso a una Mac ni a Windows par
 
 ## Resultado y dispositivos de prueba
 
-Una sola app en el teléfono se conecta al servidor de cada computadora. El menú del monitor guarda sus nombres y direcciones privadas. Al elegir un equipo cambian juntos video, cursor, teclado, archivos y portapapeles. Cada servidor conserva su propio emparejamiento y permisos.
+Una sola app en el teléfono se conecta al servidor de cada computadora. El menú del monitor guarda sus nombres y direcciones privadas. Al elegir un equipo cambian juntos video, cursor, teclado, archivos y portapapeles. Cada servidor conserva su propia autorización y permisos.
 
 | Combinación | Uso en el plan | Estado |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Después de pasar los builds y pruebas por plataforma, dar a tu amigo los instal
 ## Reglas de ejecución
 
 - Cada etapa conserva un build anterior instalable y un modo de volver atrás. Una prueba de compilación no cierra una combinación de dispositivos.
-- Tailscale Serve da acceso HTTPS dentro de la tailnet; PhonePad mantiene su propio emparejamiento y permisos. No hace falta red pública, QR ni señalización nueva para este alcance.
+- Tailscale Serve da acceso HTTPS dentro de la tailnet; Mac y Windows autorizan la cuenta Tailscale configurada en cada host, y PhonePad mantiene sus permisos de sesión. Ubuntu conserva su autorización por nodo. No hace falta red pública ni QR para Mac y Windows.
 - Conservar la investigación de calidad de transmisión como trabajo transversal. La pérdida de paquetes observada en septiembre volvió el texto ilegible; las correcciones de recuperación están publicadas, pero falta medir y confirmar el resultado bajo pérdida real.
 
 ## Relación con el plan maestro
