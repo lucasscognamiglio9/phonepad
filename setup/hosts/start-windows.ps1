@@ -19,6 +19,14 @@ if ($serveStatus -match '127\.0\.0\.1:8081') {
 }
 $env:PHONEPAD_TRUSTED_LOGIN = $login
 $daemon = Start-Process -FilePath (Join-Path $PSScriptRoot 'phonepad-daemon.exe') -ArgumentList @('--gateway-port', '8081', '--local-share-port', '8082', '--public-url', "https://$dns") -PassThru
-Start-Sleep -Seconds 2
+$ready = $false
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    if ($daemon.HasExited) { throw 'PhonePad no pudo iniciar. Revisá si los puertos 8080, 8081 y 8082 están libres.' }
+    try {
+        $response = Invoke-WebRequest -Uri 'http://127.0.0.1:8082/share' -UseBasicParsing -TimeoutSec 2
+        if ($response.StatusCode -eq 200) { $ready = $true; break }
+    } catch { Start-Sleep -Milliseconds 500 }
+}
+if (-not $ready) { throw 'PhonePad no abrió la pantalla local. Revisá la consola del servidor.' }
 Start-Process 'http://127.0.0.1:8082/share'
 Wait-Process -Id $daemon.Id
