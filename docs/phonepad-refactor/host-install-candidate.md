@@ -1,11 +1,11 @@
 # PhonePad Mac y Windows: candidato de instalación
 
-La compilación y las pruebas del servidor pasaron en macOS 15 Apple Silicon y Windows 2025. Los binarios de cada sistema están en los artefactos **phonepad-host-macos-15** y **phonepad-host-windows-2025** del [workflow Host platforms](https://github.com/lucasscognamiglio9/phonepad/actions/workflows/host-platforms.yml). Son candidatos sin firma comercial; una sesión real todavía debe comprobarse en los equipos de destino.
+La compilación y las pruebas del servidor pasaron en macOS 15 Apple Silicon y Windows 2025. Descargá el ZIP de tu sistema desde la [versión preliminar Mac y Windows](https://github.com/lucasscognamiglio9/phonepad/releases/tag/v0.1.0-hosts-rc.1). Son candidatos sin firma comercial; una sesión real todavía debe comprobarse en los equipos de destino.
 
 ## Preparación en cada computadora
 
 1. Instalar Tailscale, iniciar sesión y habilitar MagicDNS y certificados HTTPS de la tailnet. El iPhone debe estar en la misma tailnet. No usar Funnel.
-2. Descargar y extraer el artefacto del sistema. En Mac, abrir `start-mac.command`; en Windows, ejecutar `start-windows.ps1` desde PowerShell. Ambos lanzadores detectan el nombre Tailscale, configuran Serve para PhonePad, inician el servidor y abren la página local de captura. Si Serve ya publica otro servicio en el puerto 443, revisar esa configuración antes de ejecutar el lanzador.
+2. Descargar y extraer el ZIP del sistema. En Mac, abrir `start-mac.command`; en Windows, abrir `start-windows.cmd`. Ambos lanzadores detectan el nombre Tailscale, configuran Serve para PhonePad, inician el servidor y abren la página local de captura. Si Serve ya publica otro servicio en el puerto 443, revisar esa configuración antes de ejecutar el lanzador.
 3. En Mac, conceder Accesibilidad al servidor y Grabación de pantalla al navegador; reiniciar el servidor después de conceder Accesibilidad. En Windows, aceptar la selección de pantalla del navegador. En la página local, elegir la pantalla y mantenerla abierta durante el uso.
 4. Iniciar Tailscale en el iPhone con la misma cuenta usada en la computadora. En PhonePad, agregar el equipo con la URL privada `https://<nombre-del-equipo>.<tailnet>.ts.net` y cambiarlo desde el menú del monitor. El servidor acepta solo la identidad de esa cuenta entregada por Tailscale Serve; no hay que escanear un QR.
 
