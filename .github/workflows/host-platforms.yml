@@ -65,6 +65,7 @@ jobs:
             chmod +x dist/start-mac.command dist/phonepad-daemon
           else
             cp setup/hosts/start-windows.ps1 dist/
+            cp setup/hosts/start-windows.cmd dist/
           fi
       - uses: actions/upload-artifact@v4
         if: success()
