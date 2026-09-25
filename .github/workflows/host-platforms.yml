@@ -33,10 +33,12 @@ jobs:
         if: always()
         working-directory: daemon
         run: go build -mod=vendor -o phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} .
-      - name: Check Mac hostname parser
+      - name: Sign and check Mac package
         if: runner.os == 'macOS'
         shell: bash
         run: |
+          codesign --force --sign - daemon/phonepad-daemon
+          codesign --verify daemon/phonepad-daemon
           zsh -n setup/hosts/start-mac.command
           fixture='{"Self":{"DNSName":"mac.tailnet.ts.net.","UserID":123},"User":{"123":{"LoginName":"friend@example.com"}}}'
           value=$(printf '%s' "$fixture" | plutil -extract Self.DNSName raw -o - -)
