@@ -104,21 +104,10 @@ type SerializedInjector interface {
 	TouchCanceler
 }
 
-// AbsInjector es un Injector que además posiciona el cursor de forma ABSOLUTA.
-// Lo usa el control por agente (computer use): las coordenadas vienen de una
-// captura de pantalla, no de deltas relativos como en el touchpad del celular.
-// El resto de los métodos (Button, Scroll, Text, Special, Combo) se comparten
-// con el camino relativo sin cambios.
+// DirectPointer maps phone coordinates to the host display.
 type DirectPointer interface {
 	SupportsDirectPointer() bool
 	MoveNormalized(x, y int) // normalized integer range 0..65535
-}
-
-type AbsInjector interface {
-	Injector
-	// MoveTo ubica el cursor en (x,y), en el rango [0,w]x[0,h] declarado en
-	// NewAbsolute. El compositor mapea ese rango al área física del display.
-	MoveTo(x, y int)
 }
 
 // Contact es un dedo en contacto con el pad, en coordenadas normalizadas 0..1
@@ -166,6 +155,6 @@ type LiteralInjector interface {
 }
 
 // ErrProviderUnavailable reports that this build has no native input provider.
-// Linux builds may still return a device-specific setup error from New or
-// NewAbsolute; non-Linux builds return this sentinel without a Demo fallback.
+// Supported hosts may return a device-specific setup error from New.
+// Other hosts return this sentinel without a Demo fallback.
 var ErrProviderUnavailable = errors.New("input provider unavailable on this platform")

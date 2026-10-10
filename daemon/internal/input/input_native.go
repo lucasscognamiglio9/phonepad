@@ -19,16 +19,15 @@ import (
 // the current display size, so orientation and screen resolution are not
 // baked into the protocol.
 type nativeDevice struct {
-	mu                  sync.Mutex
-	contacts            map[int]Contact
-	started             time.Time
-	start               Contact
-	moved               bool
-	multi               bool
-	scrollX, scrollY    float64
-	buttons             map[string]bool
-	absWidth, absHeight int
-	closed              bool
+	mu               sync.Mutex
+	contacts         map[int]Contact
+	started          time.Time
+	start            Contact
+	moved            bool
+	multi            bool
+	scrollX, scrollY float64
+	buttons          map[string]bool
+	closed           bool
 }
 
 func New() (Injector, error) {
@@ -38,36 +37,11 @@ func New() (Injector, error) {
 	return &nativeDevice{contacts: make(map[int]Contact), buttons: make(map[string]bool)}, nil
 }
 
-func NewAbsolute(width, height int) (AbsInjector, error) {
-	if width <= 0 || height <= 0 {
-		return nil, ErrProviderUnavailable
-	}
-	injector, err := New()
-	if err != nil {
-		return nil, err
-	}
-	device := injector.(*nativeDevice)
-	device.absWidth, device.absHeight = width, height
-	return device, nil
-}
-
 func (d *nativeDevice) Move(dx, dy int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !d.closed {
 		nativeMoveRelative(dx, dy)
-	}
-}
-
-func (d *nativeDevice) MoveTo(x, y int) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.closed || d.absWidth == 0 || d.absHeight == 0 {
-		return
-	}
-	w, h := nativeScreenSize()
-	if w > 0 && h > 0 {
-		nativeMoveTo(x*w/d.absWidth, y*h/d.absHeight)
 	}
 }
 

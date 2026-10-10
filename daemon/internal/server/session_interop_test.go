@@ -20,7 +20,7 @@ import (
 func TestMobileSessionInterop(t *testing.T) {
 	script := os.Getenv("PHONEPAD_MOBILE_INTEROP")
 	if script == "" {
-		t.Skip("set PHONEPAD_MOBILE_INTEROP to tools/refactor/p02_session_interop.cjs")
+		t.Skip("set PHONEPAD_MOBILE_INTEROP to tests/interop/session.cjs")
 	}
 	// Produce metadata with the actual Python provider model, so the Go and
 	// TypeScript parsers cannot silently drift into independent fixture formats.

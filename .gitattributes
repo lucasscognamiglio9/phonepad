@@ -1,0 +1,3 @@
+# Browser contracts are built from mobile/src/lib, not maintained separately.
+/daemon/web/phonepad-core.js linguist-generated=true
+/daemon/vendor/** linguist-vendored=true

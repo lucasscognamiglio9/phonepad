@@ -7,9 +7,7 @@ import (
 	"unicode"
 )
 
-// Keep the portable parser vocabulary exactly aligned with the Linux provider's
-// scancode table. Iterate the complete Unicode range so a future keymap edit
-// cannot silently widen or narrow ParseKeyCombo on another platform.
+// Keep native shortcut validation aligned with the Linux scancode table.
 func TestUSKeyRuneMatchesLinuxScancodeResolver(t *testing.T) {
 	for r := rune(0); r <= unicode.MaxRune; r++ {
 		_, _, want := runeToKey(r)

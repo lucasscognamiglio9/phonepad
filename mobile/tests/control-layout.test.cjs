@@ -208,7 +208,6 @@ function harness(options = {}) {
     '../components/dismissible-notice': {DismissibleNotice: props => ({type:'Notice',props:{...props,children:[{type:'Text',props:{children:props.message}},{type:'GlassButton',props:{label:'Cerrar aviso',onPress:props.dismiss}}]}})},
     './dismissible-notice': {DismissibleNotice: props => ({type:'Notice',props:{...props,children:[{type:'Text',props:{children:props.message}},{type:'GlassButton',props:{label:'Cerrar aviso',onPress:props.dismiss}}]}})},
     '../lib/notice-message': controlFixture.load('lib/notice-message.ts'),
-    '../components/help-sheet': { HelpSheet: 'HelpSheet' },
     '../components/touch-surface': { TouchSurface: 'TouchSurface' },
     '../components/native-keyboard': { NativeKeyboard: 'NativeKeyboard' },
     '../components/keyboard-layout': keyboardLayout,

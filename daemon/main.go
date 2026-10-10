@@ -372,14 +372,10 @@ func startDevWatchers(src string, srv *server.Server) func() {
 	}
 }
 
-// rebuildAndReexec recompila el daemon (go build -o <binario-actual>) y se
+// rebuildAndReexecContext recompila el daemon (go build -o <binario-actual>) y se
 // re-ejecuta a sí mismo con syscall.Exec: mismo PID, así systemd no lo cuenta
 // como caída. Si el build falla, lo loguea y sigue con el binario viejo. La env
 // (incluida PHONEPAD_DEV_SRC) se preserva, así el proceso nuevo sigue en dev.
-func rebuildAndReexec(src string) {
-	rebuildAndReexecContext(context.Background(), src)
-}
-
 func rebuildAndReexecContext(ctx context.Context, src string) {
 	if ctx == nil {
 		ctx = context.Background()
