@@ -142,9 +142,28 @@ jobs:
                   destination.parent.mkdir(parents=True, exist_ok=True)
                   shutil.copyfile(path, destination)
           PY
+      - name: Package host candidate with file permissions
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, os, shutil
+          target = 'mac-apple-silicon' if os.environ['RUNNER_OS'] == 'macOS' else 'windows-x64'
+          Path('packages').mkdir()
+          Path('dist/BUILD.json').write_text(json.dumps({
+              'sourceCommit': os.environ['GITHUB_SHA'],
+              'target': target,
+              'deviceTested': False,
+              'status': 'candidate'
+          }, indent=2) + '\n')
+          name = f'PhonePad-{target}-candidate'
+          package = Path(shutil.make_archive(f'packages/{name}', 'zip', root_dir='dist'))
+          digest = hashlib.sha256(package.read_bytes()).hexdigest()
+          Path('packages/SHA256SUMS.txt').write_text(f'{digest}  {package.name}\n')
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: success()
         with:
           name: phonepad-host-${{ matrix.runner }}
-          path: dist/
+          path: packages/
           retention-days: 14
