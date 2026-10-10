@@ -1,0 +1,10 @@
+[Unit]
+Description=Local memory and pressure history
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/phonepad/health-sample.py
+Nice=10
+UMask=0077
+MemoryMax=64M
+TimeoutStartSec=10
+NoNewPrivileges=yes

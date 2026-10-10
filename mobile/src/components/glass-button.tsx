@@ -1,0 +1,26 @@
+import { appearance } from './appearance';
+import { Pressable, Text } from 'react-native';
+import { GlassSurface } from './glass-surface';
+import { ActionIcon } from './action-icon';
+import { ACTIONS, type ActionID } from '../lib/actions';
+import * as Haptics from 'expo-haptics';
+
+type Props = ({ action: ActionID; label?: string } | { action?: undefined; label: string }) & {
+  onPress: () => void;
+  onPressIn?: () => void;
+  onPressOut?: () => void;
+  selected?: boolean;
+  disabled?: boolean;
+  compact?: boolean;
+};
+export function GlassButton({ label: customLabel, action, onPress, onPressIn, onPressOut, selected = false, disabled = false, compact = false }: Props) {
+  const label = customLabel ?? (action ? ACTIONS[action].label : '');
+  const content = <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ selected, disabled }} disabled={disabled}
+      onPressIn={onPressIn} onPressOut={onPressOut}
+      onPress={() => { void Haptics.selectionAsync().catch(() => {}); onPress(); }}
+      style={({ pressed }) => ({ minHeight: appearance.control.size, minWidth: appearance.control.size, borderRadius: appearance.control.menuRadius, paddingHorizontal: compact ? 0 : action ? appearance.control.margin : appearance.composer.textPadding + appearance.control.gap, alignItems: 'center', justifyContent: 'center', borderWidth: appearance.glass.edgeWidth, borderColor: selected ? appearance.color.border : 'transparent', opacity: disabled ? appearance.state.disabled : pressed ? appearance.state.pressed : 1 })}>
+      {action ? <ActionIcon action={action} size={action === 'send' ? appearance.control.sendIconSize : appearance.control.iconSize} /> : <Text style={{ color: appearance.color.text, fontSize: appearance.text.body, fontWeight: appearance.weight.label }}>{label}</Text>}
+    </Pressable>;
+  if (compact) return content;
+  return <GlassSurface interactive style={{ borderRadius: appearance.control.capsuleRadius }}>{content}</GlassSurface>;
+}

@@ -1,0 +1,26 @@
+# Phonepad stays available after login; control still requires pairing.
+[Unit]
+Description=Phonepad — touchpad y escritorio remoto en LAN
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+UMask=0077
+NoNewPrivileges=true
+Type=simple
+Environment=PHONEPAD_BIND=127.0.0.1
+Environment=PHONEPAD_HOST=
+Environment=PHONEPAD_TLS_CERT=
+Environment=PHONEPAD_GATEWAY_PORT=0
+Environment=PHONEPAD_PUBLIC_URL=
+Environment=PHONEPAD_TLS_KEY=
+EnvironmentFile=-%h/.config/phonepad/service.env
+ExecStart=%h/.local/bin/phonepad --bind=${PHONEPAD_BIND} --advertise-host=${PHONEPAD_HOST} --tls-cert=${PHONEPAD_TLS_CERT} --tls-key=${PHONEPAD_TLS_KEY} --gateway-port=${PHONEPAD_GATEWAY_PORT} --public-url=${PHONEPAD_PUBLIC_URL}
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=15
+KillMode=control-group
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,28 @@
+name: Reportar un problema
+description: Contá qué pasó y cómo repetirlo.
+title: "[Problema] "
+body:
+  - type: input
+    id: computadora
+    attributes:
+      label: Sistema de la computadora
+      placeholder: Ubuntu con GNOME, macOS o Windows, y versión.
+    validations:
+      required: true
+  - type: input
+    id: iphone
+    attributes:
+      label: iPhone y versión de iOS
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión de PhonePad
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Pasos y resultado
+      description: Qué hiciste, qué esperabas y qué pasó. Si aparece un error, copiá el mensaje.
+    validations:
+      required: true

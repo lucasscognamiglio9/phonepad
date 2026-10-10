@@ -1,0 +1,70 @@
+{
+  "expo": {
+    "name": "Phonepad",
+    "slug": "phonepad",
+    "version": "1.0.1",
+    "orientation": "default",
+    "icon": "./assets/phonepad-icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "app.phonepad.mobile",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "bitcode": false,
+      "buildNumber": "6"
+    },
+    "android": {
+      "package": "app.phonepad.mobile",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/phonepad-icon.png",
+        "backgroundColor": "#090b0e"
+      },
+      "softwareKeyboardLayoutMode": "resize",
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
+      "permissions": [
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
+      ],
+      "versionCode": 6
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "./plugins/receive-only.cjs",
+      "./plugins/video-renderer.cjs",
+      "expo-router",
+      "@config-plugins/react-native-webrtc",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Tomar una foto para enviarla a tu computadora.",
+          "photosPermission": "Elegir fotos para enviarlas a tu computadora.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "scheme": "phonepad",
+    "extra": {
+      "router": {}
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "enabled": false
+    }
+  }
+}

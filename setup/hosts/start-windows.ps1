@@ -1,0 +1,32 @@
+$ErrorActionPreference = 'Stop'
+Set-Location $PSScriptRoot
+$tailscale = (Get-Command tailscale.exe -ErrorAction SilentlyContinue).Source
+if (-not $tailscale) { $tailscale = Join-Path $env:ProgramFiles 'Tailscale\tailscale.exe' }
+if (-not (Test-Path $tailscale)) { throw 'Instalá Tailscale e iniciá sesión antes de abrir PhonePad.' }
+$status = & $tailscale status --json | ConvertFrom-Json
+$dns = $status.Self.DNSName.TrimEnd('.')
+if ($status.BackendState -ne 'Running' -or $dns -notmatch '\.ts\.net$') { throw 'Tailscale debe estar conectado y tener MagicDNS activo.' }
+$login = $status.User.PSObject.Properties["$($status.Self.UserID)"].Value.LoginName
+if (-not $login) { throw 'No se pudo identificar la cuenta Tailscale del equipo.' }
+Write-Host "PhonePad: https://$dns"
+$serveStatus = (& $tailscale serve status --json | Out-String).Trim()
+if ($serveStatus -match '127\.0\.0\.1:8081') {
+    # PhonePad is already configured.
+} elseif ($serveStatus -eq '{}' -or $serveStatus -eq 'null') {
+    & $tailscale serve --bg --https=443 http://127.0.0.1:8081
+} else {
+    throw 'Ya existe otra configuración Tailscale Serve. Revisala antes de iniciar PhonePad.'
+}
+$env:PHONEPAD_TRUSTED_LOGIN = $login
+$daemon = Start-Process -FilePath (Join-Path $PSScriptRoot 'phonepad-daemon.exe') -ArgumentList @('--gateway-port', '8081', '--local-share-port', '8082', '--public-url', "https://$dns") -PassThru
+$ready = $false
+for ($attempt = 0; $attempt -lt 20; $attempt++) {
+    if ($daemon.HasExited) { throw 'PhonePad no pudo iniciar. Revisá si los puertos 8080, 8081 y 8082 están libres.' }
+    try {
+        $response = Invoke-WebRequest -Uri 'http://127.0.0.1:8082/share' -UseBasicParsing -TimeoutSec 2
+        if ($response.StatusCode -eq 200) { $ready = $true; break }
+    } catch { Start-Sleep -Milliseconds 500 }
+}
+if (-not $ready) { throw 'PhonePad no abrió la pantalla local. Revisá la consola del servidor.' }
+Start-Process 'http://127.0.0.1:8082/share'
+Wait-Process -Id $daemon.Id

@@ -1,0 +1,127 @@
+name: PhonePad checks and host builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phonepad-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mobile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install locked mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Check mobile types and behavior
+        working-directory: mobile
+        run: |
+          npm run typecheck
+          node --test --test-concurrency=2 tests/*.test.cjs
+          python3 -m unittest discover -s tests -p '*_test.py'
+          npm run build:web-core
+          git diff --exit-code -- ../daemon/web/phonepad-core.js
+      - name: Check browser receiver behavior
+        run: node --test tests/*.test.cjs
+  video-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install GStreamer public API test runtime
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gst-plugins-base-1.0 gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-nice libgstreamer1.0-dev
+      - name: Build capture latency adapter
+        run: cc -O2 -shared -fPIC -Wl,-z,defs setup/preview/live_capture.c -o "$RUNNER_TEMP/libphonepad-live-capture.so" $(pkg-config --cflags --libs gstreamer-base-1.0)
+      - name: Check video contracts and bounded lifecycle
+        run: PHONEPAD_LIVE_ADAPTER_TEST_LIBRARY="$RUNNER_TEMP/libphonepad-live-capture.so" /usr/bin/python3 -m unittest discover -s tests -p '*_test.py'
+  linux-input:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+      - name: Test server and native input wire contracts
+        working-directory: daemon
+        run: go test -mod=vendor -race ./...
+      - name: Check Go code
+        working-directory: daemon
+        run: go vet -mod=vendor ./...
+  daemon:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, windows-2025]
+    timeout-minutes: 20
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+      - name: Test shared server
+        working-directory: daemon
+        run: go test -mod=vendor ./...
+      - name: Build daemon
+        if: always()
+        working-directory: daemon
+        run: go build -trimpath -mod=vendor -o phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} .
+      - name: Sign and check Mac package
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          codesign --force --sign - daemon/phonepad-daemon
+          codesign --verify daemon/phonepad-daemon
+          zsh -n setup/hosts/start-mac.command
+          fixture='{"Self":{"DNSName":"mac.tailnet.ts.net.","UserID":123},"User":{"123":{"LoginName":"friend@example.com"}}}'
+          value=$(printf '%s' "$fixture" | plutil -extract Self.DNSName raw -o - -)
+          test "$value" = 'mac.tailnet.ts.net.'
+          login=$(printf '%s' "$fixture" | plutil -extract User.123.LoginName raw -o - -)
+          test "$login" = 'friend@example.com'
+      - name: Check Windows launcher syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile('setup/hosts/start-windows.ps1', [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { throw ($errors | Out-String) }
+          $status = '{"Self":{"UserID":123},"User":{"123":{"LoginName":"friend@example.com"}}}' | ConvertFrom-Json
+          if ($status.User.PSObject.Properties["$($status.Self.UserID)"].Value.LoginName -ne 'friend@example.com') { throw 'Tailscale login parser failed' }
+      - name: Stage host bundle
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp daemon/phonepad-daemon${{ runner.os == 'Windows' && '.exe' || '' }} dist/
+          if [ "${{ runner.os }}" = 'macOS' ]; then
+            cp setup/hosts/start-mac.command dist/
+            chmod +x dist/start-mac.command dist/phonepad-daemon
+          else
+            cp setup/hosts/start-windows.ps1 dist/
+            cp setup/hosts/start-windows.cmd dist/
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: success()
+        with:
+          name: phonepad-host-${{ matrix.runner }}
+          path: dist/

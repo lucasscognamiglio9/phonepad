@@ -1,0 +1,1415 @@
+{
+  "scope": "Synthetic characterization of audited adab7c7; not desired P01 behavior or real network measurements.",
+  "cases": [
+    {
+      "name": "healthy_startup",
+      "initial_kbps": 6000,
+      "stages": [
+        {
+          "name": "healthy",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 12,
+          "expected_end_kbps": 12000
+        }
+      ],
+      "expected_min_kbps": 6000
+    },
+    {
+      "name": "four_loss_samples_then_recovery",
+      "initial_kbps": 12000,
+      "stages": [
+        {
+          "name": "healthy_baseline",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 12000
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 4,
+          "expected_end_kbps": 3796
+        },
+        {
+          "name": "recovery",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 30,
+          "expected_end_kbps": 12000
+        }
+      ],
+      "expected_min_kbps": 3796
+    },
+    {
+      "name": "thirteen_loss_samples_then_recovery",
+      "initial_kbps": 12000,
+      "stages": [
+        {
+          "name": "healthy_baseline",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 12000
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 13,
+          "expected_end_kbps": 350
+        },
+        {
+          "name": "recovery",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 40,
+          "expected_end_kbps": 12000
+        }
+      ],
+      "expected_min_kbps": 350
+    },
+    {
+      "name": "stable_path_change_20_to_200_ms",
+      "initial_kbps": 12000,
+      "stages": [
+        {
+          "name": "old_path",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 12000
+        },
+        {
+          "name": "new_stable_path",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.2,
+          "count": 30,
+          "expected_end_kbps": 350
+        }
+      ],
+      "expected_min_kbps": 350
+    },
+    {
+      "name": "receiver_buffer_120_ms_without_loss_or_rtt_growth",
+      "initial_kbps": 12000,
+      "stages": [
+        {
+          "name": "healthy_baseline",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 12000
+        },
+        {
+          "name": "receiver_delay",
+          "loss": 0,
+          "delay": 0.12,
+          "rtt": 0.02,
+          "count": 20,
+          "expected_end_kbps": 350
+        }
+      ],
+      "expected_min_kbps": 350
+    },
+    {
+      "name": "two_good_one_bad_repeated",
+      "initial_kbps": 12000,
+      "stages": [
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 12000
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 9000
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 11250
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 8437
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 10546
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 7909
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 9886
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 7414
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 9267
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 6950
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 8687
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 6515
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 8143
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 6107
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 7633
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 5724
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 7155
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 5366
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 6707
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 5030
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 6287
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 4715
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 5893
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 4419
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 5523
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 4142
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 5177
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 3882
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 4852
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 3639
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 4548
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 3411
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 4263
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 3197
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 3996
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2997
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 3746
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2809
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 3511
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2633
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 3291
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2468
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 3085
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2313
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2891
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2168
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2710
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 2032
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2540
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1905
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2381
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1785
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2231
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1673
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 2091
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1568
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1960
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1470
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1837
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1377
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1721
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1290
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1612
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1209
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1511
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1133
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1433
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1074
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1374
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 1030
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1330
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 997
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1297
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 972
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1272
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 954
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1254
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 940
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1240
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 930
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1230
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 922
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1222
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 916
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1216
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 912
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1212
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 909
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1209
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 906
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1206
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 904
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1204
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 903
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1203
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 902
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1202
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 901
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1201
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        },
+        {
+          "name": "good",
+          "loss": 0,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 2,
+          "expected_end_kbps": 1200
+        },
+        {
+          "name": "loss_3_percent",
+          "loss": 0.03,
+          "delay": 0.005,
+          "rtt": 0.02,
+          "count": 1,
+          "expected_end_kbps": 900
+        }
+      ],
+      "expected_min_kbps": 900
+    }
+  ]
+}

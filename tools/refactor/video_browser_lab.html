@@ -1,0 +1,127 @@
+<!doctype html><meta charset="utf-8"><title>PhonePad isolated video measurement</title>
+<video autoplay muted playsinline></video><pre>Testing synthetic video.</pre>
+<script>
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const rpc = async body => {
+  const response = await fetch('/', { method: 'POST', body: JSON.stringify(body) });
+  if (!response.ok) throw Error(await response.text());
+  return response.json();
+};
+const video = document.querySelector('video');
+const peer = new RTCPeerConnection({iceServers: []});
+const canvas = document.createElement('canvas');
+canvas.width = 1024; canvas.height = 384;
+const context = canvas.getContext('2d', {willReadFrequently: true});
+const sceneCut = new URLSearchParams(location.search).get('scenario') === 'scene-cut';
+let firstFrame, reference, lastPresented, lastScene;
+const cutReferences = [], cutMetrics = [];
+const markerCanvas = document.createElement('canvas'); markerCanvas.width = markerCanvas.height = 1;
+const markerContext = markerCanvas.getContext('2d', {willReadFrequently:true});
+const begin = performance.now();
+const stampCanvas = document.createElement('canvas'); stampCanvas.width = 256; stampCanvas.height = 1;
+const stampContext = stampCanvas.getContext('2d', {willReadFrequently: true});
+let frameAges = [], timestampFailures = 0, stopped = false;
+function presented() {
+  if (stopped) return;
+  if (firstFrame === undefined) firstFrame = performance.now() - begin;
+  const now = performance.now(), gap = lastPresented === undefined ? null : now - lastPresented;
+  lastPresented = now;
+  if (sceneCut && cutReferences.length === 6) {
+    markerContext.drawImage(video, 16,16,1,1,0,0,1,1);
+    const scene = Math.max(0, Math.min(5, Math.round((markerContext.getImageData(0,0,1,1).data[0] - 40) / 30)));
+    reference = cutReferences[scene];
+    if (scene !== lastScene) cutMetrics.push({scene, sinceStartMs:now-begin, gapMs:gap, quality:quality()});
+    lastScene = scene;
+  }
+  stampContext.drawImage(video, 1600, 506, 256, 1, 0, 0, 256, 1);
+  const pixels = stampContext.getImageData(0, 0, 256, 1).data;
+  let stamp = 0, complement = 0;
+  for (let bit = 0; bit < 64; bit++) {
+    if (pixels[(bit * 4 + 2) * 4] > 128) {
+      if (bit < 32) stamp += 2 ** bit;
+      else complement += 2 ** (bit - 32);
+    }
+  }
+  const age = ((Date.now() % 2 ** 32) - stamp + 2 ** 32) % 2 ** 32;
+  if (((stamp ^ complement) >>> 0) === 0xffffffff && age < 60000) {
+    frameAges.push(age); if (frameAges.length > 240) frameAges.shift();
+  } else timestampFailures++;
+  video.requestVideoFrameCallback(presented);
+}
+video.requestVideoFrameCallback(presented);
+peer.ontrack = event => {
+  video.srcObject = event.streams[0] || new MediaStream([event.track]);
+};
+function quality() {
+  if (video.readyState < 2) return null;
+  context.drawImage(video, 32, 48, 1024, 384, 0, 0, 1024, 384);
+  const pixels = context.getImageData(0, 0, 1024, 384).data;
+  if (sceneCut && cutReferences.length===6) {
+    markerContext.drawImage(video,16,16,1,1,0,0,1,1);
+    const scene=Math.max(0,Math.min(5,Math.round((markerContext.getImageData(0,0,1,1).data[0]-40)/30)));
+    reference=cutReferences[scene];
+  }
+  if (!reference) return null;
+  let sum = 0;
+  for (let i = 0; i < pixels.length; i++) {
+    if (i % 4 !== 3) sum += (pixels[i] - reference[i]) ** 2;
+  }
+  const mse = sum / (1024 * 384 * 3);
+  return {reference: 'unencoded synthetic source text region', mse, psnrDb: mse ? 10 * Math.log10(255 ** 2 / mse) : null};
+}
+(async () => {
+  const offer = await rpc({op: 'start', width: 1920, codec: 'H264'});
+  const source = new Image(); source.src = '/source-text.png'; await source.decode();
+  context.drawImage(source, 0, 0); reference = context.getImageData(0, 0, 1024, 384).data;
+  if (sceneCut) for (let index=0;index<6;index++) {
+    const image=new Image(); image.src=`/source-cut-${index}.png`; await image.decode();
+    context.drawImage(image,0,0); cutReferences.push(context.getImageData(0,0,1024,384).data);
+  }
+  const negotiation = {offerNack: /a=rtcp-fb:96 nack\r?\n/.test(offer.sdp), offerRtx: / RTX\/| rtx\//.test(offer.sdp)};
+  await peer.setRemoteDescription({type: 'offer', sdp: offer.sdp});
+  await peer.setLocalDescription(await peer.createAnswer());
+  if (/^m=video 0 /m.test(peer.localDescription.sdp)) throw Error('Receiver rejected the offered H264 profile');
+  if (peer.iceGatheringState !== 'complete') await new Promise(resolve => {
+    const timeout = setTimeout(resolve, 5000);
+    peer.onicegatheringstatechange = () => {if (peer.iceGatheringState === 'complete') {clearTimeout(timeout); resolve();}};
+  });
+  if (peer.iceGatheringState !== 'complete') throw Error('Receiver ICE gathering did not complete');
+  await rpc({op: 'answer', id: offer.id, sdp: peer.localDescription.sdp});
+  let previous;
+  const seconds = Math.max(5, Math.min(60, Number(new URLSearchParams(location.search).get('seconds')) || 60));
+  for (let i = 0; i < seconds; i++) {
+    await wait(1000);
+    const stats = await peer.getStats();
+    let current, pair;
+    stats.forEach(stat => {
+      if (stat.type === 'inbound-rtp' && stat.kind === 'video' && stats.get(stat.codecId)?.mimeType.toLowerCase() === 'video/h264') current = stat;
+      if (stat.type === 'candidate-pair' && stat.nominated && stat.state === 'succeeded') pair = stat;
+    });
+    const delta = key => previous && current?.id === previous.id ? current[key] - previous[key] : null;
+    const lost = delta('packetsLost'), received = delta('packetsReceived'), frames = delta('framesDecoded'), emitted = delta('jitterBufferEmittedCount');
+    const loss = lost >= 0 && received >= 0 && lost + received > 0 ? lost / (lost + received) : null;
+    const jitter = emitted > 0 ? delta('jitterBufferDelay') / emitted : null;
+    const ages = frameAges.splice(0).sort((a,b) => a-b);
+    const receiver = current ? {width: current.frameWidth, height: current.frameHeight, decodedFps: frames === null ? null : 1000 * frames / delta('timestamp'),
+      lost, received, loss, jitterMs: jitter === null ? null : 1000 * jitter, rttMs: pair ? 1000 * pair.currentRoundTripTime : null,
+      framesDropped: current.framesDropped, freezeCount: current.freezeCount, freezeSeconds: current.totalFreezesDuration,
+      nackCount: current.nackCount, pliCount: current.pliCount, decodeMs: frames > 0 ? 1000 * delta('totalDecodeTime') / frames : null,
+      frameAgeMs: ages.length ? {scope:'synthetic raw frame to local browser canvas; complemented timestamp verified', count:ages.length, rejected:timestampFailures,
+        p50:ages[Math.floor(ages.length * .5)], p95:ages[Math.floor(ages.length * .95)], max:ages[ages.length-1]} : null,
+      textQuality: quality()} : null;
+    timestampFailures = 0;
+    await rpc({op: 'feedback', id: offer.id, client: 'native', loss, delay: jitter,
+      rtt: pair?.currentRoundTripTime ?? null, frames: current?.framesDecoded ?? 0, sequence: i, receiver});
+    const name = i === 1 ? 'initial' : i === 14 ? 'busy' : i === seconds - 1 ? 'recovery' : null;
+    if (name && receiver?.textQuality) await rpc({op:'pixels',name,png:canvas.toDataURL('image/png').split(',')[1]});
+    previous = current;
+  }
+  await rpc({op: 'stop', id: offer.id});
+  const result = {cutMetrics, receiver: 'Chromium/libwebrtc, not iPhone', firstFrameMs: firstFrame, ...negotiation};
+  stopped = true; peer.close();
+  await rpc({op: 'result', result});
+})().catch(async error => {
+  stopped = true; peer.close();
+  try {await rpc({op: 'result', result: {cutMetrics,error: error.message}});} catch {}
+});
+</script>

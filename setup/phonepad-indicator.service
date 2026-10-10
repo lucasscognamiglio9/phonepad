@@ -1,0 +1,12 @@
+[Unit]
+Description=Phonepad panel indicator
+After=graphical-session.target phonepad.service
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/lib/phonepad/indicator.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

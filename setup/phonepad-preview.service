@@ -1,0 +1,16 @@
+[Unit]
+Description=Phonepad on-demand screen preview
+After=graphical-session.target
+PartOf=graphical-session.target
+[Service]
+UMask=0077
+NoNewPrivileges=true
+ExecStart=/usr/bin/python3 %h/.local/lib/phonepad/capture.py
+EnvironmentFile=-%h/.config/phonepad/video.env
+EnvironmentFile=-%h/.config/phonepad/hfr.env
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+KillMode=control-group
+[Install]
+WantedBy=default.target

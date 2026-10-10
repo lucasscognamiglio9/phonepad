@@ -1,0 +1,8 @@
+[Unit]
+Description=Sample laptop health every 30 seconds
+[Timer]
+OnStartupSec=15
+OnUnitActiveSec=30
+AccuracySec=3
+[Install]
+WantedBy=timers.target
