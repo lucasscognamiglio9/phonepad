@@ -29,7 +29,7 @@ type uinputDevice struct {
 	linear   *linearTouch
 	mouse    uinput.Mouse // virtual relative pointer
 	kbd      uinput.Keyboard
-	pad      uinput.TouchPad  // virtual relative pointer
+	pad      uinput.TouchPad  // optional normalized direct pointer
 	mt       *mtTouchpad      // != nil sólo en el camino del celular (New)
 	geometry *PointerGeometry // perfil aplicado al touchpad móvil
 	mu       sync.Mutex
