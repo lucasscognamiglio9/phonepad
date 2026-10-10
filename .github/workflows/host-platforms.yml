@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
@@ -43,6 +45,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Install GStreamer public API test runtime
         run: |
           sudo apt-get update -qq
@@ -56,6 +60,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: daemon/go.mod
@@ -75,6 +81,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: daemon/go.mod
@@ -120,8 +128,23 @@ jobs:
             cp setup/hosts/start-windows.ps1 dist/
             cp setup/hosts/start-windows.cmd dist/
           fi
+          cp setup/hosts/README.md LICENSE THIRD_PARTY_NOTICES.md dist/
+          mkdir -p dist/licenses dist/mobile dist/daemon/web/fonts
+          cp "$(go env GOROOT)/LICENSE" dist/licenses/Go-LICENSE
+          cp mobile/LICENSE dist/mobile/
+          cp daemon/web/fonts/*-OFL.txt dist/daemon/web/fonts/
+          python - <<'PY'
+          from pathlib import Path
+          import shutil
+          for path in Path('daemon/vendor').rglob('*'):
+              if path.is_file() and any(word in path.name.lower() for word in ('license', 'copying', 'notice', 'copyright', 'patents')):
+                  destination = Path('dist') / path
+                  destination.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copyfile(path, destination)
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: success()
         with:
           name: phonepad-host-${{ matrix.runner }}
           path: dist/
+          retention-days: 14
