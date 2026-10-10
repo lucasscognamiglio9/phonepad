@@ -40,6 +40,13 @@ jobs:
           git diff --exit-code -- ../daemon/web/phonepad-core.js
       - name: Check browser receiver behavior
         run: node --test tests/*.test.cjs
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: daemon/go.mod
+          cache-dependency-path: daemon/go.sum
+      - name: Check Python, Go and TypeScript together
+        working-directory: daemon
+        run: PHONEPAD_MOBILE_INTEROP="$GITHUB_WORKSPACE/tests/interop/session.cjs" go test -mod=vendor ./internal/server -run '^TestMobileSessionInterop$' -count=1
   video-contracts:
     runs-on: ubuntu-24.04
     timeout-minutes: 20

@@ -13,6 +13,12 @@ Revisión del 9 y 10 de octubre de 2026. Abarca el servidor Go, la app móvil, l
 - Se retiraron prototipos, sus dependencias y notas de operación privadas. El receptor web generado se reconstruyó desde el código compartido actual.
 - Los workflows limitan permisos, fijan las acciones por commit y comprueban secretos y dependencias.
 
+## Limpieza del código
+
+Se retiraron los laboratorios históricos de captura y red, la prueba que dependía de un commit privado ausente y el instalador de swap y servicios de diagnóstico. Los auxiliares vigentes de políticas de video y la prueba entre TypeScript, Go y Python quedaron en `tests/`. CI ejecuta ahora esa prueba con HTTPS y WebSocket locales.
+
+El análisis de referencias y de llamadas en Linux, Mac y Windows detectó constructores y un parser del antiguo control por agentes, dos funciones sin llamadas y una pantalla de ayuda sin uso. Se retiraron. `@expo/ui`, importado por la app, pasó a declararse como dependencia directa con la misma versión fijada. El archivo JavaScript generado se identifica como tal; las pruebas y el código web propio siguen visibles.
+
 ## Comprobaciones
 
 Las pruebas locales cubren tipos y comportamiento del cliente, sesiones, autorización, revocación, transferencias, permisos, certificados y contratos de video. Se ejecutaron las pruebas Go con detector de carreras y `go vet`, y se compiló el servidor de Linux. La exportación JavaScript para iOS coincide con su mapa de fuentes.

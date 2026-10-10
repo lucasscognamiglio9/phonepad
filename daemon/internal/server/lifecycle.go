@@ -252,26 +252,3 @@ func (s *Server) resetForTransition() error {
 	s.mu.Unlock()
 	return err
 }
-
-func closeInjectorContext(ctx context.Context, inj input.Injector) error {
-	if inj == nil {
-		return nil
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if closer, ok := inj.(input.ContextCloser); ok {
-		return closer.CloseContext(ctx)
-	}
-	done := make(chan struct{})
-	go func() {
-		inj.Close()
-		close(done)
-	}()
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}

@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 import unittest
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools/refactor'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tests/support'))
 from video_quality_gate import desktop_quality_gate, scene_cut_quality_gate
 
 class DesktopAdmissionTests(unittest.TestCase):

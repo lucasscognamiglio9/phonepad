@@ -23,25 +23,23 @@ import (
 )
 
 // uinputDevice es la implementación real sobre github.com/bendahl/uinput.
-// Usa devices virtuales separados (mouse + keyboard, y un touchpad si es
-// absoluto) porque la lib no expone un device combinado; para el compositor son
-// periféricos distintos, indistinguible para el usuario.
+// Usa devices separados para teclado, mouse, gestos y puntero directo.
 type uinputDevice struct {
 	motion   *mutterMotion
 	linear   *linearTouch
-	mouse    uinput.Mouse // != nil sólo en el camino absoluto (NewAbsolute)
+	mouse    uinput.Mouse // virtual relative pointer
 	kbd      uinput.Keyboard
-	pad      uinput.TouchPad  // != nil sólo en el camino absoluto (NewAbsolute)
+	pad      uinput.TouchPad  // optional normalized direct pointer
 	mt       *mtTouchpad      // != nil sólo en el camino del celular (New)
-	geometry *PointerGeometry // perfil aplicado al touchpad móvil; nil para NewAbsolute
+	geometry *PointerGeometry // perfil aplicado al touchpad móvil
 	mu       sync.Mutex
 	held     map[int]struct{} // teclas presionadas, para liberar en Reset/Close
 	btns     map[string]bool  // botones del mouse actualmente abajo
 }
 
 // PointerGeometry reports only the established mobile touchpad geometry. The
-// absolute computer-use device has a different coordinate contract and is
-// intentionally omitted. Unknown fixture geometries are omitted as well until
+// normalized direct pointer has a different coordinate contract and is
+// omitted. Unknown fixture geometries are omitted as well until
 // their mapper and persistence contract are promoted together.
 func (d *uinputDevice) PointerGeometry() (PointerGeometry, bool) {
 	d.mu.Lock()
@@ -159,32 +157,6 @@ func New() (Injector, error) {
 	return d, nil
 }
 
-// NewAbsolute crea los devices para control absoluto (computer use): mouse (para
-// scroll y clicks), teclado, y un touchpad EV_ABS cuyo rango [0,w]x[0,h] el
-// compositor mapea al área física del display. Así MoveTo(x,y) ubica el cursor
-// en el píxel (x,y) de una captura de wxh — sin factor de escala ni tracking de
-// posición. Falla igual que New si no hay permiso sobre /dev/uinput.
-func NewAbsolute(w, h int) (AbsInjector, error) {
-	mouse, err := uinput.CreateMouse("/dev/uinput", []byte("phonepad-abs-mouse"))
-	if err != nil {
-		return nil, fmt.Errorf("crear mouse virtual: %w", err)
-	}
-	kbd, err := uinput.CreateKeyboard("/dev/uinput", []byte("phonepad-abs-keyboard"))
-	if err != nil {
-		mouse.Close()
-		return nil, fmt.Errorf("crear teclado virtual: %w", err)
-	}
-	pad, err := uinput.CreateTouchPad("/dev/uinput", []byte("phonepad-abs-pad"), 0, int32(w), 0, int32(h))
-	if err != nil {
-		mouse.Close()
-		kbd.Close()
-		return nil, fmt.Errorf("crear touchpad virtual: %w", err)
-	}
-	return &uinputDevice{mouse: mouse, kbd: kbd, pad: pad, held: make(map[int]struct{}), btns: make(map[string]bool)}, nil
-}
-
-// MoveTo posiciona el cursor de forma absoluta. En un device relativo (New, sin
-// touchpad) es un no-op: el posicionamiento absoluto sólo existe en NewAbsolute.
 func (d *uinputDevice) SupportsDirectPointer() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()

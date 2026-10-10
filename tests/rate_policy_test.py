@@ -8,7 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'setup/preview'))
-sys.path.insert(0, str(ROOT / 'tools/refactor'))
+sys.path.insert(0, str(ROOT / 'tests/support'))
 from rate_control import RateController
 from rate_baseline import replay, FIXTURE
 
