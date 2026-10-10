@@ -2,7 +2,7 @@
 
 Usá tu iPhone como mouse, teclado y pantalla remota de tu computadora.
 
-https://github.com/user-attachments/assets/87a9ce8e-515b-4ccc-9914-b419b099fe9b
+https://github.com/user-attachments/assets/03121b01-74e9-431f-ac3c-bf9a1dab97cc
 
 Demo animada de 22 segundos de la interfaz actual en Linux. [Descargar el video](media/phonepad-demo.mp4).
 
