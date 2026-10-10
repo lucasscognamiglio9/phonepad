@@ -32,9 +32,26 @@ jobs:
       - name: Build and verify unsigned iPhone archive
         working-directory: mobile
         run: bash scripts/build-ios-personal.sh
-      - name: Record package checksum
+      - name: Collect third-party licenses
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile, ZIP_DEFLATED
+          acknowledgement = Path('mobile/ios/Pods/Target Support Files/Pods-Phonepad/Pods-Phonepad-acknowledgements.markdown')
+          required = [Path('LICENSE'), Path('mobile/LICENSE'), Path('THIRD_PARTY_NOTICES.md'), acknowledgement]
+          with ZipFile('mobile/build/Third-party-licenses.zip', 'w', ZIP_DEFLATED) as archive:
+              for path in required:
+                  if not path.is_file():
+                      raise SystemExit(f'Falta el aviso de licencia: {path}')
+                  archive.write(path, str(path))
+              for directory in ('mobile/node_modules', 'mobile/ios/Pods'):
+                  for path in Path(directory).rglob('*'):
+                      if path.is_file() and not path.is_symlink() and path not in required and any(word in path.name.lower() for word in ('license', 'copying', 'notice', 'copyright', 'patents')):
+                          archive.write(path, str(path))
+          PY
+      - name: Record package checksums
         working-directory: mobile/build
-        run: shasum -a 256 Phonepad-unsigned.ipa > SHA256SUMS.txt
+        run: shasum -a 256 Phonepad-unsigned.ipa Third-party-licenses.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Phonepad-iPhone-unsigned
@@ -42,4 +59,5 @@ jobs:
             mobile/build/Phonepad-unsigned.ipa
             mobile/build/SHA256SUMS.txt
             mobile/build/iphone-build-verification.json
+            mobile/build/Third-party-licenses.zip
           retention-days: 14
