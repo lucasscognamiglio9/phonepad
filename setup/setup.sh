@@ -37,9 +37,9 @@ echo "==> Recargando reglas udev"
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=misc --attr-match=name=uinput 2>/dev/null || udevadm trigger
 
-echo "==> Instalando wl-clipboard (texto Unicode vía portapapeles en GNOME Wayland)"
-# wtype NO sirve en GNOME (Mutter no implementa zwp_virtual_keyboard_v1); el
-# daemon inyecta el Unicode con wl-copy + Ctrl+V (ver internal/input/input.go).
+echo "==> Instalando herramientas de portapapeles"
+# Las transferencias explícitas usan wl-clipboard. El pegado temporal conserva
+# todos los formatos mediante GTK 4 y el puente XWayland de GNOME.
 if command -v wl-copy >/dev/null && command -v wl-paste >/dev/null; then
   echo "  wl-clipboard ya instalado"
 else
@@ -47,8 +47,12 @@ else
     echo "  ⚠ no pude instalar wl-clipboard; instalalo a mano: sudo apt install wl-clipboard"
   fi
   if ! command -v wl-copy >/dev/null || ! command -v wl-paste >/dev/null; then
-    echo "  ⚠ Unicode queda deshabilitado hasta instalar wl-copy y wl-paste; ASCII seguirá funcionando."
+    echo "  ⚠ Las transferencias de portapapeles necesitan wl-copy y wl-paste."
   fi
+fi
+
+if ! /usr/bin/python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk" >/dev/null 2>&1 || ! command -v Xwayland >/dev/null; then
+  apt-get install -y python3-gi gir1.2-gtk-4.0 xwayland
 fi
 
 echo

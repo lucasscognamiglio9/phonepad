@@ -13,4 +13,4 @@ RestartSec=3
 TimeoutStopSec=15
 KillMode=control-group
 [Install]
-WantedBy=default.target
+WantedBy=graphical-session.target

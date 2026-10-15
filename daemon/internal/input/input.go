@@ -6,15 +6,9 @@
 package input
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log"
-	"os"
-	"os/exec"
-	"sort"
-	"strings"
 	"sync"
 	"time"
 	"unicode"
@@ -323,13 +317,17 @@ func (d *uinputDevice) Scroll(dx, dy int) {
 // portapapeles, único camino que entrega el codepoint exacto en GNOME Wayland.
 // planText (testeado) decide el reparto; acá solo ejecutamos.
 func (d *uinputDevice) Text(s string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	for _, op := range planText(s) {
 		if op.paste != "" {
-			d.pasteUnicode(op.paste)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			result := d.clipboardLiteralText(ctx, op.paste)
+			cancel()
+			if result.State != "dispatched" {
+				log.Printf("Unicode paste: %s", result.Detail)
+			}
 			continue
 		}
+		d.mu.Lock()
 		if op.shift {
 			d.keyDown(uinput.KeyLeftshift)
 		}
@@ -337,188 +335,7 @@ func (d *uinputDevice) Text(s string) {
 		if op.shift {
 			d.keyUp(uinput.KeyLeftshift)
 		}
-	}
-}
-
-// pasteUnicode inyecta un fragmento Unicode vía portapapeles: guarda el clip
-// actual, copia el fragmento, emite Ctrl+V por uinput y restaura el clip. Es el
-// camino Unicode-safe en GNOME Wayland. Límite conocido: las terminales VTE
-// (GNOME Terminal) pegan con Ctrl+Shift+V, así que ahí el fragmento no aparece;
-// el ASCII (la mayoría del texto y de los comandos) sí, porque va por keycode.
-func (d *uinputDevice) pasteUnicode(frag string) {
-	ClipboardMu.Lock()
-	defer ClipboardMu.Unlock()
-	// Snapshot one useful offered MIME before the temporary Unicode paste. A
-	// plain wl-paste read would turn a PNG/file URI selection into untyped
-	// bytes, so restoring it later would make image/document paste targets stop
-	// recognizing the attachment. Empty clipboard and unavailable wl-clipboard
-	// are both ordinary no-op cases here.
-	saved, haveSaved := snapshotClipboard()
-	cp := clipboardLiteralCopyCommand()
-	cp.Stdin = strings.NewReader(frag)
-	if err := runClipboardCommand(cp); err != nil {
-		log.Printf("wl-copy: %v (¿está instalado wl-clipboard?)", err)
-		return
-	}
-	d.keyDown(uinput.KeyLeftctrl)
-	d.keyPress(uinput.KeyV)
-	d.keyUp(uinput.KeyLeftctrl)
-	// Dar tiempo a la app a consumir el paste antes de restaurar el clip.
-	time.Sleep(40 * time.Millisecond)
-	current, currentOK := snapshotClipboard()
-	if haveSaved && currentOK && string(current.data) == frag {
-		rp := clipboardLiteralRestoreCommand(saved.mime)
-		rp.Stdin = bytes.NewReader(saved.data)
-		if err := runClipboardCommand(rp); err != nil {
-			log.Printf("restaurar clipboard: %v", err)
-		}
-	} else if haveSaved && currentOK {
-		log.Printf("no se restaura clipboard: otra selección reemplazó el paste")
-	}
-}
-
-const (
-	maxClipboardSnapshotBytes = 128 << 20
-	clipboardCommandTimeout   = 2 * time.Second
-)
-
-type clipboardSnapshot struct {
-	mime string
-	data []byte
-}
-
-// snapshotClipboard captures only the format we can restore faithfully with
-// wl-copy. The format list is metadata; no clipboard data is retained unless
-// one of these known MIME types is offered. The size cap keeps restoring an
-// unexpectedly large selection bounded.
-func snapshotClipboard() (clipboardSnapshot, bool) {
-	typesCommand := exec.Command("wl-paste", "--list-types")
-	dataCommand := func(mime string) *exec.Cmd {
-		return exec.Command("wl-paste", "--type", mime, "--no-newline")
-	}
-	if os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != "" {
-		typesCommand = exec.Command("xclip", "-selection", "clipboard", "-o", "-t", "TARGETS")
-		dataCommand = func(mime string) *exec.Cmd {
-			return exec.Command("xclip", "-selection", "clipboard", "-o", "-t", mime)
-		}
-	}
-	types, err := commandOutputLimited(typesCommand, 64<<10)
-	if err != nil {
-		return clipboardSnapshot{}, false
-	}
-	var candidates []string
-	for _, line := range strings.Split(string(types), "\n") {
-		mime := strings.TrimSpace(line)
-		if mime == "" || clipboardMimeRank(mime) < 0 {
-			continue
-		}
-		candidates = append(candidates, mime)
-	}
-	// wl-paste does not promise an ordering. Prefer image data, then URI
-	// formats, then plain text so a file selection remains a file selection.
-	sort.SliceStable(candidates, func(i, j int) bool {
-		return clipboardMimeRank(candidates[i]) < clipboardMimeRank(candidates[j])
-	})
-	for _, mime := range candidates {
-		data, err := commandOutputLimited(dataCommand(mime), maxClipboardSnapshotBytes)
-		if err == nil {
-			return clipboardSnapshot{mime: mime, data: data}, true
-		}
-	}
-	return clipboardSnapshot{}, false
-}
-
-func clipboardMimeRank(value string) int {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "image/png":
-		return 0
-	case "image/jpeg", "image/jpg":
-		return 1
-	case "image/gif", "image/webp":
-		return 2
-	case "text/uri-list":
-		return 10
-	case "x-special/gnome-copied-files":
-		return 11
-	case "application/x-kde4-urilist":
-		return 12
-	case "text/plain;charset=utf-8":
-		return 20
-	case "text/plain":
-		return 21
-	default:
-		return -1
-	}
-}
-
-func commandOutputLimited(command *exec.Cmd, limit int64) ([]byte, error) {
-	stdout, err := command.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	if err := command.Start(); err != nil {
-		return nil, err
-	}
-	type outputResult struct {
-		data []byte
-		err  error
-	}
-	readDone := make(chan outputResult, 1)
-	go func() {
-		data, err := io.ReadAll(io.LimitReader(stdout, limit+1))
-		readDone <- outputResult{data: data, err: err}
-	}()
-	var result outputResult
-	timer := time.NewTimer(clipboardCommandTimeout)
-	select {
-	case result = <-readDone:
-		timer.Stop()
-	case <-timer.C:
-		_ = command.Process.Kill()
-		result = <-readDone
-		_ = command.Wait()
-		return nil, fmt.Errorf("clipboard read timed out")
-	}
-	data, readErr := result.data, result.err
-	if int64(len(data)) > limit {
-		// Stop an over-sized producer before Wait; otherwise it can remain
-		// blocked writing into the full pipe while we wait for its exit.
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return nil, fmt.Errorf("clipboard output exceeds %d bytes", limit)
-	}
-	if readErr != nil {
-		_ = command.Process.Kill()
-		_ = command.Wait()
-		return nil, readErr
-	}
-	waitErr := command.Wait()
-	if waitErr != nil {
-		return nil, waitErr
-	}
-	return data, nil
-}
-
-// runClipboardCommand bounds both the temporary Unicode copy and the MIME
-// restore. A clipboard owner can disappear or stop servicing requests; the
-// input worker must then continue processing keyboard events promptly.
-func runClipboardCommand(command *exec.Cmd) error {
-	ctx, cancel := context.WithTimeout(context.Background(), clipboardCommandTimeout)
-	defer cancel()
-	if err := command.Start(); err != nil {
-		return err
-	}
-	done := make(chan error, 1)
-	go func() { done <- command.Wait() }()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		if command.Process != nil {
-			_ = command.Process.Kill()
-		}
-		<-done
-		return ctx.Err()
+		d.mu.Unlock()
 	}
 }
 

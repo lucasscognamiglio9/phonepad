@@ -126,11 +126,16 @@ func TestLiteralClipboardFallbackLab(t *testing.T) {
 		if err := os.WriteFile(requestPath, payload, 0o600); err != nil {
 			t.Fatal(err)
 		}
+		waitLabFile(t, filepath.Join(root, fmt.Sprintf("fallback-prepared-%d", index)), 5*time.Second)
 		result := d.LiteralText(context.Background(), tc.text, clipboardFallbackTarget)
 		t.Logf("case %s receipt: %+v", tc.name, result)
 		traceLab(root, tc.name+" receipt "+result.Detail)
-		if result.State != "uncertain" {
-			t.Fatalf("%s receipt = %+v, want uncertain", tc.name, result)
+		wantState := "uncertain"
+		if tc.name == "slow" {
+			wantState = "dispatched"
+		}
+		if result.State != wantState {
+			t.Fatalf("%s receipt = %+v, want %s", tc.name, result, wantState)
 		}
 		resultPath := filepath.Join(root, fmt.Sprintf("fallback-result-%d.json", index))
 		waitLabFile(t, resultPath, 5*time.Second)
@@ -141,6 +146,7 @@ func TestLiteralClipboardFallbackLab(t *testing.T) {
 			Expected     string `json:"expected"`
 			Exact        bool   `json:"exact"`
 			EditableText bool   `json:"editableText"`
+			PasteEvents  int    `json:"pasteEvents"`
 		}
 		data, err := os.ReadFile(resultPath)
 		if err != nil {
@@ -149,7 +155,7 @@ func TestLiteralClipboardFallbackLab(t *testing.T) {
 		if err := json.Unmarshal(data, &report); err != nil {
 			t.Fatal(err)
 		}
-		if report.Case != tc.name || !report.Exact || report.Actual != report.Expected || report.EditableText {
+		if report.Case != tc.name || !report.Exact || report.Actual != report.Expected || report.EditableText || report.PasteEvents != index+1 {
 			t.Fatalf("%s GTK fallback report = %+v", tc.name, report)
 		}
 		t.Logf("case %s consumer exact", tc.name)

@@ -89,7 +89,7 @@ func (s *Server) handleClipboardText(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var extra any
-		if decoder.Decode(&extra) != io.EOF || !utf8.ValidString(request.Text) || strings.ContainsRune(request.Text, 0) || len(request.Text) > maxClipboardText {
+		if decoder.Decode(&extra) != io.EOF || !utf8.ValidString(request.Text) || request.Text == "" || strings.ContainsRune(request.Text, 0) || len(request.Text) > maxClipboardText {
 			http.Error(w, "invalid text", 400)
 			return
 		}

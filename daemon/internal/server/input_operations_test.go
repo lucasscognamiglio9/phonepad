@@ -104,6 +104,20 @@ func inputFixture() (*Server, *literalProbe) {
 	s.newInputLease()
 	return s, p
 }
+
+func TestClipboardLiteralRequiresClipboardPermission(t *testing.T) {
+	s, probe := inputFixture()
+	probe.target = input.ClipboardFallbackTarget
+	s.permissions.Clipboard = Permission{State: "revoked"}
+	manifest := manifestFor(s, "do not touch either clipboard")
+	response := inputCall(s, inputRequest{Op: "begin", Session: manifest.Session, Manifest: manifest})
+	if !strings.Contains(response.Body.String(), "clipboard_permission_required") || len(probe.literals) != 0 {
+		t.Fatalf("clipboard permission was bypassed: %s", response.Body.String())
+	}
+	if !s.literalClipboardAllowed(strings.Repeat("a", 64)) {
+		t.Fatal("direct literal input must remain available without clipboard permission")
+	}
+}
 func inputCall(s *Server, body any) *httptest.ResponseRecorder {
 	b, _ := json.Marshal(body)
 	r := httptest.NewRequest("POST", "https://phonepad/api/input", bytes.NewReader(b))

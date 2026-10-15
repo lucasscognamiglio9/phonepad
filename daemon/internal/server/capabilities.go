@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -308,9 +307,6 @@ func (s *Server) literalInputLocked() (map[string]any, bool) {
 		return nil, false
 	}
 	delivery := "literal-block"
-	if runtime.GOOS == "linux" && strings.EqualFold(strings.TrimSpace(os.Getenv("PHONEPAD_CLIPBOARD_FALLBACK_SHORTCUT")), "ctrl-v") {
-		delivery = "clipboard-paste"
-	}
 	return map[string]any{
 		"preferredDelivery": delivery,
 		"version":           1,

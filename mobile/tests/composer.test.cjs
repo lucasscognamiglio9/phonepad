@@ -11,6 +11,7 @@ const compile = file => ts.transpileModule(fs.readFileSync(path.join(__dirname, 
 }).outputText;
 function harness(initialConnection = {}) {
   const alerts = [], clipboardTransfers = [], clipboardOffers = [];
+  const localClipboard = {text:"copiado del iPhone",read:null};
   const slots = [], effects = [], sent = [], chosen = [], keyboardListeners = {}; let index = 0, tree, accepted = true, rejectAfter = Infinity;
   const focusCount = { value: 0 };
   const dimensions = { width: 390, height: 844 };
@@ -63,13 +64,14 @@ function harness(initialConnection = {}) {
     './glass-surface': { GlassSurface: 'GlassSurface' }, './glass-button': { GlassButton: 'GlassButton' },
     './action-menu': { ActionMenu: 'ActionMenu' }, './keyboard-layout': keyboardLayout, '../lib/protocol': protocol,
     '../lib/clipboard-transfer': {
-      transferClipboard: async (_connection, direction) => { clipboardTransfers.push(direction); },
+      ...controlFixture.load('lib/clipboard-transfer.ts',{'buffer':{Buffer},'expo-clipboard':{getStringAsync:async()=>localClipboard.read ? localClipboard.read() : localClipboard.text}}),
+      transferClipboard: async (_connection,direction)=>{clipboardTransfers.push(direction);},
       offerTextToHostClipboard: async (_connection, text) => { clipboardOffers.push(text); },
     },
   };
   controlFixture.install(modules, jsx);
   const exports = {}; vm.runInNewContext(compile('components/native-keyboard.tsx'), { exports, require: name => modules[name], setTimeout, clearTimeout, setInterval, clearInterval, AbortController });
-  const props = { connection: { ...initialConnection, send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted && sent.length <= rejectAfter; } },
+  const props = { connection: { canInput:true, ...initialConnection, send: c => { sent.push(JSON.parse(JSON.stringify(c))); return accepted && sent.length <= rejectAfter; } },
     active: false, disabled: false, choosing: false, open: () => { props.active = true; }, close: () => { props.active = false; }, choose: action => chosen.push(action) };
   function render() { index = 0; tree = exports.NativeKeyboard(props); while (effects.length) effects.shift()(); }
   function nodes(node) { if (!node || typeof node !== 'object') return [];
@@ -83,7 +85,7 @@ function harness(initialConnection = {}) {
   };
   render(); render();
   return {
-    props, sent, chosen, alerts, clipboardTransfers, clipboardOffers, focusCount: () => focusCount.value, keyboardState, render, showShortcuts: () => { render(); if (!find('GlassButton', 'Ctrl') && !find('GlassButton', 'Pegar')) click('Teclas extra'); }, tree: () => tree, nodes, find, click, type,
+    props, sent, chosen, alerts, localClipboard, clipboardTransfers, clipboardOffers, focusCount: () => focusCount.value, keyboardState, render, showShortcuts: () => { render(); if (!find('GlassButton', 'Ctrl') && !find('GlassButton', 'Pegar')) click('Teclas extra'); }, tree: () => tree, nodes, find, click, type,
     keyboard: (event, payload = {}) => (keyboardListeners[event] ?? []).forEach(callback => callback(payload)),
     measure: next => Object.assign(measurement, next),
     resize: next => { if(next.width && next.width!==dimensions.width) Object.assign(screen,next); Object.assign(dimensions, next); },
@@ -524,7 +526,7 @@ test('toolbar is a sibling of the composer, with one horizontal scroller and no 
   assert.ok(!h.nodes(surfaces.find(n=>h.nodes(n).some(v=>v.type==='TextInput'))).some(v=>v.type==='ScrollView'&&v.props.horizontal));
  }
  h.click('Portapapeles');
- assert.deepEqual(h.nodes(h.tree()).filter(n=>n.type==='Pressable').map(n=>n.props.accessibilityLabel),['Pegar','Copiar','Al iPhone','Modificadores y teclas']);
+ assert.deepEqual(h.nodes(h.tree()).filter(n=>n.type==='Pressable').map(n=>n.props.accessibilityLabel),['Pegar aquí','Pegar','Copiar','Al iPhone','Al equipo','Modificadores y teclas']);
 });
 
 test('horizontal offset cannot prevent later vertical switches in either direction',()=>{
@@ -537,49 +539,39 @@ test('horizontal offset cannot prevent later vertical switches in either directi
  pan().onEndValue({translationY:40});h.render();assert.ok(h.find('GlassButton','Ctrl'));
 });
 
-test('selected computer text reaches the iPhone only after Copy executes', async () => {
- const h = harness();
- h.props.connection.canClipboard = true;
- h.props.connection.capabilities = {sessionEpoch:'session-1'};
- let finish;
- h.props.connection.pressAction = () => 'copy-1';
- h.props.connection.waitFinalActionReceipt = () => new Promise(resolve => { finish = resolve; });
- h.render(); h.showShortcuts(); h.click('Portapapeles'); h.click('Al iPhone');
- assert.equal(h.clipboardTransfers.length, 0);
- finish({state:'executed'});
- await new Promise(resolve => setTimeout(resolve, 180)); h.render();
- assert.deepEqual(h.clipboardTransfers, ['phone']);
+test('clipboard transfers use existing contents and never dispatch Copy or Paste', async () => {
+ const h=harness();h.props.connection.canClipboard=true;h.props.connection.capabilities={sessionEpoch:'one'};
+ h.render();h.showShortcuts();h.click('Portapapeles');h.click('Al iPhone');
+ await new Promise(r=>setImmediate(r));h.render();h.click('Al equipo');await new Promise(r=>setImmediate(r));
+ assert.deepEqual(h.clipboardTransfers,['phone','host']);assert.equal(h.sent.length,0);
 });
-
-test('verified literal rejection sends the draft through clipboard once', async () => {
- const h = harness();
- h.props.connection.canClipboard = true;
- h.props.connection.canInput = true;
- h.props.connection.capabilities = {sessionEpoch:'session-1'};
- h.props.connection.inputCapabilities = {version:1};
- h.props.connection.literal = {draft:'',busy:false,pending:null,
-   send:async text => { h.props.connection.literal.pending = {text,receipt:{state:'rejected'}}; return {state:'rejected'}; },
-   acknowledged:function() {this.pending=null;}, reviewed:async function() { this.pending = null; return true; }};
- h.props.connection.pressAction = action => { h.sent.push(action); return 'paste-1'; };
- h.props.connection.waitFinalActionReceipt = async () => ({state:'executed'});
- h.props.active = true; h.render(); h.type('dictado ¿?'); h.click('Enviar texto');
- await new Promise(resolve => setImmediate(resolve)); h.render();
- assert.equal(h.find('GlassButton','Consultar envío'), undefined);
- assert.equal(h.find('GlassButton','Pegar borrador en el equipo'), undefined);
- assert.deepEqual(h.clipboardOffers, ['dictado ¿?']);
- assert.equal(h.sent.at(-1).key, 'v');
- assert.equal(shownValue(h), '');
- assert.equal(h.sent.length,1);
+test('pasting copied phone text into an empty field creates a draft without sending or transferring',async()=>{
+ const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:''};h.props.active=true;
+ h.render();h.showShortcuts();h.click('Portapapeles');h.click('Pegar aquí');await new Promise(r=>setImmediate(r));h.render();
+ assert.equal(shownValue(h),'copiado del iPhone');assert.equal(h.props.connection.literal.draft,'copiado del iPhone');
+ assert.equal(h.sent.length,0);assert.equal(h.clipboardTransfers.length,0);
 });
-
-test('configured clipboard delivery sends dictation and symbols on the first attempt without the conservative literal route',async()=>{
+test('local paste replaces the selected range and a delayed paste cannot overwrite a newer draft',async()=>{
+ const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:''};h.props.active=true;
+ h.render();h.type('hola mundo');h.find('TextInput').props.onSelectionChange({nativeEvent:{selection:{start:5,end:10}}});
+ h.localClipboard.text='Lucas';h.showShortcuts();h.click('Portapapeles');h.click('Pegar aquí');await new Promise(r=>setImmediate(r));h.render();
+ assert.equal(shownValue(h),'hola Lucas');
+ let finish;h.localClipboard.read=()=>new Promise(resolve=>finish=resolve);h.click('Pegar aquí');h.type('nuevo borrador');finish('viejo');
+ await new Promise(r=>setImmediate(r));h.render();assert.equal(shownValue(h),'nuevo borrador');assert.equal(h.sent.length,0);
+});
+test('rejected literal text preserves the draft and never overwrites the computer clipboard',async()=>{
+ const h=harness();h.props.connection.canClipboard=true;h.props.connection.capabilities={sessionEpoch:'one'};
+ h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',busy:false,pending:null,
+  send:async()=>({state:'rejected'}),acknowledged(){},reviewed:async()=>true};
+ h.props.active=true;h.render();h.type('dictado ¿?');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
+ assert.equal(shownValue(h),'dictado ¿?');assert.equal(h.sent.length,0);assert.equal(h.clipboardOffers.length,0);
+});
+test('legacy clipboard preference cannot bypass literal delivery or clear an uncertain draft',async()=>{
  const h=harness();h.props.connection.inputCapabilities={version:1,preferredDelivery:'clipboard-paste'};
- h.props.connection.capabilities={sessionEpoch:'test-one',hostPlatform:'linux'};h.props.connection.canClipboard=true;h.props.connection.canInput=true;
- let literalCalls=0;h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>{literalCalls++;return {state:'uncertain'};}};
- h.props.connection.pressAction=action=>{h.sent.push(action);return 'paste-first';};h.props.connection.waitFinalActionReceipt=async()=>({state:'executed'});
- h.props.active=true;h.render();h.type('Prueba ñ € ?@&$;:/- 👌🙌🏻');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(literalCalls,0);assert.equal(h.sent.length,1);assert.deepEqual(h.clipboardOffers,['Prueba ñ € ?@&$;:/- 👌🙌🏻']);
- assert.equal(shownValue(h),'');assert.equal(h.find('GlassButton','Ya revisé'),undefined);
+ h.props.connection.capabilities={sessionEpoch:'one',hostPlatform:'linux'};h.props.connection.canClipboard=true;
+ let calls=0;h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>{calls++;return {state:'uncertain'};}};
+ h.props.active=true;h.render();h.type('Prueba ñ € 👌');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
+ assert.equal(calls,1);assert.equal(h.sent.length,0);assert.equal(h.clipboardOffers.length,0);assert.equal(shownValue(h),'Prueba ñ € 👌');
 });
 test('uncertain text notice can collapse while navigation works and the retained draft cannot be resent blindly',async()=>{
  const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>({state:'uncertain'})};

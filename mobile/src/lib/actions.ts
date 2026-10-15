@@ -20,6 +20,8 @@ export const ACTIONS = {
   copy: { label: 'Copiar', symbol: { ios: 'doc.on.doc', android: 'content_copy', web: 'content_copy' }, fallback: '▤' },
   paste: { label: 'Pegar', symbol: { ios: 'clipboard', android: 'content_paste', web: 'content_paste' }, fallback: '▤' },
   toPhone: { label: 'Al iPhone', symbol: { ios: 'iphone', android: 'smartphone', web: 'smartphone' }, fallback: '▯' },
+  toHost: { label: 'Al equipo', symbol: { ios: 'laptopcomputer', android: 'laptop', web: 'laptop' }, fallback: '▣' },
+  pasteDraft: { label: 'Pegar aquí', symbol: { ios: 'doc.on.clipboard', android: 'content_paste', web: 'content_paste' }, fallback: '▤' },
   files: { label: 'Archivos', symbol: { ios: 'paperclip', android: 'attach_file', web: 'attach_file' }, fallback: '▤' },
   camera: { label: 'Cámara', symbol: { ios: 'camera', android: 'photo_camera', web: 'photo_camera' }, fallback: '◎' },
   photos: { label: 'Fotos', symbol: { ios: 'photo.on.rectangle', android: 'photo_library', web: 'photo_library' }, fallback: '▧' },
