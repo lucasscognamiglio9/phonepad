@@ -2,8 +2,8 @@
 """Activate a checksummed local release with systemd overrides and reversible rollback."""
 import argparse,hashlib,json,os,shutil,subprocess,time,urllib.request,urllib.error
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('release',type=Path);p.add_argument('--rollback',action='store_true');p.add_argument('--health-host',required=True);a=p.parse_args()
-r=a.release.resolve();backup=r/'rollback';units=('phonepad.service','phonepad-preview.service');root=Path.home()/'.config/systemd/user'
+p=argparse.ArgumentParser();p.add_argument('release',type=Path);p.add_argument('--rollback',action='store_true');p.add_argument('--gateway-only',action='store_true');p.add_argument('--health-host',required=True);a=p.parse_args()
+r=a.release.resolve();backup=r/'rollback';all_units=('phonepad.service','phonepad-preview.service');units=all_units[:1] if a.gateway_only else all_units;root=Path.home()/'.config/systemd/user'
 if any(value in str(r) for value in ('\n','\r','"','\\')):
  raise SystemExit('Release path contains characters unsafe for a systemd override')
 paths=[root/(u+'.d')/'90-phonepad-release.conf' for u in units]
@@ -11,11 +11,14 @@ def run(*args):return subprocess.run(args,check=True,capture_output=True,text=Tr
 
 def restore():
  state=json.loads((backup/'state.json').read_text())
- for path,item in zip(paths,state['overrides']):
+ restore_units=state.get('units',list(all_units))
+ if not restore_units or any(unit not in all_units for unit in restore_units):raise RuntimeError('Invalid rollback units')
+ restore_paths=[root/(unit+'.d')/'90-phonepad-release.conf' for unit in restore_units]
+ for path,item in zip(restore_paths,state['overrides']):
   if item['existed']:shutil.copyfile(backup/item['file'],path)
   else:path.unlink(missing_ok=True)
  run('systemctl','--user','daemon-reload')
- for unit,active in zip(units,state['active']):
+ for unit,active in zip(restore_units,state['active']):
   run('systemctl','--user','restart' if active else 'stop',unit)
 
 if a.rollback:
@@ -31,7 +34,7 @@ for name,digest in manifest['files'].items():
  if not path.is_relative_to(r) or hashlib.sha256(path.read_bytes()).hexdigest()!=digest:raise SystemExit('Checksum mismatch: '+name)
 if backup.exists():raise SystemExit('Backup already exists; use a new release or rollback explicitly')
 backup.mkdir(mode=0o700)
-state={'active':[],'overrides':[]}
+state={'units':list(units),'active':[],'overrides':[]}
 for i,(unit,path) in enumerate(zip(units,paths)):
  active=subprocess.run(['systemctl','--user','is-active','--quiet',unit]).returncode==0
  state['active'].append(active);state['overrides'].append({'existed':path.exists(),'file':str(i)+'.conf'})
@@ -46,7 +49,7 @@ try:
  for path,content in zip(paths,contents):
   path.parent.mkdir(parents=True,exist_ok=True);tmp=path.with_suffix('.new');tmp.write_text(content);os.replace(tmp,path)
  run('systemctl','--user','daemon-reload')
- run('systemctl','--user','restart','phonepad-preview.service','phonepad.service')
+ run('systemctl','--user','restart',*(('phonepad.service',) if a.gateway_only else ('phonepad-preview.service','phonepad.service')))
  for _ in range(40):
   try:
    req=urllib.request.Request('http://127.0.0.1:8081/api/auth',headers={'Host':a.health_host})
@@ -64,5 +67,5 @@ try:
  if not sock.is_socket():raise RuntimeError('Preview socket missing')
 except BaseException:
  restore();raise
-(r/'activation.json').write_text(json.dumps({'commit':manifest['commit'],'services':'active','authStatus':401,'physicalAcceptance':False,'rollback':str(backup)},indent=2)+'\n')
+(r/'activation.json').write_text(json.dumps({'commit':manifest['commit'],'services':'active','updatedUnits':list(units),'authStatus':401,'physicalAcceptance':False,'rollback':str(backup)},indent=2)+'\n')
 print('Release activated; original installation retained for rollback')

@@ -8,6 +8,6 @@ En Linux se autoriza un nodo concreto del iPhone. Los lanzadores de Mac y Window
 
 La captura necesita autorización del sistema. Cerrá la página de captura o detené el servicio para dejar de compartir pantalla. La revocación independiente del permiso de video todavía no está implementada.
 
-No incluyas tokens, certificados, pairing, archivos personales ni capturas privadas en Issues. Para una vulnerabilidad, usá el [reporte privado de GitHub](https://github.com/lucasscognamiglio9/phonepad/security/advisories/new) cuando esté habilitado. Ese canal debe activarse al abrir el repositorio.
+No incluyas tokens, certificados, pairing, archivos personales ni capturas privadas en Issues. Para una vulnerabilidad, usá el [reporte privado de GitHub](https://github.com/lucasscognamiglio9/phonepad/security/advisories/new), habilitado en este repositorio.
 
 Los avisos de dependencias pendientes y el alcance de las comprobaciones están en la [auditoría](docs/auditoria-seguridad.md).

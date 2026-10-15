@@ -1,6 +1,6 @@
 # Auditoría del código
 
-Revisión del 9 y 10 de octubre de 2026. Abarca el servidor Go, la app móvil, la captura de Linux, los instaladores, las dependencias y los archivos destinados a publicación. PhonePad sigue en pruebas.
+Revisión del 9 y 10 de octubre de 2026, actualizada el 15 de octubre. Abarca el servidor Go, la app móvil, la captura de Linux, los instaladores, las dependencias y los archivos destinados a publicación. PhonePad sigue en pruebas.
 
 ## Cambios
 
@@ -12,6 +12,8 @@ Revisión del 9 y 10 de octubre de 2026. Abarca el servidor Go, la app móvil, l
 - La configuración del código público tiene OTA desactivado y no apunta al proyecto personal de EAS.
 - Se retiraron prototipos, sus dependencias y notas de operación privadas. El receptor web generado se reconstruyó desde el código compartido actual.
 - Los workflows limitan permisos, fijan las acciones por commit y comprueban secretos y dependencias.
+- El portapapeles diferencia pegar en el borrador, copiar entre dispositivos y enviar texto. El envío exige permiso de portapapeles si utiliza el pegado alternativo y conserva los formatos previos. [Acciones y límites](portapapeles.md).
+- Los servicios de Linux se habilitan dentro de la sesión gráfica. Una actualización del servidor puede conservar el proceso de captura y restaurar únicamente los servicios que modificó.
 
 ## Limpieza del código
 
@@ -36,7 +38,11 @@ La actualización eliminó el aviso crítico y otros avisos corregibles. `npm au
 | `braces` 3.0.3 | [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm). Agotamiento de pila al procesar patrones anidados. Entra por las herramientas de compilación y Metro. |
 | `node-forge` 1.4.0 | [GHSA-86w9-cpqp-85rv](https://github.com/advisories/GHSA-86w9-cpqp-85rv). Verificación de firmas RSA. Entra por Expo CLI y herramientas de firma. |
 
-No se demostró explotación en PhonePad. Estos avisos siguen abiertos. Usá fuentes de confianza para compilar. `npm start` limita Metro a localhost. Mantenelo fuera de redes públicas y no aceptes certificados o firmas de terceros sin verificar su origen. La política de CI permite únicamente esos dos avisos hasta el 9 de noviembre de 2026; bloquea avisos nuevos, críticos o una excepción vencida.
+El 15 de octubre, npm seguía publicando 3.0.3 y 1.4.0 como últimas versiones de esos paquetes, y los avisos de GitHub no ofrecían una versión corregida. Estos avisos siguen abiertos; no se descartaron ni se aplicó un downgrade de Expo para ocultarlos. No se demostró explotación en PhonePad.
+
+Usá fuentes de confianza para compilar. Tanto `npm start` como `npm run web` limitan Metro a localhost. El [modo de desarrollo sin consultas de Expo a Internet](desarrollo.md) es opcional y no corrige las dependencias. No expongas Metro en una red pública ni aceptes certificados o firmas de terceros sin verificar su origen. La política de CI permite únicamente esos dos avisos hasta el 9 de noviembre de 2026; bloquea avisos nuevos, críticos o una excepción vencida.
+
+El repositorio público tiene habilitados el análisis de secretos, la protección al hacer push, las actualizaciones de seguridad de Dependabot y los reportes privados. El escaneo local del historial publicado no detectó secretos. Estas comprobaciones no garantizan que todo posible dato sensible o vulnerabilidad haya sido identificado.
 
 ## Límites
 

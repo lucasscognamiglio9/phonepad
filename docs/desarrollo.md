@@ -13,7 +13,7 @@ TypeScript es la fuente de los controles y de los contratos compartidos. `npm ru
 
 Python queda en la captura de Linux porque usa las API de GStreamer y del portal del escritorio. Los pequeños adaptadores C acceden a metadatos y latencia de GStreamer. HTML, CSS y JavaScript forman las páginas de emparejamiento, el receptor web y la captura con permiso del navegador en Mac y Windows. Los scripts Shell y PowerShell instalan o arrancan el servidor. No son aplicaciones independientes.
 
-Los contactos del teléfono llegan al servidor. En Linux, libinput interpreta los gestos. El video llega a la app por WebRTC. La app mantiene el borrador de texto hasta que tocás enviar.
+Los contactos del teléfono llegan al servidor. En Linux, libinput interpreta los gestos. El video llega a la app por WebRTC. La app mantiene el borrador de texto hasta que tocás enviar. Las acciones y los límites del [portapapeles](portapapeles.md) se describen por separado.
 
 ## Comprobar el cliente
 
@@ -37,6 +37,8 @@ go vet -mod=vendor ./...
 ```
 
 Expo Go no incluye el receptor WebRTC nativo que usa PhonePad. Para probar la app completa hace falta un build propio de iOS y su firma.
+
+`npm start` y `npm run web` limitan Metro a localhost. Para trabajar sin consultas de Expo a Internet, iniciá con `EXPO_OFFLINE=1 npm start` en Linux o macOS. En PowerShell, configurá `$env:EXPO_OFFLINE='1'` antes de `npm start`. Esto no reemplaza los parches pendientes de las herramientas de compilación ni protege contra archivos locales maliciosos.
 
 Las pruebas de código y compilación no sustituyen la comprobación de instalación, permisos, gestos y video entre dispositivos.
 

@@ -23,7 +23,7 @@ import {
   MIN_TOUCH_TARGET,
 } from './keyboard-layout';
 import type { Connection } from '../lib/connection';
-import { transferClipboard } from '../lib/clipboard-transfer';
+import { readPhoneClipboardText, transferClipboard, validateClipboardText } from '../lib/clipboard-transfer';
 import type { AttachmentSource } from '../lib/attachments';
 import type { LateDraft } from '../lib/literal-transfer';
 import type { ActionReceipt } from '../lib/protocol';
@@ -76,6 +76,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [shortcutPage, setShortcutPage] = useState(0);
   const [caretSelection, setCaretSelection] = useState<CaretSelection | undefined>(undefined);
   const caretPosition = useRef(CARET_ORIGIN);
+  const draftSelection = useRef<CaretSelection | null>(null);
+  const clipboardBusy = useRef(false);
   const caretTyping = useRef(false);
   const caretTouch = useRef(false);
   const caretReset = useRef(false);
@@ -268,24 +270,38 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     const result = dispatchAction(key, [primaryModifier(connection.capabilities?.hostPlatform)]);
     if (!result.accepted) preserveActionContext();
   };
-  const copySelectionToPhone = async () => {
+  const copyClipboard = async (direction: 'phone' | 'host') => {
     if (!canSendKey() || !connection.canClipboard) return;
-    const epoch = connection.capabilities?.sessionEpoch;
-    const operationId = connection.pressAction({ t: 'k', a: 'combo', mods: [primaryModifier(connection.capabilities?.hostPlatform)], key: 'c' });
-    if (!operationId) { setActionStatus('No se pudo copiar la selección.'); return; }
+    if (clipboardBusy.current) return;
+    clipboardBusy.current = true;
     setSending(true); setActionStatus('');
     try {
-      const receipt = await connection.waitFinalActionReceipt(operationId);
-      if (receipt?.state !== 'executed' || receipt.replayed || epoch !== connection.capabilities?.sessionEpoch) {
-        throw Error('No se confirmó Copiar en el equipo.');
-      }
-      // The focused app may publish its selection just after handling Ctrl+C.
-      await new Promise(resolve => setTimeout(resolve, 150));
-      await transferClipboard(connection, 'phone', new AbortController().signal);
-      setActionStatus('');
+      await transferClipboard(connection, direction, new AbortController().signal);
+      setActionStatus(direction === 'phone' ? 'Copiado al iPhone.' : 'Copiado al equipo.');
     } catch (error) {
-      setActionStatus(noticeMessage(error, 'No se pudo copiar al iPhone.'));
-    } finally { setSending(false); }
+      setActionStatus(noticeMessage(error, 'No se pudo copiar.'));
+    } finally { clipboardBusy.current = false; setSending(false); }
+  };
+  const pasteClipboardIntoDraft = async () => {
+    if (!canSendKey() || clipboardBusy.current || interrupted.current || literal?.pending) return;
+    const generation = editorGeneration.current, original = draft.current;
+    const selection = draftSelection.current;
+    clipboardBusy.current = true;
+    try {
+      const copied = await readPhoneClipboardText();
+      if (generation !== editorGeneration.current || original !== draft.current) return;
+      const start = Math.min(original.length, Math.max(0, selection?.start ?? original.length));
+      const end = Math.min(original.length, Math.max(start, selection?.end ?? start));
+      const next = original.slice(0, start) + copied + original.slice(end);
+      validateClipboardText(next);
+      draft.current = next; if (literal) literal.draft = next;
+      previous.current = next; setValue(next);
+      const caret = {start: start + copied.length, end: start + copied.length};
+      draftSelection.current = caret; setCaretSelection(caret);
+      open(); input.current?.focus();
+      setActionStatus('');
+    } catch (error) { setActionStatus(noticeMessage(error, 'No se pudo pegar el texto.')); }
+    finally { clipboardBusy.current = false; }
   };
   const submit = () => {
     if (interrupted.current || !canSendKey()) return;
@@ -447,7 +463,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       {shortcuts && <ShortcutPanel disabled={keysDisabled} clipboardDisabled={!connection.canClipboard}
         platform={connection.capabilities?.hostPlatform} modifiers={mods} page={shortcutPage} onPageChange={setShortcutPage}
         toggleModifier={mod => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }}
-        special={special} copy={() => clipboard('c')} paste={() => clipboard('v')} toPhone={() => { void copySelectionToPhone(); }} />}
+        special={special} copy={() => clipboard('c')} paste={() => clipboard('v')}
+        pasteDraft={() => { void pasteClipboardIntoDraft(); }}
+        toPhone={() => { void copyClipboard('phone'); }} toHost={() => { void copyClipboard('host'); }} />}
       <GlassSurface glassPointer={glassPointer} style={{ borderRadius: compact ? appearance.control.capsuleRadius : appearance.control.menuRadius, padding: appearance.composer.padding }}>
         <View style={{ position: 'relative', marginLeft: compactLeft, marginRight: compactRight }}>
           <TextInput ref={input} value={caretMode ? CARET_CONTEXT : value} selection={caretMode || draft.current ? caretSelection : undefined}
@@ -475,6 +493,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                 setCaretSelection(text ? { start: text.length, end: text.length }
                   : { start: CARET_ORIGIN, end: CARET_ORIGIN });
                 if (!text) return;
+                draftSelection.current = {start: text.length, end: text.length};
               } else {
                 // Once editing real text, UIKit owns selection and IME composition.
                 setCaretSelection(undefined);
@@ -515,7 +534,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             accessibilityValue={{ text: value }}
             onSelectionChange={event => {
               const next = event.nativeEvent.selection;
-              if (!caretMode) return;
+              if (!caretMode) { draftSelection.current = next; return; }
               // Ignore callbacks from an obsolete editor, programmatic resets,
               // native text insertion, revoked permissions or uncertain sends.
               if (!caretEnabled.current || latestInputEpoch.current !== inputEpoch || inputGeneration !== editorGeneration.current || !canSendKey() || draft.current || interrupted.current || literal?.pending) return;

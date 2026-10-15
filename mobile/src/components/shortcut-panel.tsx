@@ -8,10 +8,10 @@ import { appearance } from './appearance';
 import { modifierLabel } from '../lib/control-layout';
 
 /** One horizontal native scroller, with an independent vertical page gesture. */
-export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers, toggleModifier, special, copy, paste, toPhone, page, onPageChange }: {
+export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers, toggleModifier, special, copy, paste, pasteDraft, toPhone, toHost, page, onPageChange }: {
   disabled: boolean; clipboardDisabled: boolean; platform?: string; modifiers: string[];
   toggleModifier: (mod: string) => void; special: (key: string) => void;
-  copy: () => void; paste: () => void; toPhone: () => void;
+  copy: () => void; paste: () => void; pasteDraft: () => void; toPhone: () => void; toHost: () => void;
   page: number; onPageChange: (page: number) => void;
 }) {
   const scroll = useRef<ScrollView>(null);
@@ -37,10 +37,11 @@ export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers
     { label: 'Esc', disabled, run: () => special('Escape') },
     { label: 'Tab', disabled, run: () => special('Tab') },
   ] : [
-    // Frequent inbound paste first; copying and exporting that selection stay adjacent.
+    { label: 'Pegar aquí', action: 'pasteDraft' as const, disabled, run: pasteDraft },
     { label: 'Pegar', action: 'paste' as const, disabled, run: paste },
     { label: 'Copiar', action: 'copy' as const, disabled, run: copy },
     { label: 'Al iPhone', action: 'toPhone' as const, disabled: disabled || clipboardDisabled, run: toPhone },
+    { label: 'Al equipo', action: 'toHost' as const, disabled: disabled || clipboardDisabled, run: toHost },
   ];
   return <GestureDetector gesture={vertical}>
     <GlassSurface interactive material={appearance.control.floatingMaterial} style={{ borderRadius: appearance.control.menuRadius, padding: appearance.shortcuts.padding }}>

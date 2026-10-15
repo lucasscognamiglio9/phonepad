@@ -128,6 +128,10 @@ type LiteralResult struct {
 	Target string `json:"target,omitempty"`
 }
 
+// ClipboardFallbackTarget identifies the explicit Linux paste adapter. The
+// server checks clipboard permission as well as input before dispatching it.
+const ClipboardFallbackTarget = "dfb7c03e49a8ecb781d00ea95ff5c9924657c8dd1a3d05ebdc0cc090ef1b9ec8"
+
 // ActionResult reports the strongest result that the native provider can
 // establish for one special key or combo. "executed" means the provider
 // completed its call, "rejected" means it did not attempt the action, and

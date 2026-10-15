@@ -60,6 +60,21 @@ func TestDirectPointerRange(t *testing.T) {
 	}
 }
 
+func TestEmptyClipboardTransferCannotEraseExistingCopy(t *testing.T) {
+	s := New(staticAuth("tok"), &fakeInjector{}, nil, "")
+	s.sessionEpoch = "current"
+	s.currentProtocol = protocolVersion
+	r := httptest.NewRequest("POST", "https://phonepad/api/clipboard", strings.NewReader(`{"text":""}`))
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "tok"})
+	r.Header.Set("Origin", "https://phonepad")
+	r.Header.Set("X-PhonePad-Session", "current")
+	w := httptest.NewRecorder()
+	s.handleClipboardText(w, r)
+	if w.Code != http.StatusBadRequest || s.clipboard != nil {
+		t.Fatal("an empty clipboard transfer attempted to replace the desktop copy")
+	}
+}
+
 type directCapabilityProbe struct{ capabilityProbe }
 
 func (*directCapabilityProbe) SupportsDirectPointer() bool { return true }

@@ -30,7 +30,7 @@ if [[ ! -f "$config_dir/service.env" ]]; then
  umask 077
  printf 'PHONEPAD_BIND=127.0.0.1\nPHONEPAD_HOST=localhost\n' > "$config_dir/service.env"
 fi
-systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR 2>/dev/null || true
+systemctl --user import-environment WAYLAND_DISPLAY DISPLAY XDG_RUNTIME_DIR XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XAUTHORITY 2>/dev/null || true
 indicator_available=false
 if /usr/bin/python3 -c "import gi; gi.require_version('AyatanaAppIndicator3', '0.1')" 2>/dev/null; then
  indicator_available=true
@@ -48,8 +48,8 @@ if [[ -f "$config_dir/video.env" ]]; then
  install -m 644 "$script_dir/phonepad-preview.service" "$unit_dir/phonepad-preview.service"
 fi
 systemctl --user daemon-reload
-if [[ -f "$config_dir/video.env" ]]; then systemctl --user enable phonepad-preview.service; systemctl --user restart phonepad-preview.service; fi
-if $always_on; then systemctl --user enable phonepad.service; fi
+if [[ -f "$config_dir/video.env" ]]; then systemctl --user reenable phonepad-preview.service; systemctl --user restart phonepad-preview.service; fi
+if $always_on || systemctl --user is-enabled --quiet phonepad.service; then systemctl --user reenable phonepad.service; fi
 systemctl --user restart phonepad.service
 if $indicator_available; then
  systemctl --user enable phonepad-indicator.service

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -518,9 +517,6 @@ func TestExplicitClipboardDeploymentAdvertisesPreferredTextDelivery(t *testing.T
 			t.Fatal("Allowed literal limits missing")
 		}
 		want := "literal-block"
-		if shortcut == "ctrl-v" && runtime.GOOS == "linux" {
-			want = "clipboard-paste"
-		}
 		if payload["preferredDelivery"] != want {
 			t.Fatalf("Preferred delivery = %v, want %s", payload["preferredDelivery"], want)
 		}

@@ -246,6 +246,9 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 					return nil
 				}
 				focus = boundedLiteralFocus(ctx, adapter)
+				if focus.State == "ready" && !s.literalClipboardAllowed(focus.Target) {
+					focus = input.LiteralResult{State: "rejected", Detail: "clipboard_permission_required"}
+				}
 				if focus.State != "ready" || len(focus.Target) != 64 {
 					return nil
 				}
@@ -308,6 +311,10 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 			result := input.LiteralResult{State: "uncertain", Detail: "input_permission_changed"}
 			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 			runErr := s.runLifecycleMutation(permit, func() error {
+				if !s.literalClipboardAllowed(target) {
+					result = input.LiteralResult{State: "rejected", Detail: "clipboard_permission_required"}
+					return nil
+				}
 				result = boundedLiteralText(ctx, adapter, text, target)
 				return nil
 			})
@@ -341,6 +348,16 @@ func (s *Server) handleInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(receipt)
+}
+
+func (s *Server) literalClipboardAllowed(target string) bool {
+	if target != input.ClipboardFallbackTarget {
+		return true
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, allowed := s.permissionLocked(mutationScopeClipboard)
+	return allowed
 }
 
 func boundedLiteralFocus(ctx context.Context, adapter input.LiteralInjector) input.LiteralResult {

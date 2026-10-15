@@ -43,7 +43,7 @@
     "start": "expo start --localhost",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
+    "web": "expo start --web --localhost",
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/*.test.cjs",
     "build:web-core": "node scripts/build-web-core.cjs"
