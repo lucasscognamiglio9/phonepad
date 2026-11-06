@@ -78,7 +78,10 @@ jobs:
         run: go test -mod=vendor -race ./...
       - name: Check Go code
         working-directory: daemon
-        run: go vet -mod=vendor ./...
+        run: |
+          go vet -mod=vendor ./...
+          unformatted="$(gofmt -l $(git ls-files '*.go' | grep -v '^vendor/'))"
+          test -z "$unformatted" || { echo "gofmt: $unformatted"; exit 1; }
   daemon:
     strategy:
       fail-fast: false
