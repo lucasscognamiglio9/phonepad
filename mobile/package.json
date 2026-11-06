@@ -22,6 +22,7 @@
     "expo-keep-awake": "~57.0.2",
     "expo-linking": "~57.0.9",
     "expo-router": "~57.0.20",
+    "expo-share-intent": "8.0.1",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.2",
     "expo-updates": "~57.0.21",

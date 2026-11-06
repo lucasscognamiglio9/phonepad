@@ -159,6 +159,7 @@ function harness(options = {}) {
   vm.runInNewContext(compile('lib/pointer-geometry.ts'), { exports: pointerGeometry, Number, Math });
   const modules = { './appearance': appearanceModule, '../components/appearance': appearanceModule,
     'expo-keep-awake': {activateKeepAwakeAsync: async()=>{},deactivateKeepAwake:async()=>{}},
+    'expo-share-intent': {useShareIntent: () => ({hasShareIntent:false,shareIntent:{files:null,text:null,webUrl:null},resetShareIntent:()=>{}})},
     '../lib/session-awake': {keepSessionAwake:()=>()=>{}},
     '../lib/control-preferences': {loadControlPreferences:()=>({mode:'trackpad',gain:1}),saveControlPreferences:()=>{}},
     '../lib/clipboard-transfer': {transferClipboard:async()=>{}},

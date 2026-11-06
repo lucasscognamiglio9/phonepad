@@ -27,6 +27,9 @@ import { PreviewLifecycle } from '../lib/preview-lifecycle';
 import { selectPointerGeometry } from '../lib/pointer-geometry';
 import { landscapeLayout, topPreviewHeight } from '../lib/control-layout';
 import { pasteToHost } from '../lib/text-delivery';
+import { useShareIntent } from 'expo-share-intent';
+import { sharedAttachment } from '../lib/attachments';
+import { transferClipboard } from '../lib/clipboard-transfer';
 import { keyboardOverlap, KeyboardViewport } from '../components/keyboard-layout';
 
 const messages: Record<ConnectionState, string> = {
@@ -93,6 +96,18 @@ export function Control({ origin, onSelectHost, initialPreview = false, onStartu
   }, [foreground, state, connection]);
   const attachments = useAttachmentTransfer(origin, state === 'connected' && connection.canTransfer,
     () => pasteToHost(connection), connection.canClipboard, connection.capabilities?.sessionEpoch, connection.canInput);
+  const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent({ scheme: 'phonepad' });
+  const shareReady = state === 'connected' && connection.canTransfer;
+  useEffect(() => {
+    if (!hasShareIntent || state !== 'connected') return;
+    const files = (shareIntent.files ?? []).map(sharedAttachment);
+    const text = shareIntent.webUrl || shareIntent.text;
+    resetShareIntent();
+    if (files.length) { if (shareReady) attachments.offerShared(files); else { setDismissedNotice(''); setControlError('El equipo no permite recibir archivos en esta sesión.'); } }
+    else if (text) void transferClipboard(connection, 'host', new AbortController().signal, text)
+      .then(() => { setDismissedNotice(''); setControlError('Copiado en el portapapeles del equipo.'); })
+      .catch(error => { setDismissedNotice(''); setControlError(noticeMessage(error, 'No se pudo copiar en el equipo.')); });
+  }, [hasShareIntent, state, shareReady]);
   const { isUpdatePending } = Updates.useUpdates();
   const updater = useMemo(() => new UpdateLifecycle({
     enabled: Updates.isEnabled,

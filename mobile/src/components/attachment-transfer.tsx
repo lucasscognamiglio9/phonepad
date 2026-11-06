@@ -2,7 +2,7 @@ import { appearance } from './appearance';
 import { useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { attachmentBatch, chooseAttachments, type AttachmentBatch, type AttachmentSource } from '../lib/attachments';
+import { attachmentBatch, chooseAttachments, type Attachment, type AttachmentBatch, type AttachmentSource } from '../lib/attachments';
 import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimits, type PreparedBatch, type TransferLimits } from '../lib/file-transfer';
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassSurface } from './glass-surface';
@@ -86,6 +86,18 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       if (!items.length || signal.aborted || !alive.current) return;
       if (items.length > limits.maxFiles) throw Error(`Esta computadora admite hasta ${limits.maxFiles} archivos por lote.`);
       select(attachmentBatch(items)); setVisible(true);
+    });
+  };
+
+  const offerShared = (items: Attachment[]) => {
+    if (!items.length) return;
+    if (selectionRef.current) { setVisible(true); setProblem('Terminá el envío anterior antes de compartir otro.'); return; }
+    if (!permissions.current.connected) { setProblem('El equipo no permite recibir archivos en esta sesión.'); return; }
+    void run(async signal => {
+      const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
+      if (signal.aborted || !alive.current) return;
+      if (items.length > limits.maxFiles) throw Error(`Esta computadora admite hasta ${limits.maxFiles} archivos por lote.`);
+      setLimits(limits); select(attachmentBatch(items)); setVisible(true);
     });
   };
 
@@ -201,5 +213,5 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       </View>}
     </GlassSurface>}
   </View>;
-  return { choose, offerClipboardImage, busy, pending: !!selection, panel };
+  return { choose, offerClipboardImage, offerShared, busy, pending: !!selection, panel };
 }

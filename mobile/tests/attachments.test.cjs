@@ -284,3 +284,11 @@ test('batch retry preserves operation identity after a missing response',async()
  h.requests[1].load(200,{version:1,id:batch.id,folder:'Downloads/Phonepad',clipboard:'ready',replayed:true,files:[{name:'a.txt',bytes:3,sha256:'a'.repeat(64)}]});
  assert.equal((await second).replayed,true);
 });
+
+test('a file shared from another app becomes a normal attachment', () => {
+  const h = load();
+  assert.deepEqual(json(h.sharedAttachment({ path: '/private/var/group/IMG_1.HEIC', fileName: 'IMG_1.HEIC', mimeType: 'image/heic', size: 2048 })),
+    { uri: 'file:///private/var/group/IMG_1.HEIC', name: 'IMG_1.HEIC', type: 'image/heic', size: 2048 });
+  assert.deepEqual(json(h.sharedAttachment({ path: 'file:///tmp/informe.pdf', fileName: '', mimeType: null, size: null })),
+    { uri: 'file:///tmp/informe.pdf', name: 'informe.pdf', type: 'application/pdf' });
+});

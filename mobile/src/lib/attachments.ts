@@ -86,6 +86,20 @@ function imageAttachment(item: Photos.ImagePickerAsset): Attachment {
   };
 }
 
+export type SharedFile = { path: string; fileName?: string | null; mimeType?: string | null; size?: number | null };
+
+// Share extension files live in the app group container as plain paths.
+export function sharedAttachment(item: SharedFile): Attachment {
+  const uri = item.path.startsWith('/') ? `file://${item.path}` : item.path;
+  const name = item.fileName?.trim() || basename(uri) || 'Archivo';
+  return {
+    uri,
+    name,
+    type: normalizeMime(item.mimeType) || mimeForName(name) || 'application/octet-stream',
+    size: typeof item.size === 'number' && Number.isFinite(item.size) ? item.size : undefined,
+  };
+}
+
 function isCameraUnavailable(error: unknown): boolean {
   const value = typeof error === 'object' && error !== null
     ? `${String((error as { code?: unknown }).code || '')} ${String((error as { message?: unknown }).message || '')}`

@@ -53,7 +53,31 @@
           "microphonePermission": "Usar el micrófono del iPhone como micrófono de tu computadora."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1,
+            "NSExtensionActivationSupportsImageWithMaxCount": 20,
+            "NSExtensionActivationSupportsMovieWithMaxCount": 20,
+            "NSExtensionActivationSupportsFileWithMaxCount": 20
+          },
+          "iosShareExtensionName": "Enviar a Phonepad",
+          "androidIntentFilters": [
+            "text/*",
+            "image/*",
+            "video/*",
+            "application/*"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*",
+            "video/*",
+            "application/*"
+          ]
+        }
+      ]
     ],
     "scheme": "phonepad",
     "extra": {

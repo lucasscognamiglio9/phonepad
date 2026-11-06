@@ -13,6 +13,7 @@ Demo animada de 22 segundos de la interfaz actual en Linux. [Descargar el video]
 - Pasa texto entre los portapapeles del iPhone y la computadora. Enviar un mensaje conserva lo que tenías copiado.
 - Muestra la pantalla en vertical y horizontal.
 - Envía fotos y archivos. Puede pegarlos en la aplicación que tenga el foco y acepte ese contenido.
+- Desde cualquier app, Compartir > "Enviar a Phonepad" manda fotos y archivos al equipo. Un texto o un link va al portapapeles del equipo.
 
 Los gestos del escritorio dependen del sistema.
 
