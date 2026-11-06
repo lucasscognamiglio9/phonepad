@@ -6,7 +6,7 @@ Revisión del 9 y 10 de octubre de 2026, actualizada el 15 de octubre. Abarca el
 
 - Las páginas locales de emparejamiento y captura comprueban la dirección de origen, `Host` y el origen del navegador. Rechazan solicitudes desde otro sitio y nombres usados para DNS rebinding.
 - Los archivos recibidos y las claves TLS usan permisos privados, también al reutilizar directorios. Windows aplica permisos mediante ACL.
-- El mínimo de Go es 1.26.9 para incluir los parches de seguridad de la biblioteca estándar.
+- El mínimo de Go es 1.26.10 para incluir los parches de seguridad de la biblioteca estándar.
 - La captura exige un directorio de ejecución privado. El token del portal se guarda con permisos 0600 y reemplazo atómico.
 - El instalador de Linux copia todos los módulos de captura y concede acceso a `/dev/uinput` mediante el grupo `phonepad`.
 - La configuración del código público tiene OTA desactivado y no apunta al proyecto personal de EAS.
@@ -25,7 +25,7 @@ El análisis de referencias y de llamadas en Linux, Mac y Windows detectó const
 
 Las pruebas locales cubren tipos y comportamiento del cliente, sesiones, autorización, revocación, transferencias, permisos, certificados y contratos de video. Se ejecutaron las pruebas Go con detector de carreras y `go vet`, y se compiló el servidor de Linux. La exportación JavaScript para iOS coincide con su mapa de fuentes.
 
-El repositorio de publicación parte de un historial nuevo, sin notas privadas ni paquetes piloto anteriores. Gitleaks comprueba ese historial sin excepciones. `govulncheck` no encontró llamadas vulnerables en el servidor de Linux con Go 1.26.9. Los avisos de análisis estático se revisaron por ruta y contexto; no se silencian globalmente.
+El repositorio de publicación parte de un historial nuevo, sin notas privadas ni paquetes piloto anteriores. Gitleaks comprueba ese historial sin excepciones. `govulncheck` no encontró llamadas vulnerables en el servidor de Linux con Go 1.26.10. Los avisos de análisis estático se revisaron por ruta y contexto; no se silencian globalmente.
 
 Los workflows vuelven a comprobar el código y compilan en Mac y Windows. Una compilación no confirma permisos, entrada o video en dispositivos reales.
 

@@ -27,7 +27,7 @@ npm test
 python3 -m unittest discover -s tests -p '*_test.py'
 ```
 
-El servidor requiere Go 1.26.9 o posterior, con los parches de seguridad. Para compilarlo desde una copia del código, ejecutá:
+El servidor requiere Go 1.26.10 o posterior, con los parches de seguridad. Para compilarlo desde una copia del código, ejecutá:
 
 ```sh
 cd daemon
