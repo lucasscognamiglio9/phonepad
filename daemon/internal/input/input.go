@@ -28,7 +28,8 @@ type uinputDevice struct {
 	geometry *PointerGeometry // perfil aplicado al touchpad móvil
 	mu       sync.Mutex
 	held     map[int]struct{} // teclas presionadas, para liberar en Reset/Close
-	btns     map[string]bool  // botones del mouse actualmente abajo
+	layout   layoutCache
+	btns     map[string]bool // botones del mouse actualmente abajo
 }
 
 // PointerGeometry reports only the established mobile touchpad geometry. The
@@ -309,15 +310,12 @@ func (d *uinputDevice) Scroll(dx, dy int) {
 	}
 }
 
-// Text inyecta texto Unicode (acentos, ñ, emoji). uinput emite scancodes, no
-// codepoints, y GNOME Mutter NO implementa zwp_virtual_keyboard_v1 (por eso
-// wtype falla con "Compositor does not support the virtual keyboard protocol").
-// Estrategia híbrida (SPEC §4): el ASCII del layout US se emite por keycode
-// directo (rápido, sin tocar el clipboard); las runes Unicode se pegan por
-// portapapeles, único camino que entrega el codepoint exacto en GNOME Wayland.
-// planText (testeado) decide el reparto; acá solo ejecutamos.
+// Text types s with the keys of the active GNOME layout, so a latam or
+// Spanish keyboard gets the same character the phone sent. Characters the
+// layout has no key for, or reaches only through dead keys (á, ü, emoji),
+// go through the clipboard, the only codepoint-exact path in GNOME Wayland.
 func (d *uinputDevice) Text(s string) {
-	for _, op := range planText(s) {
+	for _, op := range planText(s, d.layout.current()) {
 		if op.paste != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			result := d.clipboardLiteralText(ctx, op.paste)
@@ -331,7 +329,13 @@ func (d *uinputDevice) Text(s string) {
 		if op.shift {
 			d.keyDown(uinput.KeyLeftshift)
 		}
+		if op.altgr {
+			d.keyDown(uinput.KeyRightalt)
+		}
 		d.keyPress(op.code)
+		if op.altgr {
+			d.keyUp(uinput.KeyRightalt)
+		}
 		if op.shift {
 			d.keyUp(uinput.KeyLeftshift)
 		}
@@ -339,22 +343,18 @@ func (d *uinputDevice) Text(s string) {
 	}
 }
 
-// textOp es un paso del tipeo de un string: o una pulsación por keycode
-// (con/ sin Shift), o un paste de un fragmento Unicode vía portapapeles.
+// textOp is one typing step: a key chord, or a clipboard paste of the
+// characters the layout cannot type.
 type textOp struct {
-	paste string // != "" → pegar este fragmento (camino Unicode)
-	code  int    // camino keycode
-	shift bool
+	paste string
+	keyChord
 }
 
-// planText descompone s en la secuencia de operaciones para tipearlo: el ASCII
-// del layout US va por keycode (runeToKey); las runes que no resuelve se pegan
-// por portapapeles (único camino Unicode-safe en GNOME Wayland sin el protocolo
-// virtual-keyboard). Las runes no-ASCII contiguas se agrupan en un solo paste
-// para minimizar el clobber del clipboard.
-func planText(s string) []textOp {
+// planText groups contiguous untypeable characters into one paste so the
+// clipboard is replaced as few times as possible.
+func planText(s string, keys layoutKeys) []textOp {
 	var ops []textOp
-	var buf []rune // acumula no-ASCII contiguos
+	var buf []rune
 	flush := func() {
 		if len(buf) > 0 {
 			ops = append(ops, textOp{paste: string(buf)})
@@ -362,9 +362,9 @@ func planText(s string) []textOp {
 		}
 	}
 	for _, r := range s {
-		if code, shift, ok := runeToKey(r); ok {
+		if chord, ok := keys[r]; ok {
 			flush()
-			ops = append(ops, textOp{code: code, shift: shift})
+			ops = append(ops, textOp{keyChord: chord})
 		} else {
 			buf = append(buf, r)
 		}

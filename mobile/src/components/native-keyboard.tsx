@@ -11,7 +11,6 @@ import { ActionMenu } from './action-menu';
 import { DismissibleNotice } from './dismissible-notice';
 import { ShortcutPanel } from './shortcut-panel';
 import { primaryModifier, type ComposerColumn } from '../lib/control-layout';
-import { deliverText } from '../lib/text-delivery';
 import {
   COMPOSER_CLOSED_MARGIN,
   COMPOSER_OPEN_GAP,
@@ -25,7 +24,6 @@ import {
 import type { Connection } from '../lib/connection';
 import { readPhoneClipboardText, transferClipboard, validateClipboardText } from '../lib/clipboard-transfer';
 import type { AttachmentSource } from '../lib/attachments';
-import type { LateDraft } from '../lib/literal-transfer';
 import type { ActionReceipt } from '../lib/protocol';
 import { textCommands } from '../lib/protocol';
 import { CARET_COLUMNS, CARET_CONTEXT, CARET_ORIGIN, caretInsertion, caretMovement, caretAtBoundary, type CaretSelection } from '../lib/native-caret';
@@ -52,21 +50,16 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const { width, height } = useWindowDimensions();
   const keyboardHeight = useKeyboardState(state => state.isVisible ? state.height : 0);
   const input = useRef<TextInput>(null);
-  const literal = connection.literal;
-  const literalMode = connection.capabilities?.protocolVersion === 2 || !!connection.inputCapabilities || !!literal?.pending || !!literal?.draft || !!literal?.lateDraft;
-  const [value, setValue] = useState(literal?.draft ?? '');
+  // Every edit reaches the computer as it happens. The host types each
+  // character with the key its active layout assigns to it.
+  const [value, setValue] = useState('');
   const [sending, setSending] = useState(false);
-  const [textStatus, setTextStatus] = useState('');
   const previous = useRef('');
-  const draft = useRef(literal?.draft ?? '');
-  const interrupted = useRef(!!literal?.lateDraft);
-  const editorGeneration = useRef(0);
-  const confirmedText = useRef('');
-  const [inputGeneration, setInputGeneration] = useState(0);
-  const [lateDraft, setLateDraft] = useState<LateDraft | null>(literal?.lateDraft ?? null);
+  const draft = useRef('');
+  const interrupted = useRef(false);
   const [issueExpanded, setIssueExpanded] = useState(false);
-  const [deliveryIssue, setDeliveryIssue] = useState(!!literal?.lateDraft);
-  const hasPendingContent = !!value || sending || deliveryIssue || !!lateDraft || !!literal?.pending;
+  const [deliveryIssue, setDeliveryIssue] = useState(false);
+  const hasPendingContent = sending || deliveryIssue;
   useEffect(() => { onPendingChange?.(hasPendingContent); }, [hasPendingContent, onPendingChange]);
   const screen = Dimensions.get('screen');
   const landscape = !!column || screen.width > screen.height;
@@ -86,10 +79,10 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
   const [actionOperationId, setActionOperationId] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState('');
   useEffect(() => {
-    if (!textStatus && !actionStatus) return;
-    const timer = setTimeout(() => { setTextStatus(''); setActionStatus(''); }, appearance.transfer.toastDuration);
+    if (!actionStatus) return;
+    const timer = setTimeout(() => { setActionStatus(''); }, appearance.transfer.toastDuration);
     return () => clearTimeout(timer);
-  }, [textStatus, actionStatus]);
+  }, [actionStatus]);
   const lastActionReceipt = useRef('');
   const draftSafeOperations = useRef(new Set<string>());
   const [contentHeight, setContentHeight] = useState(24);
@@ -115,12 +108,12 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     closedBottomInset: closedBottom,
   });
   const caretMode = Platform.OS === 'ios' && active && visible && !disabled
-    && connection.canInput !== false && !value && !draft.current && !sending && !literal?.pending && !literal?.busy && !interrupted.current && !lateDraft;
+    && connection.canInput !== false && !value && !draft.current && !sending && !interrupted.current;
   const inputEpoch = connection.capabilities?.sessionEpoch;
   const latestInputEpoch = useRef(inputEpoch);
   latestInputEpoch.current = inputEpoch;
   const nativeInputEnabled = useRef(active && visible && !disabled);
-  nativeInputEnabled.current = active && visible && !disabled && connection.canInput !== false && !sending && !literal?.busy;
+  nativeInputEnabled.current = active && visible && !disabled && connection.canInput !== false && !sending;
   const caretEnabled = useRef(caretMode);
   caretEnabled.current = caretMode;
   const previousCaretMode = useRef(false);
@@ -165,9 +158,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       // A disconnect can happen after only part of a correction was queued.
       // Keep the draft and require review; reconnect must never replay it.
       if (disabled && draft.current) { interrupted.current = true; setDeliveryIssue(true); }
-      if (!interrupted.current && !literalMode) { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); }
+      if (!interrupted.current) { previous.current = ''; draft.current = ''; setValue(''); setContentHeight(24); }
     }
-  }, [active, visible, disabled, literalMode]);
+  }, [active, visible, disabled]);
   useEffect(() => {
     // A keyboard frame change can move the composer without changing its
     // React layout. Re-measure while the popup is open so its window anchor
@@ -191,56 +184,22 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     draft.current = text; setValue(text);
     interrupted.current = true; setDeliveryIssue(true); setIssueExpanded(false);
   };
-  const canSend = () => !disabled && visible && !interrupted.current && !sending && !literal?.busy;
-  const canSendKey = () => !disabled && visible && !sending && !literal?.busy;
+  const canSend = () => !disabled && visible && !interrupted.current && !sending;
+  const canSendKey = () => !disabled && visible && !sending;
   const preserveActionContext = () => {
     // A key receipt can be rejected after a native edit callback has already
     // populated the editor. Preserve that local text, but do not manufacture
     // an interruption banner when there was no draft to protect.
     if (draft.current || value) preserveDraft();
   };
-  const keysDisabled = disabled || !visible || sending || !!literal?.busy;
-  const reviewAvailable = deliveryIssue || !!textStatus || !!actionStatus;
-  const finishReview = () => {
+  const keysDisabled = disabled || !visible || sending;
+  const reviewAvailable = deliveryIssue || !!actionStatus;
+  const reviewed = () => {
     // This does not assert that the host applied anything and sends no input.
     // The user has reviewed the remote field; only later edits may be sent.
+    if (!visible) return;
     previous.current = draft.current;
-    setTextStatus('');
     interrupted.current = false; setDeliveryIssue(false); setIssueExpanded(false); setMods([]);
-  };
-  const useLateDraft = () => {
-    const selected = literal?.useLateDraft ? literal.useLateDraft() : lateDraft;
-    if (!selected) return;
-    draft.current = selected.text; literal.draft = selected.text; setValue(selected.text);
-    setLateDraft(literal.lateDraft ?? null);
-    interrupted.current = false; setDeliveryIssue(false); setIssueExpanded(false); setMods([]);
-    setTextStatus('');
-  };
-  const discardLateDraft = () => {
-    literal?.discardLateDraft?.();
-    setLateDraft(null);
-    interrupted.current = false; setDeliveryIssue(false); setIssueExpanded(false); setMods([]);
-    setTextStatus('');
-  };
-  const reviewed = () => {
-    if (!visible || (!!literal?.pending && !canReview)) return;
-    if (sending) return;
-    if (!literal?.pending) {
-      finishReview();
-      return;
-    }
-    setSending(true);
-    Promise.resolve(literal.reviewed()).then(accepted => {
-      setSending(false);
-      if (accepted === false) {
-        setTextStatus('No se pudo cancelar. Consultá el envío.');
-        return;
-      }
-      finishReview();
-    }).catch(() => {
-      setSending(false);
-      setTextStatus('No se pudo consultar el envío.');
-    });
   };
   const dispatchAction = (key: string, selectedMods = mods): ActionDispatch => {
     if (!canSendKey()) return { accepted: false, receiptAware: false, operationId: null };
@@ -250,14 +209,14 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     const operationId = connection.pressAction?.(action) ?? null;
     if (operationId) {
       draftSafeOperations.current.clear();
-      if ((literalMode && (draft.current || literal?.pending)) || interrupted.current) draftSafeOperations.current.add(operationId);
+      if (interrupted.current) draftSafeOperations.current.add(operationId);
       setActionOperationId(operationId);
       setActionStatus('');
       setMods([]);
       return { accepted: true, receiptAware: true, operationId };
     }
     if (!connection.send(action)) return { accepted: false, receiptAware: false, operationId: null };
-    setMods([]); if (!interrupted.current && (!literalMode || (!draft.current && !literal?.pending))) resetContext();
+    setMods([]); if (!interrupted.current) resetContext();
     return { accepted: true, receiptAware: false, operationId: null };
   };
   const special = (key: string) => {
@@ -282,23 +241,22 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       setActionStatus(noticeMessage(error, 'No se pudo copiar.'));
     } finally { clipboardBusy.current = false; setSending(false); }
   };
-  const pasteClipboardIntoDraft = async (pasted?: string) => {
-    if (!canSendKey() || clipboardBusy.current || interrupted.current || literal?.pending) return;
-    const generation = editorGeneration.current, original = draft.current;
+  const typePhoneClipboard = async (pasted?: string) => {
+    if (!canSend() || clipboardBusy.current) return;
+    const original = draft.current;
     const selection = draftSelection.current;
     clipboardBusy.current = true;
     try {
       const copied = pasted ?? await readPhoneClipboardText();
       validateClipboardText(copied);
-      if (generation !== editorGeneration.current || original !== draft.current) return;
+      if (original !== draft.current || !canSend()) return;
       const start = Math.min(original.length, Math.max(0, selection?.start ?? original.length));
       const end = Math.min(original.length, Math.max(start, selection?.end ?? start));
       const next = original.slice(0, start) + copied + original.slice(end);
-      validateClipboardText(next);
-      draft.current = next; if (literal) literal.draft = next;
-      previous.current = next; setValue(next);
-      const caret = {start: start + copied.length, end: start + copied.length};
-      draftSelection.current = caret; setCaretSelection(caret);
+      for (const command of textCommands(original, next)) {
+        if (!connection.send(command)) { preserveDraft(next); return; }
+      }
+      resetContext(); resetCaret();
       open(); input.current?.focus();
       setActionStatus('');
     } catch (error) { setActionStatus(noticeMessage(error, 'No se pudo pegar el texto.')); }
@@ -332,67 +290,15 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
       return;
     }
     if (actionReceipt.state === 'executed') {
-      if (actionReceipt.phase === 'press' && !draftSafeOperations.current.has(actionOperationId) && (!literalMode || !draft.current)) resetContext();
+      if (actionReceipt.phase === 'press' && !draftSafeOperations.current.has(actionOperationId)) resetContext();
       setActionStatus('');
     }
   }, [actionOperationId, receiptKey]);
-  const applyReceipt = (state: string, sentText: string) => {
-    if (state === 'dispatched') {
-      // Advance the callback generation while preserving the native editor and
-      // its first responder. Old delivery callbacks cannot mutate a new draft.
-      editorGeneration.current += 1;
-      setInputGeneration(editorGeneration.current);
-      confirmedText.current = sentText;
-      literal.acknowledged?.();
-      if (!draft.current || draft.current.startsWith(sentText)) {
-        // Typing can append text while the snapshot is being delivered.
-        // Keep only the unsent suffix, never resend the delivered block.
-        const remaining = draft.current ? draft.current.slice(sentText.length) : '';
-        draft.current = remaining; literal.draft = remaining; previous.current = '';
-        setValue(remaining); setContentHeight(24);
-        interrupted.current = false; setDeliveryIssue(false);
-        setTextStatus('');
-      } else {
-        preserveDraft();
-        setTextStatus('Borrador conservado. Revisá el envío.');
-      }
-    } else if (state === 'rejected' || state === 'cancelled') {
-      literal.acknowledged?.();
-      interrupted.current = false; setDeliveryIssue(false);
-      setTextStatus('No se pudo enviar. El texto sigue acá.');
-    } else {
-      preserveDraft();
-      setTextStatus(state === 'rejected' || state === 'cancelled'
-        ? 'No se pudo escribir. Seleccioná un campo en el equipo.'
-        : 'Envío sin confirmar.');
-    }
-  };
-  const writeText = async () => {
-    if (!canSend() || !literal || !draft.current) return;
-    const text = draft.current;
-    setSending(true); setTextStatus('');
-    try { const receipt = await deliverText(connection, text); applyReceipt(receipt.state, text); }
-    catch (error) { preserveDraft(); setTextStatus(noticeMessage(error, 'Envío sin confirmar.')); }
-    finally { setSending(false); }
-  };
-  const checkText = async () => {
-    if (!literal?.pending || sending || literal.busy || !canReview) return;
-    const text = literal.pending.text;
-    setSending(true);
-    try { const receipt = await literal.status(); applyReceipt(receipt.state, text); }
-    catch { setTextStatus('Envío sin confirmar.'); }
-    finally { setSending(false); }
-  };
   const discardLocalDraft = () => {
-    if (sending || literal?.busy || literal?.pending) return;
+    if (sending) return;
     Alert.alert('¿Descartar el borrador?', 'Se borrará el texto del teléfono.', [
       { text: 'Conservar', style: 'cancel' },
-      { text: 'Descartar', style: 'destructive', onPress: () => {
-        if (literal?.busy || literal?.pending) return;
-        editorGeneration.current++; setInputGeneration(editorGeneration.current);
-        if (literal) literal.draft = '';
-        resetContext(); finishReview();
-      } },
+      { text: 'Descartar', style: 'destructive', onPress: () => { resetContext(); reviewed(); } },
     ]);
   };
   const finishMenu = (action: MenuAction | null) => {
@@ -465,7 +371,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         platform={connection.capabilities?.hostPlatform} modifiers={mods} page={shortcutPage} onPageChange={setShortcutPage}
         toggleModifier={mod => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }}
         special={special} copy={() => clipboard('c')} paste={() => clipboard('v')}
-        pasteDraft={text => { void pasteClipboardIntoDraft(text); }}
+        pasteDraft={text => { void typePhoneClipboard(text); }}
         toPhone={() => { void copyClipboard('phone'); }} toHost={text => { void copyClipboard('host', text); }} />}
       <GlassSurface glassPointer={glassPointer} style={{ borderRadius: compact ? appearance.control.capsuleRadius : appearance.control.menuRadius, padding: appearance.composer.padding }}>
         <View style={{ position: 'relative', marginLeft: compactLeft, marginRight: compactRight }}>
@@ -473,18 +379,6 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             onChangeText={nativeText => {
               if (nativeText === CARET_CONTEXT) return;
               const text = caretMode ? caretInsertion(nativeText) : nativeText;
-              if (inputGeneration !== editorGeneration.current) {
-                if (!text || text === confirmedText.current || (text === '\n' && !draft.current)) return;
-                // The callback belongs to an earlier draft generation.
-                // Keep the complete event and require review
-                // because its origin is unknown.
-                const late = literal.noteLateDraft?.(text, confirmedText.current)
-                  ?? { text, duplicate: text === confirmedText.current };
-                setLateDraft(late);
-                interrupted.current = true; setDeliveryIssue(true); setIssueExpanded(false);
-                setTextStatus('El borrador cambió durante el envío.');
-                return;
-              }
               if (caretMode) {
                 caretTyping.current = true;
                 caretPosition.current = CARET_ORIGIN;
@@ -503,20 +397,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               // With a draft it remains the OS's multiline editor operation.
               if (!draft.current && text === '\n') {
                 if (caretMode) resetCaret();
-                if (nativeInputEnabled.current && latestInputEpoch.current === inputEpoch
-                  && inputGeneration === editorGeneration.current && !literal?.pending && !interrupted.current) special('Enter');
+                if (nativeInputEnabled.current && latestInputEpoch.current === inputEpoch && !interrupted.current) special('Enter');
                 return;
-              }
-              if (literalMode) {
-                if (mods.length && !draft.current && Array.from(text).length === 1 && !/[\r\n]/.test(text) && canSendKey()) {
-                  const result = dispatchAction(text, mods);
-                  if (result.accepted) { if (caretMode) resetCaret(); return; }
-                  preserveDraft(text);
-                }
-                if (!sending && ((!literal?.pending && !interrupted.current) || ['rejected', 'cancelled'].includes(literal?.pending?.receipt?.state ?? ''))) {
-                  literal.acknowledged?.(); interrupted.current = false; setDeliveryIssue(false); setTextStatus(''); setActionStatus('');
-                }
-                draft.current = text; literal.draft = text; setValue(text); return;
               }
               if (!canSend()) { preserveDraft(text); return; }
               const extra = text.startsWith(previous.current) ? Array.from(text.slice(previous.current.length)) : [];
@@ -528,8 +410,9 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
                   if (!connection.send(command)) { preserveDraft(text); return; }
                 }
                 if (mods.length) setMods([]);
-                previous.current = text; draft.current = text; setValue(text);
               }
+              // The laptop owns the text: each keystroke leaves the composer empty.
+              resetContext(); resetCaret();
             }} editable={!disabled} multiline
             contextMenuHidden={caretMode} caretHidden={false} selectionColor={caretMode ? 'transparent' : undefined} allowFontScaling={!caretMode}
             accessibilityValue={{ text: value }}
@@ -538,7 +421,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               if (!caretMode) { draftSelection.current = next; return; }
               // Ignore callbacks from an obsolete editor, programmatic resets,
               // native text insertion, revoked permissions or uncertain sends.
-              if (!caretEnabled.current || latestInputEpoch.current !== inputEpoch || inputGeneration !== editorGeneration.current || !canSendKey() || draft.current || interrupted.current || literal?.pending) return;
+              if (!caretEnabled.current || latestInputEpoch.current !== inputEpoch || !canSendKey() || draft.current || interrupted.current) return;
               if (caretTouch.current) return;
               if (caretReset.current) {
                 if (next.start !== next.end) return;
@@ -563,20 +446,19 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
             onTouchStart={() => { if (caretMode) caretTouch.current = true; }}
             onTouchEnd={() => { if (caretEnabled.current && !draft.current) { caretTouch.current = false; resetCaret(); } }}
             onTouchCancel={() => { if (caretEnabled.current && !draft.current) { caretTouch.current = false; resetCaret(); } }}
-            maxLength={literalMode ? undefined : 2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
+            maxLength={2048} autoCorrect={false} autoCapitalize="none" spellCheck={false}
             placeholder={caretMode ? undefined : "Escribir…"} placeholderTextColor={appearance.color.secondary} accessibilityLabel="Escribir en la computadora" accessibilityHint={caretMode ? 'Mantené Espacio y deslizá para mover el cursor de texto del equipo' : undefined}
-            onFocus={() => { if (inputGeneration === editorGeneration.current && visible && !menuInteraction.current) { setTextStatus(''); setActionStatus(''); open(); } }}
-            onBlur={() => { if (inputGeneration === editorGeneration.current && !menuInteraction.current) close(); }}
+            onFocus={() => { if (visible && !menuInteraction.current) { setActionStatus(''); open(); } }}
+            onBlur={() => { if (!menuInteraction.current) close(); }}
             submitBehavior="newline" returnKeyType="default"
             onKeyPress={event => {
               if (!nativeInputEnabled.current || latestInputEpoch.current !== inputEpoch) return;
               if (caretMode) caretTyping.current = true;
               // Native key repeat reaches this callback too. A nonempty local
               // draft is edited by the OS; never also delete the remote field.
-              if (inputGeneration === editorGeneration.current && event.nativeEvent.key === 'Backspace'
-                && !value && !draft.current && !literal?.pending && !interrupted.current) special('Backspace');
+              if (event.nativeEvent.key === 'Backspace' && !value && !draft.current && !interrupted.current) special('Backspace');
             }}
-            onContentSizeChange={event => { if (inputGeneration === editorGeneration.current && !caretMode && !caretEnabled.current) setContentHeight(Math.ceil(event.nativeEvent.contentSize.height)); }}
+            onContentSizeChange={event => { if (!caretMode && !caretEnabled.current) setContentHeight(Math.ceil(event.nativeEvent.contentSize.height)); }}
             scrollEnabled
             style={{ color: caretMode ? 'transparent' : appearance.color.text, fontFamily: caretMode ? 'Courier' : undefined,
               // The invisible context must not acquire soft wraps in a narrow
@@ -600,33 +482,22 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
               disabled={keysDisabled} onPress={() => { setShortcutPage(0); setShortcutsPreference({ landscape, visible: !shortcuts }); }} /></View>
             <View style={{ position: 'absolute', right: 0, bottom: 0, width: MIN_TOUCH_TARGET, height: MIN_TOUCH_TARGET, justifyContent: 'center' }}><GlassButton compact
               label={reviewAvailable ? 'Revisar envío' : 'Enviar texto'} action={reviewAvailable ? 'review' : 'send'} selected={deliveryIssue}
-              disabled={reviewAvailable ? sending : literalMode ? disabled || !value || sending || !!literal?.pending : keysDisabled}
-              onPress={() => { if (reviewAvailable) setIssueExpanded(true); else if (literalMode && draft.current) void writeText(); else if (!literalMode) submit(); }} /></View>
+              disabled={reviewAvailable ? sending : keysDisabled}
+              onPress={() => { if (reviewAvailable) setIssueExpanded(true); else submit(); }} /></View>
         </View>
       </GlassSurface>
       </ScrollView>
-      {issueExpanded && !!(lateDraft || deliveryIssue || textStatus || actionStatus) && <View testID="phonepad-composer-review" style={{ position: 'absolute', left: 0, right: 0,
+      {issueExpanded && (deliveryIssue || !!actionStatus) && <View testID="phonepad-composer-review" style={{ position: 'absolute', left: 0, right: 0,
         bottom: MIN_TOUCH_TARGET + appearance.composer.padding, maxHeight: Math.max(MIN_TOUCH_TARGET, availableHeight - MIN_TOUCH_TARGET - appearance.composer.padding * 2) }}>
         <ScrollView bounces={false} keyboardShouldPersistTaps="always" keyboardDismissMode="none"
           contentContainerStyle={{ gap: appearance.composer.toolbarGap }}>
-          {lateDraft && issueExpanded && <DismissibleNotice message={lateDraft.duplicate ? 'Este texto ya se envió.' : 'Otra versión del borrador.'} dismiss={() => { setIssueExpanded(false); }}>
-            <ScrollView style={{ maxHeight: 120 }} keyboardShouldPersistTaps="handled">
-              <Text selectable style={{ color: appearance.color.text, fontSize: appearance.text.body, marginTop: appearance.spacing.sm }}>{lateDraft.text || '(vacío)'}</Text>
-            </ScrollView>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: appearance.control.gap, marginTop: appearance.control.gap }}>
-              <GlassButton label="Usar este texto" disabled={sending} onPress={useLateDraft} />
-              <GlassButton label="Descartar esta versión" disabled={sending} onPress={discardLateDraft} />
+          {deliveryIssue && <DismissibleNotice message="Revisá el texto en el equipo." dismiss={() => { setIssueExpanded(false); setActionStatus(''); }}>
+            <View style={{flexDirection:'row',flexWrap:'wrap',gap:appearance.control.gap}}>
+              <GlassButton label="Ya revisé" disabled={sending} onPress={reviewed} />
+              {!!value && <GlassButton label="Descartar borrador" disabled={sending} onPress={discardLocalDraft} />}
             </View>
           </DismissibleNotice>}
-          {deliveryIssue && (!lateDraft || !issueExpanded) && (issueExpanded ? <DismissibleNotice message={textStatus || 'Revisá el envío en el equipo.'} dismiss={() => { setIssueExpanded(false); setTextStatus(''); setActionStatus(''); }}>
-            <View style={{flexDirection:'row',flexWrap:'wrap',gap:appearance.control.gap}}>
-              <GlassButton label="Ya revisé" disabled={sending || (!!literal?.pending && !canReview)} onPress={reviewed} />
-              {!!value && !literal?.pending && <GlassButton label="Descartar borrador" disabled={sending} onPress={discardLocalDraft} />}
-              {literal?.pending && <GlassButton label="Consultar envío" disabled={!canReview || sending} onPress={() => { void checkText(); }} />}
-            </View>
-          </DismissibleNotice> : null)}
-          {issueExpanded && literalMode && !!textStatus && !deliveryIssue && <DismissibleNotice message={textStatus} dismiss={() => { setTextStatus(''); setIssueExpanded(false); }} />}
-          {issueExpanded && !!actionStatus && !deliveryIssue && (!literalMode || !textStatus) && <DismissibleNotice message={actionStatus} dismiss={() => { setActionStatus(''); setIssueExpanded(false); }} />}
+          {!deliveryIssue && !!actionStatus && <DismissibleNotice message={actionStatus} dismiss={() => { setActionStatus(''); setIssueExpanded(false); }} />}
         </ScrollView>
       </View>}
       </Animated.View>

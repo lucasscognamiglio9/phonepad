@@ -1,15 +1,6 @@
 import type { Connection } from './connection';
 import { primaryModifier } from './control-layout';
 
-// A verified rejection means no text was inserted. Never paste a second time
-// after a lost receipt, a dispatch, or an uncertain result.
-export async function deliverText(connection: Connection, text: string): Promise<{state: string}> {
-  // The host owns insertion and any temporary clipboard lease. Permanent
-  // clipboard transfer is a separate, explicit action.
-  if (!connection.canInput) return {state: 'rejected'};
-  return connection.literal.send(text);
-}
-
 export async function pasteToHost(connection: Connection): Promise<'executed' | 'rejected' | 'uncertain'> {
   const epoch = connection.capabilities?.sessionEpoch;
   if (!epoch || !connection.canInput || !connection.canClipboard) return 'rejected';

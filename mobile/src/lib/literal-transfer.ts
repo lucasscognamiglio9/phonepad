@@ -10,7 +10,6 @@ export type TextManifest = { version: 1; operationId: string; session: string; c
 export type TextReceipt = TextManifest & { state: 'receiving' | 'ready' | 'dispatching' | 'dispatched' | 'uncertain' | 'rejected' | 'cancelled';
   receivedBytes: number; nextChunk: number };
 export type PendingText = { manifest: TextManifest; text: string; receipt?: TextReceipt };
-export type LateDraft = { text: string; duplicate: boolean };
 
 export function inputCapabilities(value: unknown): InputCapabilities | null {
   const v = value as InputCapabilities | null;
@@ -26,8 +25,6 @@ export function inputCapabilities(value: unknown): InputCapabilities | null {
 // One controller per connection, retained across component unmount/reconnect.
 // No retries or silent fallback to scancodes. A lost receipt requires status.
 export class LiteralTransfer {
-  draft = '';
-  lateDraft: LateDraft | null = null;
   pending: PendingText | null = null;
   busy = false;
   private sequence = 0;
@@ -116,20 +113,6 @@ export class LiteralTransfer {
     const state = this.pending.receipt?.state;
     if (state === 'dispatched' || state === 'rejected' || state === 'cancelled') this.pending = null;
   }
-  noteLateDraft(text: string, confirmedText: string): LateDraft {
-    this.lateDraft = { text, duplicate: text === confirmedText };
-    return this.lateDraft;
-  }
-  useLateDraft(): LateDraft | null {
-    const late = this.lateDraft;
-    if (late) {
-      const current = this.draft;
-      this.draft = late.text;
-      this.lateDraft = current && current !== late.text ? { text: current, duplicate: false } : null;
-    }
-    return late;
-  }
-  discardLateDraft() { this.lateDraft = null; }
   // Forgetting a prepared operation must leave no staged text behind. The
   // server's cancel is idempotent from the client's point of view: a second
   // review first observes the cancelled receipt and does not send another

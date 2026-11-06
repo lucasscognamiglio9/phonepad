@@ -94,18 +94,6 @@ test('native Backspace repetition targets the host once per key event and stops 
   h.find('TextInput').props.onKeyPress({nativeEvent:{key:'Backspace'}});assert.equal(h.sent.length,count);
 });
 
-test('iPhone Backspace targets the remote field only when the composer is empty', () => {
-  const h = harness(); h.connection.capabilities = {protocolVersion: 2}; h.render();
-  h.find('TextInput').props.onKeyPress({nativeEvent:{key:'Backspace'}});
-  assert.equal(h.sent.length, 1); assert.equal(h.sent[0].key, 'Backspace');
-  h.find('TextInput').props.onChangeText('a'); h.render();
-  const previous = h.find('TextInput');
-  previous.props.onKeyPress({nativeEvent:{key:'Backspace'}});
-  previous.props.onChangeText('');
-  previous.props.onKeyPress({nativeEvent:{key:'Backspace'}});
-  assert.equal(h.sent.length, 1, 'a local deletion must never also delete remote text');
-});
-
 function statusText(h) {
   return h.nodes(h.tree()).filter(node => node.type === 'Text').map(node => node.props.children)
     .find(value => typeof value === 'string' && (value.toLowerCase().includes('tecla') || value.includes('Resultado') || value.includes('Repetición'))) ?? '';
@@ -153,21 +141,8 @@ test('isolated onPress executes one action for accessibility activation', () => 
   assert.equal(h.sent.filter(item => item.phase === 'press').length, 1);
 });
 
-test('a late cancelled or executed receipt preserves a newer local draft',()=>{
- const h=harness();h.click('Teclas extra');h.click('Tab');
- const operation=h.sent[0].operationId;h.connection.inputCapabilities={version:1};h.render();
- h.find('TextInput').props.onChangeText('contexto nuevo');h.render();
- h.receipt(operation,'cancelled','cancel');h.receipt(operation,'executed');
- assert.equal(h.find('TextInput').props.value,'contexto nuevo');assert.equal(h.sent.length,1);
-});
-
 test('action errors disappear without restarting the composer',t=>{
  t.mock.timers.enable({apis:['setTimeout']});const h=harness();h.click('Teclas extra');h.click('Tab');
  h.receipt(h.sent[0].operationId,'rejected');assert.equal(statusText(h),'');h.click('Revisar envío');assert.match(statusText(h),/rechazada/);
  t.mock.timers.tick(5000);h.render();assert.equal(statusText(h),'');assert.ok(h.find('TextInput'));
-});
-
-test('an ordinary navigation receipt cannot erase a draft typed after the key was pressed',()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.click('Teclas extra');h.click('Tab');const operation=h.sent[0].operationId;
- h.find('TextInput').props.onChangeText('nuevo borrador');h.render();h.receipt(operation,'executed');assert.equal(h.find('TextInput').props.value,'nuevo borrador');
 });

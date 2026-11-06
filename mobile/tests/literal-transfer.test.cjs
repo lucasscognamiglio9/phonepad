@@ -68,24 +68,6 @@ test('a lost cancel receipt is resolved by status before local cleanup',async()=
  assert.equal(h.calls.at(-1).op,'status');
  assert.equal(h.transfer.pending,null);
 });
-test('late drafts remain separate and mark an exact confirmed duplicate',()=>{
- const h=harness();
- const late=h.transfer.noteLateDraft('confirmado','confirmado');
- assert.equal(late.text,'confirmado');assert.equal(late.duplicate,true);
- assert.equal(h.transfer.lateDraft.text,'confirmado');assert.equal(h.transfer.lateDraft.duplicate,true);
- const used=h.transfer.useLateDraft();
- assert.equal(used.text,'confirmado');assert.equal(used.duplicate,true);
- assert.equal(h.transfer.lateDraft,null);
- h.transfer.noteLateDraft('otra versión','confirmado');
- h.transfer.discardLateDraft();
- assert.equal(h.transfer.lateDraft,null);
-});
-test('choosing a recovered version retains the current draft as the alternate',()=>{
- const h=harness();h.transfer.draft='nuevo';h.transfer.noteLateDraft('first next','first');
- assert.equal(h.transfer.useLateDraft().text,'first next');
- assert.equal(h.transfer.draft,'first next');assert.equal(h.transfer.lateDraft.text,'nuevo');
- h.transfer.useLateDraft();assert.equal(h.transfer.draft,'nuevo');assert.equal(h.transfer.lateDraft.text,'first next');
-});
 test('oversize, NUL and incomplete surrogate drafts never reach the network',async()=>{
  for(const value of ['x'.repeat(131073),'a\0b','\ud800','']){
   const h=harness();await assert.rejects(h.transfer.send(value));assert.equal(h.calls.length,0);assert.equal(h.transfer.pending,null);

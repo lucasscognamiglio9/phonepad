@@ -179,8 +179,6 @@ class LiteralTransfer {
     origin;
     capabilities;
     sessionEpoch;
-    draft = '';
-    lateDraft = null;
     pending = null;
     busy = false;
     sequence = 0;
@@ -297,20 +295,6 @@ class LiteralTransfer {
         if (state === 'dispatched' || state === 'rejected' || state === 'cancelled')
             this.pending = null;
     }
-    noteLateDraft(text, confirmedText) {
-        this.lateDraft = { text, duplicate: text === confirmedText };
-        return this.lateDraft;
-    }
-    useLateDraft() {
-        const late = this.lateDraft;
-        if (late) {
-            const current = this.draft;
-            this.draft = late.text;
-            this.lateDraft = current && current !== late.text ? { text: current, duplicate: false } : null;
-        }
-        return late;
-    }
-    discardLateDraft() { this.lateDraft = null; }
     // Forgetting a prepared operation must leave no staged text behind. The
     // server's cancel is idempotent from the client's point of view: a second
     // review first observes the cancelled receipt and does not send another

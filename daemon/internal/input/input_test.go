@@ -194,10 +194,10 @@ func TestRuneToKey_UnicodeLimit(t *testing.T) {
 // se inyecta por clipboard-paste. planText decide qué va por cada camino.
 
 func TestPlanText_PureASCII(t *testing.T) {
-	got := planText("hi")
+	got := planText("hi", usLayoutKeys())
 	want := []textOp{
-		{code: uinput.KeyH},
-		{code: uinput.KeyI},
+		{keyChord: keyChord{code: uinput.KeyH}},
+		{keyChord: keyChord{code: uinput.KeyI}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("planText(%q) = %+v, want %+v", "hi", got, want)
@@ -205,11 +205,11 @@ func TestPlanText_PureASCII(t *testing.T) {
 }
 
 func TestPlanText_ASCIIShift(t *testing.T) {
-	got := planText("Hi!")
+	got := planText("Hi!", usLayoutKeys())
 	want := []textOp{
-		{code: uinput.KeyH, shift: true},
-		{code: uinput.KeyI},
-		{code: uinput.Key1, shift: true},
+		{keyChord: keyChord{code: uinput.KeyH, shift: true}},
+		{keyChord: keyChord{code: uinput.KeyI}},
+		{keyChord: keyChord{code: uinput.Key1, shift: true}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("planText(%q) = %+v, want %+v", "Hi!", got, want)
@@ -218,11 +218,11 @@ func TestPlanText_ASCIIShift(t *testing.T) {
 
 func TestPlanText_NonASCIIPastes(t *testing.T) {
 	// "café": c,a,f por keycode; é por paste (no está en el layout US).
-	got := planText("café")
+	got := planText("café", usLayoutKeys())
 	want := []textOp{
-		{code: uinput.KeyC},
-		{code: uinput.KeyA},
-		{code: uinput.KeyF},
+		{keyChord: keyChord{code: uinput.KeyC}},
+		{keyChord: keyChord{code: uinput.KeyA}},
+		{keyChord: keyChord{code: uinput.KeyF}},
 		{paste: "é"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -233,7 +233,7 @@ func TestPlanText_NonASCIIPastes(t *testing.T) {
 func TestPlanText_GroupsContiguousNonASCII(t *testing.T) {
 	// Tres runes no-ASCII seguidas (acento, ñ, emoji) → UN solo paste, para no
 	// clobberear el portapapeles tres veces.
-	got := planText("áñ🚀")
+	got := planText("áñ🚀", usLayoutKeys())
 	want := []textOp{
 		{paste: "áñ🚀"},
 	}
@@ -244,13 +244,13 @@ func TestPlanText_GroupsContiguousNonASCII(t *testing.T) {
 
 func TestPlanText_MixedRealistic(t *testing.T) {
 	// "café 🚀": el espacio (ASCII) corta la corrida y obliga a dos pastes.
-	got := planText("café 🚀")
+	got := planText("café 🚀", usLayoutKeys())
 	want := []textOp{
-		{code: uinput.KeyC},
-		{code: uinput.KeyA},
-		{code: uinput.KeyF},
+		{keyChord: keyChord{code: uinput.KeyC}},
+		{keyChord: keyChord{code: uinput.KeyA}},
+		{keyChord: keyChord{code: uinput.KeyF}},
 		{paste: "é"},
-		{code: uinput.KeySpace},
+		{keyChord: keyChord{code: uinput.KeySpace}},
 		{paste: "🚀"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -259,7 +259,7 @@ func TestPlanText_MixedRealistic(t *testing.T) {
 }
 
 func TestPlanText_Empty(t *testing.T) {
-	if got := planText(""); got != nil {
+	if got := planText("", usLayoutKeys()); got != nil {
 		t.Errorf("planText(%q) = %+v, want nil", "", got)
 	}
 }

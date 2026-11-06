@@ -10,7 +10,7 @@ Familias del contrato que se implementan dentro de P01A, antes de extraerlas en 
 
 | Familia | Contenido | Semántica |
 | --- | --- | --- |
-| `text.literal` | UTF-8, longitud en bytes, SHA256 y fragmentos ordenados | Texto exacto; nunca teclas por posición ni Enter implícito |
+| `text.literal` | UTF-8, longitud en bytes, SHA256 y fragmentos ordenados | Texto exacto en bloque (compartir, adjuntos); sin Enter implícito |
 | `key.action` | Tecla lógica y modificadores explícitos | Navegación o atajo; no reinterpretar texto literal como acción |
 | `attachments.publish` | Manifiesto ordenado de archivos verificados | Publicación del lote completo, separada de su subida |
 
@@ -52,4 +52,4 @@ Estos requisitos guiaron la integración del texto literal y continúan vigentes
 6. Incorporar fragmentación con backpressure: el límite de 16 KiB de `Connection.send` y los límites del parser actual no se levantan sin actualizar ambos extremos. Control y ACK no deben quedar detrás de una ráfaga de texto. El cliente no limpia un borrador porque `socket.send` devolvió éxito.
 7. Al perder confirmación después de Claim, mantener el resultado incierto. Un ACK del adaptador no es observación de contenido en la aplicación. Esa comprobación pertenece a la matriz física.
 
-La UI actual habilita el envío literal solo con las capacidades negociadas del camino completo. Conserva el borrador hasta obtener el recibo y no añade Enter. Un servidor legacy no habilita este envío ni provoca una conversión automática a scancodes.
+Desde el 06/11/2026 el composer escribe en tiempo real: cada tecla viaja como `k` de texto y el host la teclea con el keycode de la distribución xkb activa (libxkbcommon). Un carácter que no existe en esa distribución se pega por portapapeles. El composer queda vacío después de cada envío. Si un envío falla, el texto queda como borrador y la UI pide revisar el equipo antes de seguir; nunca reenvía solo. `text.literal` queda para bloques confirmados, como la extensión de compartir.

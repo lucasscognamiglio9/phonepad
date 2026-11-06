@@ -133,16 +133,6 @@ test('composer keeps editor identity while actions move between inline and botto
     assert.equal(box.props.style.marginLeft,active?0:44);
   }
 });
-test('multiline draft grows and survives close, reopen and landscape resizing',()=>{
-  const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false};
-  h.props.active=true;h.render();h.type('Primera línea\nSegunda línea 👋');
-  h.find('TextInput').props.onContentSizeChange({nativeEvent:{contentSize:{height:80}}});h.render();
-  const original=h.find('TextInput');assert.equal(original.props.style.height,80);
-  h.props.active=false;h.render();h.render();assert.equal(h.find('TextInput').props.value,original.props.value);
-  h.props.column={left:59,top:8,width:240,height:176};h.props.active=true;h.render();h.render();
-  assert.equal(h.find('TextInput').props.value,original.props.value);assert.ok(h.find('GlassButton','Ctrl'));
-  assert.equal(h.sent.length,0);
-});
 test('the plus wrapper is measured for the mounted action menu', () => {
   const h = harness();
   const original = h.find('TextInput');
@@ -267,20 +257,6 @@ test('composer uses residual keyboard overlap when Android resizes before visibi
   assert.equal(sticky().props.offset.opened, closedBottom - 8, 'full-window mode uses only the keyboard overlap');
 });
 
-test('phone Return with a draft remains local even with a modifier armed', () => {
-  const h = harness(); h.props.active = true; h.render();
-  assert.equal(h.find('TextInput').props.submitBehavior, 'newline');
-  assert.equal(h.find('TextInput').props.onSubmitEditing, undefined);
-  h.type('hola'); h.type('hola\n'); h.type('hola\nmundo');
-  assert.deepEqual(h.sent, [
-    { t: 'k', a: 'text', text: 'hola' },
-    { t: 'k', a: 'combo', mods: ['shift'], key: 'Enter' },
-    { t: 'k', a: 'text', text: 'mundo' },
-  ]);
-  h.showShortcuts(); h.click('Shift'); h.click('Enviar texto');
-  assert.deepEqual(h.sent.at(-1), { t: 'k', a: 'special', key: 'Enter' });
-});
-
 test('every displayed shortcut sends the intended command and clears one-shot modifiers', () => {
   const h = harness(); h.props.active = true; h.render(); h.showShortcuts();
   for (const [label, key] of [['Esc','Escape'],['Tab','Tab']]) {
@@ -301,48 +277,12 @@ test('every displayed shortcut sends the intended command and clears one-shot mo
 });
 
 
-test('rejected navigation, clipboard and Enter preserve the draft without retry on reconnect', () => {
-  for (const action of ['Tab', 'Copiar', 'Pegar', 'Enviar texto']) {
-    const h = harness(); h.props.active = true; h.render(); h.type('borrador');
-    h.showShortcuts(); if(['Copiar','Pegar'].includes(action))h.click('Portapapeles'); h.reject(); h.click(action);
-    assert.equal(h.find('TextInput').props.value, 'borrador', action);
-    assert.equal(h.find('GlassButton', 'Ya revisé'),undefined); h.click('Revisar envío'); assert.ok(h.find('GlassButton', 'Ya revisé'));
-    const sent = h.sent.length;
-    h.props.disabled = true; h.render(); h.render();
-    h.props.active = false; h.render(); h.render();
-    assert.equal(h.find('TextInput').props.value, 'borrador');
-    h.accept(); h.props.disabled = false; h.props.active = true; h.render(); h.render();
-    assert.equal(h.sent.length, sent);
-    h.click('Revisar envío'); assert.equal(h.sent.length, sent, 'review never sends another action');
-    h.click('Ya revisé'); assert.equal(h.sent.length, sent);
-    h.type('borrador!'); assert.deepEqual(h.sent.at(-1), {t:'k', a:'text', text:'!'});
-  }
-});
-
-test('partial correction failure keeps the complete desired draft and stops remote edits', () => {
-  const h = harness(); h.props.active = true; h.render(); h.type('abc');
-  h.rejectAfter(2); h.type('xyz');
-  assert.equal(h.sent.length, 3); // text, one accepted Backspace, one rejected.
-  assert.equal(h.find('TextInput').props.value, 'xyz');
-  h.type('xyz guardado');
-  assert.equal(h.sent.length, 3);
-  assert.equal(h.find('TextInput').props.value, 'xyz guardado');
-});
-
 test('typed modifier shortcut rejection preserves its draft and requires review', () => {
   const h = harness(); h.props.active = true; h.render(); h.showShortcuts(); h.click('Ctrl');
   h.reject(); h.type('c');
   assert.equal(h.find('TextInput').props.value, 'c');
   assert.equal(h.find('GlassButton', 'Ya revisé'),undefined); h.click('Revisar envío'); assert.ok(h.find('GlassButton', 'Ya revisé'));
 });
-
-test('disconnect preserves a nonempty draft even without a synchronous send failure', () => {
-  const h = harness(); h.props.active = true; h.render(); h.type('texto');
-  h.props.disabled = true; h.render(); h.render();
-  assert.equal(h.find('TextInput').props.value, 'texto');
-  assert.equal(h.find('GlassButton', 'Ya revisé'),undefined); h.click('Revisar envío'); assert.ok(h.find('GlassButton', 'Ya revisé'));
-});
-
 
 test('failed delivery retains every Unicode and newline fixture without automatic replay', () => {
   const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, '../../tests/fixtures/input-integrity.json'), 'utf8'));
@@ -357,41 +297,6 @@ test('failed delivery retains every Unicode and newline fixture without automati
   }
 });
 
-test('literal composer keeps dictation edits local and writes the final block without Enter', async () => {
-  const h = harness(), blocks = [];
-  const pending = [];
-  h.props.onPendingChange = value => pending.push(value);
-  h.props.connection.inputCapabilities = { version: 1 };
-  h.props.connection.literal = { draft: '', pending: null, busy: false,
-    send: async text => { blocks.push(text); return { state: 'dispatched' }; }, reviewed() { this.pending = null; } };
-  h.props.active = true; h.render();
-  h.type('quiero una caza'); h.type('quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea');
-  assert.equal(pending.at(-1), true, 'parent protects this draft before changing hosts or applying an update');
-  assert.equal(h.sent.length, 0);
-  assert.equal(h.find('TextInput').props.maxLength, undefined);
-  h.click('Enviar texto'); await new Promise(resolve => setImmediate(resolve)); h.render();
-  assert.deepEqual(blocks, ['quiero una casa ¿_ 👨‍👩‍👧‍👦\nsegunda línea']);
-  assert.equal(h.sent.length, 0); assert.equal(shownValue(h), '');
-  assert.equal(pending.at(-1), false, 'a confirmed block releases the host-switch guard');
-});
-test('literal draft survives close, navigation actions and a lost receipt', async () => {
-  const h = harness();
-  h.props.connection.inputCapabilities = { version: 1 };
-  h.props.connection.literal = { draft: '', pending: null, busy: false,
-    send: async text => { h.props.connection.literal.pending = { text }; throw Error('offline'); }, reviewed() { this.pending = null; } };
-  h.props.active = true; h.render(); h.type('borrador de dictado');
-  h.showShortcuts(); h.click('Tab');
-  assert.equal(h.find('GlassButton', 'Enter'), undefined);
-  assert.equal(h.sent.length, 1); assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
-  h.props.active = false; h.render(); h.render();
-  assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
-  h.props.active = true; h.render(); h.click('Enviar texto');
-  await new Promise(resolve => setImmediate(resolve)); h.render();
-  assert.equal(h.find('TextInput').props.value, 'borrador de dictado');
-  h.click('Revisar envío'); assert.ok(h.find('GlassButton', 'Consultar envío'));
-  assert.equal(h.sent.length, 1);
-});
-
 test('literal mode preserves explicit Ctrl shortcuts as key actions, not typed text', () => {
   const h=harness();
   h.props.connection.inputCapabilities={version:1};
@@ -399,99 +304,6 @@ test('literal mode preserves explicit Ctrl shortcuts as key actions, not typed t
   h.props.active=true;h.render();h.showShortcuts();h.click('Ctrl');h.type('c');
   assert.equal(h.sent.length,1);assert.equal(h.sent[0].a,'combo');assert.equal(h.sent[0].key,'c');
   assert.equal(shownValue(h),'');
-});
-
-test('a late native append during delivery retains only the unsent suffix', async () => {
-  const h=harness();let finish;
-  h.props.connection.inputCapabilities={version:1};
-  h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
-  h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
-  assert.equal(h.find('TextInput').props.editable,true);
-  h.type('first next');finish({state:'dispatched'});
-  await new Promise(resolve=>setImmediate(resolve));h.render();
-  assert.equal(h.find('TextInput').props.value,' next');
-  assert.equal(h.props.connection.literal.draft,' next');
-});
-test('callbacks two editor generations old preserve the current draft and expose the late version',async()=>{
- const h=harness();let finish;
- h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,lateDraft:null,
-   send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
-   noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
-   discardLateDraft(){this.lateDraft=null;}};
- h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
- const firstEditor=h.find('TextInput');
- const focused=h.focusCount();
- finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(h.focusCount(),focused,'a receipt preserves the native editor without forcing another focus');
- h.type('second');h.click('Enviar texto');
- finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
- h.type('nuevo');
- await new Promise(resolve=>setImmediate(resolve));
- firstEditor.props.onChangeText('first next');h.render();
- assert.equal(h.find('TextInput').props.value,'nuevo');
- assert.equal(h.props.connection.literal.draft,'nuevo');
- assert.equal(h.props.connection.literal.lateDraft.text,'first next');
- assert.equal(h.find('GlassButton','Enviar texto'),undefined); assert.ok(h.find('GlassButton','Revisar envío'));
- h.click('Revisar envío'); assert.ok(h.find('GlassButton','Usar este texto'));
- h.props.visible=false;h.render();h.props.visible=true;h.render();
- assert.ok(h.find('GlassButton','Usar este texto'),'late version survives hiding');
- h.click('Descartar esta versión');
- assert.equal(h.find('TextInput').props.value,'nuevo');
- assert.equal(h.props.connection.literal.lateDraft,null);
- assert.equal(h.find('GlassButton','Enviar texto').props.disabled,false);
-});
-test('using a late editor version replaces the draft only after an explicit choice',async()=>{
- const h=harness();let finish;
- h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,lateDraft:null,
-   send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){},
-   noteLateDraft(text,confirmedText){return this.lateDraft={text,duplicate:text===confirmedText};},
-   useLateDraft(){const value=this.lateDraft;this.lateDraft=null;return value;}};
- h.props.active=true;h.render();h.type('first');h.click('Enviar texto');
- const oldEditor=h.find('TextInput');finish({state:'dispatched'});
- await new Promise(resolve=>setImmediate(resolve));h.render();h.type('nuevo');
- oldEditor.props.onChangeText('first next');h.render();
- const sends=h.sent.length;
- h.click('Revisar envío'); h.click('Usar este texto');
- assert.equal(h.find('TextInput').props.value,'first next');
- assert.equal(h.props.connection.literal.lateDraft,null);
- assert.equal(h.sent.length,sends,'choosing a late version never sends it');
-});
-test('a late replacement during delivery requires review before another send',async()=>{
- const h=harness();let finish;
- h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
- h.props.active=true;h.render();h.type('caza');h.click('Enviar texto');h.type('casa');finish({state:'dispatched'});
- await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(h.find('TextInput').props.value,'casa');assert.equal(h.find('GlassButton','Enviar texto'),undefined); assert.ok(h.find('GlassButton','Revisar envío'));
- h.click('Revisar envío'); assert.ok(h.find('GlassButton','Ya revisé'));
-});
-
-test('a modern host without literal input never falls back to layout-dependent text commands',async()=>{
- const h=harness();h.props.connection.capabilities={protocolVersion:2};
- h.props.connection.literal={draft:'',pending:null,busy:false,
-   send:async()=>{throw Error('La computadora no admite este envío de texto.');}};
- h.props.active=true;h.render();h.type('¿Pregunta_?');
- assert.equal(h.sent.length,0);
- h.click('Enviar texto');await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'¿Pregunta_?');
-});
-
-test('revoking input still allows receipt review and explicit local discard without new remote edits',async()=>{
- const h=harness();let reviewed=0;
- h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,busy:false,reviewed:async()=>{reviewed++;h.props.connection.literal.pending=null;return true;}};
- h.props.active=true;h.render();h.type('texto pendiente');
- h.props.connection.literal.pending={text:'texto pendiente'};
- h.props.disabled=true;h.props.canReview=true;h.props.active=false;h.render();h.render();
- h.click('Revisar envío'); assert.equal(h.find('GlassButton','Ya revisé').props.disabled,false);
- h.click('Ya revisé');await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(reviewed,1);assert.equal(h.sent.length,0);assert.equal(h.find('TextInput').props.value,'texto pendiente');
- h.props.disabled=false;h.render();h.props.disabled=true;h.render();h.render();
- h.click('Revisar envío'); h.click('Descartar borrador');assert.equal(h.find('TextInput').props.value,'texto pendiente');
- h.alerts[0][2].find(b=>b.text==='Descartar').onPress();h.render();
- assert.equal(shownValue(h),'');assert.equal(h.props.connection.literal.draft,'');assert.equal(h.sent.length,0);
 });
 
 test('files permission can keep attachments available when input is unavailable',()=>{
@@ -503,15 +315,6 @@ test('files permission can keep attachments available when input is unavailable'
  assert.deepEqual(h.chosen,['photos']);
 });
 
-test('literal editor grows with text, retains scrolling, and has no separate erase button',()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false};
- h.props.active=true;h.render();const minimum=h.find('TextInput').props.style.height;
- h.type('Texto largo\ncon otra línea');h.find('TextInput').props.onContentSizeChange({nativeEvent:{contentSize:{height:110}}});h.render();
- assert.ok(h.find('TextInput').props.style.height>minimum);
- h.type('');h.find('TextInput').props.onContentSizeChange({nativeEvent:{contentSize:{height:24}}});h.render();assert.equal(h.find('TextInput').props.style.height,minimum);
- assert.equal(h.find('TextInput').props.scrollEnabled,true);
- h.showShortcuts();assert.equal(h.find('GlassButton','Borrar en la computadora'),undefined);
-});
 test('toolbar is a sibling of the composer, with one horizontal scroller and no joystick',()=>{
  const h=harness();h.showShortcuts();
  for(const width of [280,390,844]){
@@ -545,54 +348,10 @@ test('clipboard transfers use existing contents and never dispatch Copy or Paste
  await new Promise(r=>setImmediate(r));h.render();h.click('Al equipo');await new Promise(r=>setImmediate(r));
  assert.deepEqual(h.clipboardTransfers,['phone','host']);assert.equal(h.sent.length,0);
 });
-test('pasting copied phone text into an empty field creates a draft without sending or transferring',async()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:''};h.props.active=true;
- h.render();h.showShortcuts();h.click('Portapapeles');h.click('Pegar aquí');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(shownValue(h),'copiado del iPhone');assert.equal(h.props.connection.literal.draft,'copiado del iPhone');
- assert.equal(h.sent.length,0);assert.equal(h.clipboardTransfers.length,0);
-});
-test('local paste replaces the selected range and a delayed paste cannot overwrite a newer draft',async()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:''};h.props.active=true;
- h.render();h.type('hola mundo');h.find('TextInput').props.onSelectionChange({nativeEvent:{selection:{start:5,end:10}}});
- h.localClipboard.text='Lucas';h.showShortcuts();h.click('Portapapeles');h.click('Pegar aquí');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(shownValue(h),'hola Lucas');
- let finish;h.localClipboard.read=()=>new Promise(resolve=>finish=resolve);h.click('Pegar aquí');h.type('nuevo borrador');finish('viejo');
- await new Promise(r=>setImmediate(r));h.render();assert.equal(shownValue(h),'nuevo borrador');assert.equal(h.sent.length,0);
-});
-test('rejected literal text preserves the draft and never overwrites the computer clipboard',async()=>{
- const h=harness();h.props.connection.canClipboard=true;h.props.connection.capabilities={sessionEpoch:'one'};
- h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',busy:false,pending:null,
-  send:async()=>({state:'rejected'}),acknowledged(){},reviewed:async()=>true};
- h.props.active=true;h.render();h.type('dictado ¿?');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(shownValue(h),'dictado ¿?');assert.equal(h.sent.length,0);assert.equal(h.clipboardOffers.length,0);
-});
-test('legacy clipboard preference cannot bypass literal delivery or clear an uncertain draft',async()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1,preferredDelivery:'clipboard-paste'};
- h.props.connection.capabilities={sessionEpoch:'one',hostPlatform:'linux'};h.props.connection.canClipboard=true;
- let calls=0;h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>{calls++;return {state:'uncertain'};}};
- h.props.active=true;h.render();h.type('Prueba ñ € 👌');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(calls,1);assert.equal(h.sent.length,0);assert.equal(h.clipboardOffers.length,0);assert.equal(shownValue(h),'Prueba ñ € 👌');
-});
-test('uncertain text notice can collapse while navigation works and the retained draft cannot be resent blindly',async()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>({state:'uncertain'})};
- h.props.active=true;h.render();h.type('conservar');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
- assert.equal(h.find('Notice'),undefined);h.click('Revisar envío');h.click('Cerrar aviso');assert.equal(h.find('GlassButton','Ya revisé'),undefined);assert.ok(h.find('GlassButton','Revisar envío'));
- assert.equal(h.find('GlassButton','Enviar texto'),undefined); assert.ok(h.find('GlassButton','Revisar envío'));
- h.showShortcuts();h.click('Tab');assert.equal(h.sent.at(-1).key,'Tab');assert.equal(h.find('TextInput').props.value,'conservar');
- h.click('Revisar envío');h.click('Ya revisé');assert.equal(h.find('GlassButton','Enviar texto').props.disabled,false);
-});
 test('a stale identical native callback does not manufacture an error after confirmed delivery',async()=>{
  const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>({state:'dispatched'})};
  h.props.active=true;h.render();h.type('una vez');const previous=h.find('TextInput');h.click('Enviar texto');await new Promise(r=>setImmediate(r));h.render();
  previous.props.onChangeText('una vez');h.render();assert.equal(shownValue(h),'');assert.equal(h.find('GlassButton','Ya revisé'),undefined);assert.equal(h.find('GlassButton','Usar este texto'),undefined);
-});
-
-test('stale native Backspace after a confirmed block never edits the remote field', async()=>{
- const h=harness();h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>({state:'dispatched'})};
- h.props.active=true;h.render();const oldEditor=h.find('TextInput');
- h.type('confirmado');h.click('Enviar texto');await new Promise(resolve=>setImmediate(resolve));h.render();
- oldEditor.props.onKeyPress({nativeEvent:{key:'Backspace'}});assert.equal(h.sent.length,0);
- h.find('TextInput').props.onKeyPress({nativeEvent:{key:'Backspace'}});assert.equal(h.sent.at(-1).key,'Backspace');
 });
 
 function shownValue(h){const editor=h.find('TextInput');return editor.props.selectionColor==='transparent'?'':editor.props.value;}
@@ -617,28 +376,6 @@ test('Space native selection moves remote text in both axes with an empty compos
  const old=h.find('TextInput');h.props.active=false;h.render();
  old.props.onSelectionChange({nativeEvent:{selection:{start:origin+1,end:origin+1}}});assert.equal(h.sent.length,4);
 });
-test('native caret context never gets sent or saved when typing, dictating or deleting',()=>{
- const caret=controlFixture.load('lib/native-caret.ts');
- for(const text of ['dictado ñ € 👋',' ','@&$;:/- 👌🙌🏻']){
-  const h=harness(),editor=startRemoteCaret(h);
-  editor.props.onChangeText(caret.CARET_CONTEXT.slice(0,caret.CARET_ORIGIN)+text+caret.CARET_CONTEXT.slice(caret.CARET_ORIGIN));h.render();
-  assert.equal(h.props.connection.literal.draft,text);assert.equal(h.find('TextInput').props.value,text);assert.equal(h.sent.length,0);
- }
- const h=harness(),editor=startRemoteCaret(h);
- editor.props.onKeyPress({nativeEvent:{key:'Backspace'}});
- editor.props.onChangeText(caret.CARET_CONTEXT.slice(0,caret.CARET_ORIGIN-1)+caret.CARET_CONTEXT.slice(caret.CARET_ORIGIN));h.render();
- h.find('TextInput').props.onSelectionChange({nativeEvent:{selection:{start:caret.CARET_ORIGIN,end:caret.CARET_ORIGIN}}});
- assert.equal(h.sent.length,1);assert.equal(h.sent[0].key,'Backspace');assert.equal(h.props.connection.literal.draft,'');
-});
-test('Space bridge cannot move the host after revocation, with a pending receipt, or with a local draft',()=>{
- const caret=controlFixture.load('lib/native-caret.ts');
- for(const change of [h=>{h.props.disabled=true;},h=>{h.props.connection.literal.pending={text:'pendiente'};},h=>{h.type('borrador');}]){
-  const h=harness(),old=startRemoteCaret(h);change(h);h.render();h.render();
-  old.props.onSelectionChange({nativeEvent:{selection:{start:caret.CARET_ORIGIN+1,end:caret.CARET_ORIGIN+1}}});
-  assert.equal(h.sent.length,0);
- }
-});
-
 test('tapping the empty editor and boundary recenter callbacks never move the remote caret',()=>{
  const h=harness(),old=startRemoteCaret(h),caret=controlFixture.load('lib/native-caret.ts');
  old.props.onTouchStart();old.props.onSelectionChange({nativeEvent:{selection:{start:5,end:5}}});
@@ -664,45 +401,6 @@ test('delayed native focus selection cannot generate a burst of host arrows',()=
  assert.equal(h.sent.length,1);assert.equal(h.sent[0].key,'ArrowRight');
 });
 
-test('Return from the native keyboard acts once remotely only with an empty draft',()=>{
- const h=harness();startRemoteCaret(h);
- assert.equal(h.find('GlassButton','Enter'),undefined);
- h.type('\n');assert.equal(h.sent.length,1);assert.equal(h.sent[0].key,'Enter');
- assert.equal(h.props.connection.literal.draft,'');
- h.render();h.type('primera');h.type('primera\nsegunda');
- assert.equal(h.props.connection.literal.draft,'primera\nsegunda');assert.equal(h.sent.length,1);
-});
-test('landscape editor and attachments stay in their column without replacing the native input',()=>{
- const h=harness();h.props.connection.literal={draft:'',pending:null,busy:false};h.props.connection.inputCapabilities={version:1};
- h.props.active=true;h.render();h.type('borrador ñ');const original=h.find('TextInput');
- for(const width of [932,568,844]){
-  h.resize({width,height:390});h.props.column={left:59,top:8,width:160,height:114};h.render();
-  const scroll=h.nodes(h.tree()).find(n=>n.props?.testID==='phonepad-composer-column');
-  assert.equal(scroll.props.style.maxHeight,114);
-  scroll.props.onContentSizeChange(160,220);h.render();
-  assert.equal(h.nodes(h.tree()).find(n=>n.props?.testID==='phonepad-composer-column').props.scrollEnabled,true);
-  assert.equal(h.find('KeyboardStickyView').props.style.left,59);
-  h.click('Agregar');assert.equal(h.find('ActionMenu').props.onPaste,undefined);
-  assert.equal(h.find('ActionMenu').props.bounds,h.props.column);
-  h.find('ActionMenu').props.close();h.find('ActionMenu').props.onDismiss();h.render();
-  assert.equal(h.find('TextInput').type,original.type);assert.equal(h.find('TextInput').props.value,'borrador ñ');
- }
- h.props.column=undefined;h.resize({width:390,height:844});h.render();
- assert.equal(h.find('KeyboardStickyView').props.style.alignSelf,'center');assert.equal(h.sent.length,0);
-});
-
-
-test('late native Return cannot submit the host after blur, pending receipt, revocation or editor replacement',async()=>{
- const caret=controlFixture.load('lib/native-caret.ts');
- const newline=caret.CARET_CONTEXT.slice(0,caret.CARET_ORIGIN)+'\n'+caret.CARET_CONTEXT.slice(caret.CARET_ORIGIN);
- for(const update of [h=>{h.props.active=false;},h=>{h.props.disabled=true;},h=>{h.props.connection.literal.pending={text:'pending'};}]){
-  const h=harness(),old=startRemoteCaret(h);update(h);h.render();old.props.onChangeText(newline);h.render();assert.equal(h.sent.length,0);
- }
- const h=harness(),old=startRemoteCaret(h);h.props.connection.literal.send=async()=>({state:'dispatched'});
- h.type('texto');h.click('Enviar texto');await new Promise(setImmediate);h.render();
- old.props.onChangeText(newline);h.render();assert.equal(h.sent.length,0);assert.equal(h.props.connection.literal.draft,'');
-});
-
 test('hidden native keyboard cannot leave the composer translated by a stale animation after rotation',()=>{
  const h=harness();h.props.active=true;h.keyboardState.isVisible=true;h.keyboardState.height=336;h.render();
  assert.equal(h.find('KeyboardStickyView').props.enabled,true);
@@ -711,39 +409,6 @@ test('hidden native keyboard cannot leave the composer translated by a stale ani
  const dock=h.find('KeyboardStickyView');assert.equal(dock.props.enabled,false);assert.equal(dock.props.offset.closed,0);
  assert.equal(dock.props.style.bottom,46);assert.equal(h.find('TextInput').props.style.height,44);
 });
-test('confirmed sends ignore old empty clears and blur callbacks without reopening review or closing the keyboard',async()=>{
- const h=harness();let finish;h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
- h.props.active=true;h.render();h.type('texto confirmado');const old=h.find('TextInput');const focuses=h.focusCount();
- h.click('Enviar texto');assert.equal(h.find('TextInput').props.editable,true);finish({state:'dispatched'});
- await new Promise(resolve=>setImmediate(resolve));h.render();
- old.props.onChangeText('');old.props.onBlur();h.render();
- assert.equal(h.props.active,true);assert.equal(h.focusCount(),focuses);assert.equal(shownValue(h),'');
- assert.equal(h.find('GlassButton','Revisar envío'),undefined);assert.ok(h.find('GlassButton','Enviar texto'));
- assert.equal(h.find('TextInput').props.key,undefined);
- h.type('nuevo');old.props.onChangeText('');h.render();assert.equal(shownValue(h),'nuevo');
-});
-
-test('programmatic native caret context and obsolete content measurements cannot create a blank draft or inflate the editor',async()=>{
- const h=harness();let finish;h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
- h.props.active=true;h.render();h.type('texto');const old=h.find('TextInput');h.click('Enviar texto');
- finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
- old.props.onChangeText(controlFixture.load('lib/native-caret.ts').CARET_CONTEXT);
- old.props.onContentSizeChange({nativeEvent:{contentSize:{height:500}}});h.render();
- assert.equal(shownValue(h),'');assert.equal(h.find('TextInput').props.style.height,44);
- assert.equal(h.find('GlassButton','Revisar envío'),undefined);assert.equal(h.props.connection.literal.draft,'');
-});
-
-test('clearing the local draft during a confirmed send does not manufacture an uncertain empty delivery',async()=>{
- const h=harness();let finish;h.props.connection.inputCapabilities={version:1};
- h.props.connection.literal={draft:'',pending:null,busy:false,send:()=>new Promise(resolve=>{finish=resolve;}),reviewed(){}};
- h.props.active=true;h.render();h.type('snapshot');h.click('Enviar texto');h.type('');
- finish({state:'dispatched'});await new Promise(resolve=>setImmediate(resolve));h.render();
- assert.equal(shownValue(h),'');assert.equal(h.find('GlassButton','Revisar envío'),undefined);
- assert.equal(h.sent.length,0);
-});
-
 // UIKit preserves selection relative to the old end in RCTTextInputComponentView.
 function nativeEditor(h){
  let text=h.find('TextInput').props.value,position=h.find('TextInput').props.selection?.start??(h.find('TextInput').props.selectionColor==='transparent'?controlFixture.load('lib/native-caret.ts').CARET_ORIGIN:text.length);
@@ -763,19 +428,6 @@ function nativeEditor(h){
   h.find('TextInput').props.onSelectionChange({nativeEvent:{selection:{start:position,end:position}}});h.render();apply();
  },value:()=>text,position:()=>position};
 }
-test('native replacement and selection callbacks type hola in order after empty Space context',()=>{
- const h=harness();startRemoteCaret(h);const native=nativeEditor(h);
- for(const letter of 'hola')native.insert(letter);
- assert.equal(native.value(),'hola');assert.equal(native.position(),4);
- assert.equal(h.props.connection.literal.draft,'hola');assert.equal(h.sent.length,0);
-});
-test('native dictation, emoji and subsequent typing keep the insertion point after virtual context replacement',()=>{
- for(const phrase of ['hola ñ € 👋','primera\nsegunda','👌🙌🏻']){
-  const h=harness();startRemoteCaret(h);const native=nativeEditor(h);
-  native.insert(phrase);native.insert('!');
-  assert.equal(native.value(),phrase+'!');assert.equal(h.props.connection.literal.draft,phrase+'!');
- }
-});
 test('Space leaves native caret geometry intact and never controls each movement back to the old position',()=>{
  const h=harness();startRemoteCaret(h);const caret=controlFixture.load('lib/native-caret.ts');h.render();
  assert.equal(h.find('TextInput').props.caretHidden,false);
@@ -786,22 +438,6 @@ test('Space leaves native caret geometry intact and never controls each movement
  }
  assert.equal(h.sent.length,4);
 });
-test('a rejected send in an expanded landscape composer cannot change height or crop its action bar',async()=>{
- const h=harness();h.props.column={left:59,top:8,width:240,height:176};
- h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false,send:async()=>({state:'rejected'})};
- h.props.active=true;h.render();h.type('hola');
- const before=h.find('TextInput').props.style.height;
- h.click('Enviar texto');await new Promise(setImmediate);h.render();
- assert.equal(h.find('TextInput').props.style.height,before);assert.equal(h.find('Notice'),undefined);
- assert.ok(h.find('GlassButton','Agregar'));assert.ok(h.find('GlassButton','Revisar envío'));
- const column=h.nodes(h.tree()).find(n=>n.props?.testID==='phonepad-composer-column');
- assert.equal(h.nodes(column).filter(n=>n.type==='Notice').length,0);
- h.click('Revisar envío');const overlay=h.nodes(h.tree()).find(n=>n.props?.testID==='phonepad-composer-review');
- assert.equal(overlay.props.style.position,'absolute');assert.ok(overlay.props.style.maxHeight<176);
- assert.equal(h.find('TextInput').props.style.height,before);assert.equal(shownValue(h),'hola');
- h.click('Cerrar aviso');h.click('Enviar texto');await new Promise(setImmediate);h.render();assert.equal(shownValue(h),'hola');
-});
-
 test('Space moves without a synthetic acknowledgement for a Fabric programmatic selection reset',()=>{
  const h=harness(),caret=controlFixture.load('lib/native-caret.ts');
  h.props.connection.inputCapabilities={version:1};h.props.connection.literal={draft:'',pending:null,busy:false};
@@ -813,11 +449,6 @@ test('Space moves without a synthetic acknowledgement for a Fabric programmatic 
  assert.equal(h.find('TextInput').props.selection,undefined);
 });
 
-test('restoring a saved local draft starts with UIKit selection, never a stale virtual offset',()=>{
- const h=harness({inputCapabilities:{version:1},literal:{draft:'hola',pending:null,busy:false}});
- h.props.active=true;h.render();assert.equal(h.find('TextInput').props.selection,undefined);
- const native=nativeEditor(h);native.insert('!');assert.equal(native.value(),'hola!');
-});
 test('Return and a consumed modifier shortcut restore the empty Space origin instead of leaving it at one',()=>{
  for(const part of ['\n','c']){
   const h=harness();startRemoteCaret(h);if(part==='c'){h.click('Modificadores y teclas');h.click('Ctrl');}
@@ -825,11 +456,16 @@ test('Return and a consumed modifier shortcut restore the empty Space origin ins
   assert.equal(h.find('TextInput').props.selection.start,controlFixture.load('lib/native-caret.ts').CARET_ORIGIN);
  }
 });
-test('a stale virtual edit after delivery cannot move the insertion point of a newer draft',async()=>{
- const h=harness();const old=startRemoteCaret(h);h.props.connection.literal.send=async()=>({state:'dispatched'});
- h.type('enviar');h.click('Enviar texto');await new Promise(setImmediate);h.render();h.type('nuevo');
- const before=h.find('TextInput').props.selection;
- const caret=controlFixture.load('lib/native-caret.ts');
- old.props.onChangeText(caret.CARET_CONTEXT.slice(0,caret.CARET_ORIGIN)+'x'+caret.CARET_CONTEXT.slice(caret.CARET_ORIGIN));h.render();
- assert.deepEqual(h.find('TextInput').props.selection,before);assert.equal(shownValue(h),'nuevo');
+test('Space mode types each key on the laptop and the composer returns to the empty origin',()=>{
+ const h=harness();startRemoteCaret(h);const origin=controlFixture.load('lib/native-caret.ts').CARET_ORIGIN;
+ const editor=nativeEditor(h);for(const key of ['h','o','l','a'])editor.insert(key);
+ assert.deepEqual(h.sent,['h','o','l','a'].map(text=>({t:'k',a:'text',text})),'no arrows from the reset caret');
+ assert.equal(shownValue(h),'');assert.equal(editor.position(),origin);
+ h.find('TextInput').props.onKeyPress({nativeEvent:{key:'Backspace'}});assert.deepEqual(h.sent.at(-1),{t:'k',a:'special',key:'Backspace'});
+});
+test('Pegar aquí types the phone clipboard on the laptop without a local draft',async()=>{
+ const h=harness();startRemoteCaret(h);h.localClipboard.text='copiado del iPhone';const before=h.sent.length;
+ h.click('Pegar aquí');await new Promise(r=>setImmediate(r));h.render();
+ assert.deepEqual(h.sent.slice(before),[{t:'k',a:'text',text:'copiado del iPhone'}]);
+ assert.equal(shownValue(h),'');assert.equal(h.clipboardTransfers.length,0);
 });
