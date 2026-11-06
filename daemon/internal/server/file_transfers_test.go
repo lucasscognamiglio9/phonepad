@@ -406,3 +406,31 @@ func TestFileTransferRejectsIncompleteMetadataAndUnauthorizedRequests(t *testing
 		t.Fatal("unexpected clipboard mutation")
 	}
 }
+
+func TestFileTransferNoticesArrivalOnceWhenPublished(t *testing.T) {
+	s, _, m, contents := transferFixture(t)
+	notices := make(chan string, 4)
+	s.arrivalNotice = func(title, body string) { notices <- title + " | " + body }
+	transferBegin(t, s, m)
+	for i, data := range contents {
+		transferChunk(t, s, m.ID, i, 0, data)
+	}
+	for range 2 {
+		if w := transferRequest(s, "POST", "?action=commit&id="+m.ID, nil, nil); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+	select {
+	case got := <-notices:
+		if !strings.HasPrefix(got, "Llegaron 2 archivos | En Downloads/Phonepad/") {
+			t.Fatal(got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no notice")
+	}
+	select {
+	case got := <-notices:
+		t.Fatal("replay noticed again:", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

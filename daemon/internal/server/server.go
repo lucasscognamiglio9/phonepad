@@ -40,6 +40,7 @@ type Server struct {
 	fileTransfersOnce sync.Once
 	fileTransfers     *filebatches.Store
 	fileTransfersErr  error
+	arrivalNotice     func(title, body string)
 	clipboardMu       sync.Mutex
 	clipboard         clipboardWriter
 	readClipboardText func(context.Context) (string, error)

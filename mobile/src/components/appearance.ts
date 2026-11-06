@@ -14,5 +14,5 @@ export const appearance = {
   slider: { min: 50, max: 150, hapticInterval: 25 },
   shortcuts: { gap: 4, padding: 4, iconSize: 18, textStyle: 'footnote', swipeDistance: 24, directionThreshold: 12 },
   composer: { padding: 4, textPadding: 8, collapsedLines: 4, focusedLines: 1, toolbarHeight: 44, toolbarGap: 8, landscapeFraction: .5 },
-  transfer: { thumbnailSize: 48, maxVisibleFiles: 3, viewportFraction: .42, toastDuration: 5000 },
+  transfer: { thumbnailSize: 48, maxVisibleFiles: 3, viewportFraction: .42, toastDuration: 5000, ringSize: 28, ringStroke: 3 },
 } as const;

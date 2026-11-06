@@ -145,9 +145,13 @@ func (s *Server) handleFileTransfers(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cancelled", 408)
 			return
 		}
-		status, _, err = store.CommitWithGuard(id, func(effect func() error) error {
+		var published bool
+		status, published, err = store.CommitWithGuard(id, func(effect func() error) error {
 			return s.runPermittedMutation(filesPermit, effect)
 		})
+		if err == nil && published {
+			s.noticeArrival(status)
+		}
 	case r.Method == "POST" && action == "cancel":
 		manifest, present, parseErr := decodeTransferManifest(w, r, true)
 		if parseErr != nil {

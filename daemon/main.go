@@ -115,6 +115,7 @@ func main() {
 	if *demo {
 		srvOpts = append(srvOpts, server.WithDemo())
 	}
+	srvOpts = append(srvOpts, server.WithArrivalNotice(server.DesktopNotice))
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		srvOpts = append(srvOpts, server.WithBrowserPreview())
 	}

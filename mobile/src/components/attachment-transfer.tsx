@@ -7,6 +7,7 @@ import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimi
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassSurface } from './glass-surface';
 import { ActionIcon } from './action-icon';
+import { ProgressRing } from './progress-ring';
 import { GlassButton } from './glass-button';
 import { DismissibleNotice } from './dismissible-notice';
 import { noticeMessage } from '../lib/notice-message';
@@ -23,6 +24,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const [visible, setVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
+  const [percent, setPercent] = useState<number | null>(null);
   const [limits, setLimits] = useState<TransferLimits | null>(null);
   const [problem, setProblem] = useState('');
   const request = useRef<AbortController | null>(null);
@@ -71,7 +73,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
         : noticeMessage(error, upload ? 'Envío interrumpido. Podés reanudarlo.' : 'No se pudo preparar la selección.'));
     } finally {
       if (request.current === controller) { request.current = null; uploading.current = false; }
-      if (alive.current) { setBusy(false); setProgress(''); }
+      if (alive.current) { setBusy(false); setProgress(''); setPercent(null); }
     }
   };
 
@@ -136,7 +138,9 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     saved = { ...saved, sessionEpoch: epoch.current ?? undefined };
     setProgress('Consultando el lote…');
     const status = await sendPreparedBatch(saved, limits, readPreparedChunk, signal, percent => {
-      if (alive.current) setProgress(percent === 100 ? 'Verificando archivos…' : `Enviando ${percent}%`);
+      if (!alive.current) return;
+      setPercent(percent);
+      setProgress(percent === 100 ? 'Verificando archivos…' : `Enviando ${percent}%`);
     });
     if (status.state !== 'stored') throw Error('La computadora todavía no confirmó todos los archivos.');
     if (pasteAfter && permissions.current.canClipboard) setProgress('Preparando el portapapeles…');
@@ -181,7 +185,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const textStyle = { color: appearance.color.text, fontSize: appearance.text.body };
   const panel = <View pointerEvents="box-none" style={{ position: 'absolute', left: insets.left + appearance.control.margin,
     right: insets.right + appearance.control.margin, bottom: insets.bottom + appearance.control.size + appearance.control.margin * 3 }}>
-    {!visible && !!selection && <GlassButton label={`${selection.items.length} adjuntos`} onPress={() => setVisible(true)} />}
+    {!visible && !!selection && <GlassButton label={`${selection.items.length} adjuntos${busy && percent !== null ? ` · ${percent}%` : ''}`} onPress={() => setVisible(true)} />}
     {(!!notice || (!selection && !!problem)) && <DismissibleNotice message={notice || problem}
       dismiss={() => { setNotice(''); setProblem(''); }} />}
     {visible && !!selection && <GlassSurface style={{ borderRadius: appearance.control.menuRadius,
@@ -205,7 +209,10 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
           {!prepared && selection.items.length > 1 && <GlassButton compact action="remove" label={`Quitar ${item.name}`} disabled={busy} onPress={() => remove(index)} />}
         </View>)}
       </ScrollView>
-      {!!progress && <Text accessibilityLiveRegion="polite" style={{ ...textStyle, color: appearance.color.secondary }}>{progress}</Text>}
+      {!!progress && <View style={{ flexDirection: 'row', alignItems: 'center', gap: appearance.control.gap }}>
+        {percent !== null && <ProgressRing percent={percent} />}
+        <Text accessibilityLiveRegion="polite" style={{ ...textStyle, flex: 1, color: appearance.color.secondary }}>{progress}</Text>
+      </View>}
       {!!problem && <Text accessibilityRole="alert" numberOfLines={appearance.notice.maxLines}
         style={{ color: appearance.color.warning, fontSize: appearance.notice.fontSize, lineHeight: appearance.notice.lineHeight }}>{problem}</Text>}
       {busy ? <GlassButton label="Pausar" onPress={() => request.current?.abort()} /> : <View style={{ flexDirection: 'row', gap: appearance.control.gap }}>
