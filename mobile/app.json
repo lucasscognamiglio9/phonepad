@@ -29,7 +29,6 @@
         "android.permission.INTERNET",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.SYSTEM_ALERT_WINDOW",
         "android.permission.WAKE_LOCK",
         "android.permission.BLUETOOTH"
@@ -81,13 +80,17 @@
     ],
     "scheme": "phonepad",
     "extra": {
-      "router": {}
+      "router": {},
+      "eas": {
+        "projectId": "a424819c-da67-44c6-bf43-8a09b2e554a2"
+      }
     },
     "runtimeVersion": {
       "policy": "fingerprint"
     },
     "updates": {
       "enabled": false
-    }
+    },
+    "owner": "lucas0expo"
   }
 }
