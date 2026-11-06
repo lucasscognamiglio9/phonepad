@@ -48,7 +48,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Tomar una foto para enviarla a tu computadora.",
+          "cameraPermission": "Usar la cámara del iPhone como webcam de tu computadora y tomar fotos para enviarle.",
           "photosPermission": "Elegir fotos para enviarlas a tu computadora.",
           "microphonePermission": "Usar el micrófono del iPhone como micrófono de tu computadora."
         }

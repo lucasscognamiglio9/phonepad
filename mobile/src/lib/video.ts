@@ -17,6 +17,13 @@ const AUDIO_SESSION: AutomaticAudioSessionConfiguration = {
   deactivateOnStop: true,
 };
 
+const CAMERA = { facingMode: 'user', width: 1280, height: 720, frameRate: 30 };
+
+// The computer offers a receive-only video m-line when it has the virtual webcam.
+export const cameraMid = (sdp: string) => sdp.split(/\r?\n(?=m=)/)
+  .find(section => section.startsWith('m=video') && /^a=recvonly\r?$/m.test(section))
+  ?.match(/^a=mid:(\S+)/m)?.[1];
+
 // Missing stats are unknown, never evidence of a healthy interval.
 const known = (stat: Stat | undefined, key: string): number | null => {
   const value = stat?.[key];
@@ -81,7 +88,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   let activity = Promise.resolve();
   let phase = 'status';
   let id: string | undefined, released = false, stopped = false, started = false;
-  let microphone: MediaStream | undefined;
+  let microphone: MediaStream | undefined, camera: MediaStream | undefined;
   let terminalError: Error | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let watchdog: ReturnType<typeof setInterval> | undefined;
@@ -128,7 +135,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     if (!stopped) {
       stopped = true;
       lifetime.abort(); clearTimeout(timer); clearInterval(watchdog);
-      onCursor?.(null); microphone?.getTracks().forEach(track => track.stop()); peer.close(); signal.removeEventListener('abort', stop);
+      onCursor?.(null); [microphone, camera].forEach(stream => stream?.getTracks().forEach(track => track.stop())); peer.close(); signal.removeEventListener('abort', stop);
     }
     // An offer may finish just as cancellation happens. Release a late session
     // too; the server's lease remains the fallback if the network is unavailable.
@@ -158,6 +165,10 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // unblock startup so the screen can schedule a new session.
     operation.then(resolve, reject).finally(() => lifetime.signal.removeEventListener('abort', abort));
   });
+  const capture = (constraints: { audio?: boolean; video?: typeof CAMERA }) => native(mediaDevices.getUserMedia(constraints).then(value => {
+    if (stopped) value.getTracks().forEach(track => track.stop());
+    return value;
+  }));
   if (signal.aborted) { stop(); throw Error('Cancelado'); }
   signal.addEventListener('abort', stop, { once: true });
   watchdog = setInterval(() => {
@@ -175,7 +186,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // physical desktop resolution independent of screen orientation and zoom.
     phase = 'offer';
     const codec = selectVideoCodec(advertised);
-    const offer = await call({ op: 'start', ...(onCursor ? {cursorMode:'metadata', cursorDelivery:2} : {}), audio: true, width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
+    const offer = await call({ op: 'start', ...(onCursor ? {cursorMode:'metadata', cursorDelivery:2} : {}), audio: true, camera: true, width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
@@ -195,13 +206,21 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // Without permission the screen and speaker still work; only the mic is missing.
     try {
       AudioDeviceModule?.setAutomaticAudioSessionConfiguration?.(AUDIO_SESSION);
-      const stream = await native(mediaDevices.getUserMedia({ audio: true }).then(value => {
-        if (stopped) value.getTracks().forEach(track => track.stop());
-        return value;
-      }));
-      microphone = stream;
+      const stream = microphone = await capture({ audio: true });
       checkActive();
       stream.getAudioTracks().forEach(track => peer.addTrack(track, stream));
+    } catch { checkActive(); }
+    phase = 'camera';
+    // addTrack would reuse the screen's transceiver, so the camera goes on the m-line the computer offered for it.
+    try {
+      const mid = cameraMid(offer.sdp);
+      const transceiver = mid ? peer.getTransceivers().find(item => item.mid === mid) : undefined;
+      if (transceiver) {
+        const stream = camera = await capture({ video: CAMERA });
+        checkActive();
+        await native(transceiver.sender.replaceTrack(stream.getVideoTracks()[0] ?? null));
+        transceiver.direction = 'sendonly';
+      }
     } catch { checkActive(); }
     phase = 'answer';
     const answer = await native(peer.createAnswer());

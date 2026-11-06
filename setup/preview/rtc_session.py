@@ -20,16 +20,18 @@ from frame_freshness import FrameFreshness, memory_descriptor
 from live_capture import configure_live_capture
 from frame_cadence import FrameCadence
 import audio_bridge
+import camera_bridge
 
 
 class Session:
-    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None, cursor_metadata=False, cursor_delivery=1, audio=False):
+    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None, cursor_metadata=False, cursor_delivery=1, audio=False, camera=False):
         self.id = secrets.token_urlsafe(24)
         self.audio_devices = audio_bridge.Devices() if audio and audio_bridge.available() else None
         if self.audio_devices is not None and self.audio_devices.speaker is None:
             self.audio_devices.close()
             self.audio_devices = None
         self.audio = self.audio_devices is not None
+        self.camera_path = camera_bridge.device() if camera and camera_bridge.available() else None
         self.touched = time.monotonic()
         self.ready = threading.Event()
         self.error = None
@@ -132,6 +134,8 @@ class Session:
         # with native libwebrtc instead of relying only on periodic keyframes.
         try:
             self.video_transceiver = enable_video_recovery(self.peer)
+            if self.camera_path:
+                camera_bridge.add_receiver(self.peer)
         except Exception:
             self.pipeline.set_state(Gst.State.NULL)
             raise
@@ -300,6 +304,9 @@ class Session:
         if self.audio:
             microphone = audio_bridge.Microphone(self.pipeline, self.audio_devices)
             self.handlers.append((self.peer, self.peer.connect('pad-added', lambda _peer, pad: microphone.attach(pad))))
+        if self.camera_path:
+            camera = camera_bridge.Camera(self.pipeline, self.camera_path)
+            self.handlers.append((self.peer, self.peer.connect('pad-added', lambda _peer, pad: camera.attach(pad))))
         self.pipeline.set_state(Gst.State.PLAYING)
         if self.audio:
             self.audio_devices.claim('sink', audio_bridge.SPEAKER['node.name'])

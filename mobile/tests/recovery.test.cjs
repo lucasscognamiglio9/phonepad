@@ -200,7 +200,7 @@ test('incompatible video formats fail before starting capture and malformed offe
 
 test('native preview requests desktop resolution and releases its encoder once on background', async () => {
   const h = video(); const stop = await h.start(); await drain();
-  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', audio: true, width: 1920, codec: 'H264' });
+  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', audio: true, camera: true, width: 1920, codec: 'H264' });
   assert.equal(h.shown.length, 1);
   await h.time.advance(1500);
   assert.ok(h.calls.filter(c => c.op === 'feedback').length >= 2);
@@ -494,4 +494,13 @@ test('pointer recovery invalidates input immediately and starts a fresh transpor
  const h=control();h.connection.start();await drain();h.sockets[0].ack();const epoch=h.connection.inputEpoch;
  h.connection.touch(epoch,[{id:1,x:.5,y:.5}]);h.connection.recoverPointer();assert.equal(h.states.at(-1),'offline');assert.equal(h.connection.touch(epoch,[{id:1,x:.6,y:.5}]),false);
  await h.time.advance(250);h.sockets[1].ack();assert.notEqual(h.connection.inputEpoch,epoch);assert.equal(h.sockets[1].sent.length,0);h.connection.stop();assert.equal(h.time.pending,0);
+});
+
+test('phone camera goes on the receive-only m-line the computer offers', () => {
+  const { cameraMid } = load('video.ts', { require: () => ({}) });
+  const offer = ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 96', 'a=sendrecv', 'a=mid:video0',
+    'm=audio 0 UDP/TLS/RTP/SAVPF 111', 'a=sendrecv', 'a=mid:audio1',
+    'm=video 0 UDP/TLS/RTP/SAVPF 102 97', 'a=bundle-only', 'a=recvonly', 'a=mid:video2', ''].join('\r\n');
+  assert.equal(cameraMid(offer), 'video2');
+  assert.equal(cameraMid(offer.replace('a=recvonly', 'a=inactive')), undefined);
 });

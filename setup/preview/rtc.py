@@ -377,6 +377,7 @@ class Manager:
                                        media_tracker=self.media_tracker,
                                        media_provider=self.media_provider, output_size=output_size,
                                        audio=data.get('audio') is True,
+                                       camera=data.get('camera') is True,
                                        **({'cursor_metadata': True,
                                            'cursor_delivery': 2 if data.get('cursorDelivery') == 2 else 1}
                                           if data.get('cursorMode') == 'metadata' else {}))
