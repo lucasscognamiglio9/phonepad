@@ -193,7 +193,8 @@ export function Control({ origin, onSelectHost, initialPreview = false, onStartu
       canReview={state === 'connected'} allowAttachments={state === 'connected' && connection.canTransfer}
       column={landscapePreview ? horizontalLayout.column : undefined}
      visible={!landscapePreview || keyboard}
-      disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose} />
+      disabled={!inputReady} choosing={attachments.busy} choose={attachments.choose}
+      imageToHost={image => attachments.offerClipboardImage(image, 'copy')} />
     <SessionOptions visible={options} close={() => setOptions(false)} preferences={preferences} change={changePreferences} />
     <HostMenu visible={hostsOpen} activeOrigin={origin} connected={state === 'connected'} close={() => setHostsOpen(false)}
       canSwitch={canSwitchHost} select={next => { if (next === origin) setPreview(true); else onSelectHost(next); }} />

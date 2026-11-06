@@ -4,15 +4,16 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
 import { ShortcutKey } from './shortcut-key';
 import { PasteKey } from './paste-key';
+import type { ClipboardImage } from 'expo-clipboard';
 import { GlassSurface } from './glass-surface';
 import { appearance } from './appearance';
 import { modifierLabel } from '../lib/control-layout';
 
 /** One horizontal native scroller, with an independent vertical page gesture. */
-export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers, toggleModifier, special, copy, paste, pasteDraft, toPhone, toHost, page, onPageChange }: {
+export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers, toggleModifier, special, copy, paste, pasteDraft, toPhone, toHost, imageToHost, page, onPageChange }: {
   disabled: boolean; clipboardDisabled: boolean; platform?: string; modifiers: string[];
   toggleModifier: (mod: string) => void; special: (key: string) => void;
-  copy: () => void; paste: () => void; pasteDraft: (text?: string) => void; toPhone: () => void; toHost: (text?: string) => void;
+  copy: () => void; paste: () => void; pasteDraft: (text?: string) => void; toPhone: () => void; toHost: (text?: string) => void; imageToHost?: (image: ClipboardImage) => void;
   page: number; onPageChange: (page: number) => void;
 }) {
   const scroll = useRef<ScrollView>(null);
@@ -42,7 +43,7 @@ export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers
     { label: 'Pegar', action: 'paste' as const, disabled, run: paste },
     { label: 'Copiar', action: 'copy' as const, disabled, run: copy },
     { label: 'Al iPhone', action: 'toPhone' as const, disabled: disabled || clipboardDisabled, run: toPhone },
-    { label: 'Al equipo', action: 'toHost' as const, disabled: disabled || clipboardDisabled, run: () => toHost(), pasteText: toHost },
+    { label: 'Al equipo', action: 'toHost' as const, disabled: disabled || clipboardDisabled, run: () => toHost(), pasteText: toHost, pasteImage: imageToHost },
   ];
   return <GestureDetector gesture={vertical}>
     <GlassSurface interactive material={appearance.control.floatingMaterial} style={{ borderRadius: appearance.control.menuRadius, padding: appearance.shortcuts.padding }}>
@@ -54,8 +55,9 @@ export function ShortcutPanel({ disabled, clipboardDisabled, platform, modifiers
             onScroll={event => { offsets.current[page] = event.nativeEvent.contentOffset.x; }} scrollEventThrottle={16}
             style={{ flex: 1, height: appearance.composer.toolbarHeight }}
             contentContainerStyle={{ alignItems: 'center', gap: appearance.shortcuts.gap }}>
-            {items.map(({ pasteText, ...item }: typeof items[number] & { pasteText?: (text: string) => void }) => pasteText
-              ? <PasteKey key={item.label} {...item} paste={data => { if (data.type === 'text') pasteText(data.text); }} />
+            {items.map(({ pasteText, pasteImage, ...item }: typeof items[number] & { pasteText?: (text: string) => void; pasteImage?: (image: ClipboardImage) => void }) => pasteText
+              ? <PasteKey key={item.label} {...item} accepted={pasteImage ? ['plain-text', 'image'] : undefined}
+                paste={data => { if (data.type === 'text') pasteText(data.text); else if (data.type === 'image') pasteImage?.(data); }} />
               : <ShortcutKey key={item.label} {...item} />)}
           </ScrollView>
         </GestureDetector>

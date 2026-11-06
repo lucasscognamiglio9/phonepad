@@ -1,3 +1,4 @@
+import type { ClipboardImage } from 'expo-clipboard';
 import type { GlassPointer } from './glass-reflection';
 import { appearance } from './appearance';
 import { useEffect, useRef, useState } from 'react';
@@ -35,9 +36,10 @@ type ActionDispatch = { accepted: boolean; receiptAware: boolean; operationId: s
 
 // Keep text state here: typing must not rerender the video or restart its stream.
 export function NativeKeyboard({ connection, active, open, close, disabled, choosing, choose, visible = true, onPendingChange, onOcclusionChange,
-  canReview = !disabled, allowAttachments = !disabled, column, glassPointer }: {
+  canReview = !disabled, allowAttachments = !disabled, column, glassPointer, imageToHost }: {
   connection: Connection; active: boolean; open: () => void; close: () => void;
   disabled: boolean; choosing: boolean; choose: (source: AttachmentSource) => void;
+  imageToHost?: (image: ClipboardImage) => void;
   visible?: boolean;
   onPendingChange?: (pending: boolean) => void;
   onOcclusionChange?: (height: number) => void;
@@ -372,7 +374,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         toggleModifier={mod => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }}
         special={special} copy={() => clipboard('c')} paste={() => clipboard('v')}
         pasteDraft={text => { void typePhoneClipboard(text); }}
-        toPhone={() => { void copyClipboard('phone'); }} toHost={text => { void copyClipboard('host', text); }} />}
+        toPhone={() => { void copyClipboard('phone'); }} toHost={text => { void copyClipboard('host', text); }} imageToHost={allowAttachments ? imageToHost : undefined} />}
       <GlassSurface glassPointer={glassPointer} style={{ borderRadius: compact ? appearance.control.capsuleRadius : appearance.control.menuRadius, padding: appearance.composer.padding }}>
         <View style={{ position: 'relative', marginLeft: compactLeft, marginRight: compactRight }}>
           <TextInput ref={input} value={caretMode ? CARET_CONTEXT : value} selection={caretMode || draft.current ? caretSelection : undefined}

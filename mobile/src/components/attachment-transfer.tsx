@@ -103,7 +103,8 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     });
   };
 
-  const offerClipboardImage = (image: ClipboardImage) => {
+  // "copy" sends the image straight to the computer's clipboard without the review panel.
+  const offerClipboardImage = (image: ClipboardImage, mode?: 'copy') => {
     if (selectionRef.current) { setVisible(true); return; }
     if (!permissions.current.connected) { setProblem('El equipo no permite recibir imágenes en esta sesión.'); return; }
     void run(async signal => {
@@ -118,11 +119,15 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       file.create(); file.write(new Uint8Array(bytes));
       clearClipboardImage(); clipboardImageFile.current = file;
       select(attachmentBatch([{ uri: file.uri, name: `Imagen copiada.${match[1] === 'jpeg' ? 'jpg' : 'png'}`, type: `image/${match[1]}`, size: bytes.length }]));
-      setLimits(limits); setVisible(true);
-    });
+      setLimits(limits);
+      if (mode === 'copy' && permissions.current.canClipboard) await deliver(signal, 'copy');
+      else setVisible(true);
+    }, mode === 'copy');
   };
 
-  const send = (pasteAfter = true) => void run(async signal => {
+  const deliver = async (signal: AbortSignal, mode: 'paste' | 'copy' | 'store') => {
+    const pasteAfter = mode === 'paste';
+    const copy = mode !== 'store' && permissions.current.canClipboard;
     const sendingEpoch = epoch.current;
     if (!permissions.current.connected) throw Error('El equipo no permite recibir archivos en esta sesión.');
     const batch = selectionRef.current;
@@ -143,8 +148,8 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       setProgress(percent === 100 ? 'Verificando archivos…' : `Enviando ${percent}%`);
     });
     if (status.state !== 'stored') throw Error('La computadora todavía no confirmó todos los archivos.');
-    if (pasteAfter && permissions.current.canClipboard) setProgress('Preparando el portapapeles…');
-    const receipt = pasteAfter && permissions.current.canClipboard ? await copyPreparedBatch(saved, signal) : status;
+    if (copy) setProgress('Preparando el portapapeles…');
+    const receipt = copy ? await copyPreparedBatch(saved, signal) : status;
     if (!alive.current || signal.aborted || sendingEpoch !== epoch.current) throw Error('Cambió la conexión. Conservamos el lote para revisar el envío.');
     // Local cleanup is safe only after the remote receipt. A lost receipt keeps
     // the manifest so the next attempt can query instead of duplicating work.
@@ -155,10 +160,13 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       const result = await paste();
       if (alive.current) setNotice(result === 'executed' ? 'Enviado' : result === 'rejected'
         ? 'Guardado en el equipo. Reconectá para pegar.' : 'Guardado. Revisá el pegado en el equipo.');
+    } else if (mode === 'copy' && receipt.clipboard?.state === 'ready') {
+      setNotice('Copiado en el equipo');
     } else {
-      setNotice(pasteAfter && receipt.clipboard?.replayed ? 'Guardado. El pegado anterior requiere revisión.' : 'Guardado en Downloads/Phonepad');
+      setNotice(copy && receipt.clipboard?.replayed ? 'Guardado. El pegado anterior requiere revisión.' : 'Guardado en Downloads/Phonepad');
     }
-  }, true);
+  };
+  const send = (pasteAfter: boolean) => void run(signal => deliver(signal, pasteAfter ? 'paste' : 'store'), true);
 
   const discard = () => void run(async signal => {
     const saved = preparedRef.current;

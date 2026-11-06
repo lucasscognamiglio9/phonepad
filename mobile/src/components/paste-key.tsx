@@ -12,7 +12,7 @@ export function PasteKey({ paste, accepted = ['plain-text'], ...key }: ShortcutK
   if (key.disabled || !Clipboard.isPasteButtonAvailable) return <ShortcutKey {...key} />;
   return <View style={{ minHeight: appearance.control.size, flexDirection: 'row', alignItems: 'center', gap: appearance.shortcuts.gap,
     paddingHorizontal: appearance.control.gap }}>
-    <Clipboard.ClipboardPasteButton onPress={paste} acceptedContentTypes={accepted} displayMode="iconOnly" cornerStyle="capsule"
+    <Clipboard.ClipboardPasteButton onPress={paste} acceptedContentTypes={accepted} imageOptions={{ format: 'png' }} displayMode="iconOnly" cornerStyle="capsule"
       backgroundColor={appearance.color.paste} foregroundColor={appearance.color.text}
       style={{ width: appearance.control.size, height: appearance.control.size }} />
     <Text numberOfLines={1} style={{ color: appearance.color.text, fontSize: appearance.text.caption }}>{key.label}</Text>
