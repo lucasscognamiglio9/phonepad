@@ -1,11 +1,13 @@
-import { useMemo, useRef, type ReactNode } from 'react';
-import { PanResponder, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { AccessibilityInfo, PanResponder, Platform, Text, View } from 'react-native';
 import { GlassSurface } from './glass-surface';
 import { GlassButton } from './glass-button';
 import { appearance } from './appearance';
 
 export function DismissibleNotice({ message, dismiss, children, action }: { message: string; dismiss: () => void; children?: ReactNode; action?: {label: string; run: () => void} }) {
   const close = useRef(dismiss); close.current = dismiss;
+  // accessibilityLiveRegion only works on Android; VoiceOver needs an explicit announcement.
+  useEffect(() => { if (Platform.OS === 'ios' && message) AccessibilityInfo.announceForAccessibility(message); }, [message]);
   const responder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > appearance.notice.swipeStart || gesture.dy < -appearance.notice.swipeStart,
     onPanResponderRelease: (_, gesture) => { if (Math.hypot(gesture.dx, gesture.dy) >= appearance.notice.swipeDismiss) close.current(); },

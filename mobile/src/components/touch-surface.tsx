@@ -1,7 +1,7 @@
 import { CURSOR_POINTS, cursorPlacement, cursorTransitionMs, type CursorState, type CursorFeed } from '../lib/cursor';
 import { reflectionRest, type GlassPointer } from './glass-reflection';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState, Image, View, type ViewStyle } from 'react-native';
+import { AppState, Image, View, type AccessibilityRole, type ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { Gesture, GestureDetector, type GestureTouchEvent, type TouchData } from 'react-native-gesture-handler';
 import { scheduleOnRN } from 'react-native-worklets';
@@ -545,6 +545,9 @@ export function TouchSurface({ connection, children, preview, dismissKeyboard,
       onLayout={onLayout}
       collapsable={false}
       style={{ flex: 1, overflow: 'hidden' }}
+      accessible
+      // Fabric maps this role to UIAccessibilityTraitAllowsDirectInteraction, so VoiceOver passes gestures through.
+      accessibilityRole={'allowsDirectInteraction' as AccessibilityRole}
       accessibilityLabel={mode === 'direct' ? 'Control directo de la pantalla. Tocá o arrastrá; dos dedos para scroll o clic derecho.' : 'Touchpad multitáctil. Los gestos físicos se procesan en la computadora.'}
     >
       <Animated.View pointerEvents="none" style={viewportStyle}>
