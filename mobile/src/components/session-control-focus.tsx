@@ -9,7 +9,7 @@ import { appearance } from './appearance';
 
 /** Native glass lens; dragging selects on release, cancellation executes nothing. */
 export function SessionControlFocus({ children, actions, dragEnabled = true }: {
-  children: ReactNode; dragEnabled?: boolean; actions: Array<{ disabled?: boolean; run: () => void }>;
+  children: ReactNode; dragEnabled?: boolean; actions: { disabled?: boolean; run: () => void }[];
 }) {
   const rowHeight = appearance.control.size;
   const position = useSharedValue(0);

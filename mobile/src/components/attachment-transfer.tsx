@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { attachmentBatch, chooseAttachments, type Attachment, type AttachmentBatch, type AttachmentSource } from '../lib/attachments';
-import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimits, type PreparedBatch, type TransferLimits } from '../lib/file-transfer';
+import { cancelPreparedBatch, copyPreparedBatch, sendPreparedBatch, transferLimits, type PreparedBatch } from '../lib/file-transfer';
 import { discardPreparedBatch, prepareBatch, readPreparedChunk, restorePreparedBatch } from '../lib/file-transfer-storage';
 import { GlassSurface } from './glass-surface';
 import { ActionIcon } from './action-icon';
@@ -25,7 +25,6 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const [percent, setPercent] = useState<number | null>(null);
-  const [limits, setLimits] = useState<TransferLimits | null>(null);
   const [problem, setProblem] = useState('');
   const request = useRef<AbortController | null>(null);
   const alive = useRef(true);
@@ -83,7 +82,6 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     void run(async signal => {
       // Negotiate before opening a provider so limits are known on both sides.
       const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
-      if (alive.current) setLimits(limits);
       const items = await chooseAttachments(source);
       if (!items.length || signal.aborted || !alive.current) return;
       if (items.length > limits.maxFiles) throw Error(`Esta computadora admite hasta ${limits.maxFiles} archivos por lote.`);
@@ -99,7 +97,7 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
       if (signal.aborted || !alive.current) return;
       if (items.length > limits.maxFiles) throw Error(`Esta computadora admite hasta ${limits.maxFiles} archivos por lote.`);
-      setLimits(limits); select(attachmentBatch(items)); setVisible(true);
+      select(attachmentBatch(items)); setVisible(true);
     });
   };
 
@@ -119,7 +117,6 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
       file.create(); file.write(new Uint8Array(bytes));
       clearClipboardImage(); clipboardImageFile.current = file;
       select(attachmentBatch([{ uri: file.uri, name: `Imagen copiada.${match[1] === 'jpeg' ? 'jpg' : 'png'}`, type: `image/${match[1]}`, size: bytes.length }]));
-      setLimits(limits);
       if (mode === 'copy' && permissions.current.canClipboard) await deliver(signal, 'copy');
       else setVisible(true);
     }, mode === 'copy');
@@ -133,7 +130,6 @@ export function useAttachmentTransfer(origin: string, connected: boolean, paste:
     const batch = selectionRef.current;
     if (!batch) return;
     const limits = await transferLimits(origin, signal, epoch.current ?? undefined);
-    if (alive.current) setLimits(limits);
     let saved = preparedRef.current;
     if (!saved) {
       saved = await prepareBatch(origin, batch, limits, signal, text => { if (alive.current) setProgress(text); });

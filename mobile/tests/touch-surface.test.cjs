@@ -44,7 +44,6 @@ function loadTouchSurface() {
 
 const {
   mapTouchToContact,
-  mapTouchSnapshot,
   mapTouchReleaseSnapshot,
   removeChangedTouchContacts,
   SQUARE_POINTER_GEOMETRY,
@@ -61,7 +60,6 @@ function render({ dismissKeyboard, touchResult, defer = false, animate = false }
   const clearTimer=id=>timers.delete(id);
   const slots = [];
   const pendingEffects = [];
-  const cleanups = [];
   const gestures = [];
   const appStateListeners = [];
   const calls = [], directCommands = [];

@@ -232,7 +232,7 @@ export function chooseAttachments(source: AttachmentSource): Promise<Attachment[
   return pickAttachments(source, true);
 }
 export type AttachmentBatch = { id: string; items: Attachment[] };
-export type BatchReceipt = { version: 1; id: string; files: Array<{ name: string; bytes: number; sha256: string }>;
+export type BatchReceipt = { version: 1; id: string; files: { name: string; bytes: number; sha256: string }[];
   folder: string; clipboard: 'ready' | 'unavailable'; replayed?: boolean };
 export function attachmentBatch(items: Attachment[]): AttachmentBatch {
   if (!items.length || items.length > 20) throw Error('Elegí entre 1 y 20 archivos.');

@@ -1,3 +1,4 @@
+import { appearance } from '../components/appearance';
 export type ArrowKey = 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight';
 export function directionKey(x: number, y: number, deadZone: number): ArrowKey | null {
   if (!Number.isFinite(x) || !Number.isFinite(y) || Math.hypot(x, y) < deadZone) return null;
@@ -13,7 +14,6 @@ export function modifierLabel(mod: string, platform?: string): string {
   if (mod === 'alt' && platform === 'darwin') return 'Option';
   return mod[0].toUpperCase() + mod.slice(1);
 }
-import { appearance } from '../components/appearance';
 
 export type ComposerColumn = { left: number; top: number; width: number; height: number };
 type Insets = { left: number; right: number; top: number; bottom: number };

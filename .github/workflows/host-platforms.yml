@@ -34,6 +34,7 @@ jobs:
         working-directory: mobile
         run: |
           npm run typecheck
+          npm run lint
           node --test --test-concurrency=2 tests/*.test.cjs
           python3 -m unittest discover -s tests -p '*_test.py'
           npm run build:web-core

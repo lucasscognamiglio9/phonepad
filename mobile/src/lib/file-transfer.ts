@@ -7,7 +7,7 @@ export type TransferManifest = { version: 2; id: string; files: TransferFile[] }
 export type PreparedBatch = { origin: string; manifest: TransferManifest; createdAt: number; sessionEpoch?: string };
 export type TransferStatus = {
   version: 2; id: string; state: 'receiving' | 'stored' | 'cancelled'; folder?: string;
-  files: Array<TransferFile & { index: number; receivedBytes: number }>;
+  files: (TransferFile & { index: number; receivedBytes: number })[];
   clipboard?: { state: 'unrequested' | 'ready' | 'unavailable' | 'uncertain'; replayed?: boolean };
 };
 export type ChunkReader = (id: string, index: number, offset: number, count: number) => Uint8Array;

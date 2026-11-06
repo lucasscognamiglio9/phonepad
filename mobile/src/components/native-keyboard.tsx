@@ -170,7 +170,7 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     const remeasure = () => {
       if (menuInteraction.current) measureAnchorRef.current();
     };
-    const events: Array<'keyboardWillChangeFrame' | 'keyboardDidChangeFrame' | 'keyboardDidShow' | 'keyboardDidHide'> = Platform.OS === 'ios'
+    const events: ('keyboardWillChangeFrame' | 'keyboardDidChangeFrame' | 'keyboardDidShow' | 'keyboardDidHide')[] = Platform.OS === 'ios'
       ? ['keyboardWillChangeFrame', 'keyboardDidChangeFrame', 'keyboardDidShow', 'keyboardDidHide']
       : ['keyboardDidShow', 'keyboardDidHide'];
     const subscriptions = events.map(event => Keyboard.addListener(event, remeasure));
