@@ -7,6 +7,7 @@ build:
         name: Check the app
         command: |
           npm run typecheck
+          npm run lint
           npm test
           python3 -m unittest discover -s tests -p '*_test.py'
     - run:
