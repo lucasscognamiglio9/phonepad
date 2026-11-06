@@ -5,10 +5,16 @@ PartOf=graphical-session.target
 [Service]
 UMask=0077
 NoNewPrivileges=true
+# HFR mirrors the screen through a virtual monitor and sends the cursor as
+# metadata, so the phone draws its own resizable pointer.
+Environment=PHONEPAD_VIDEO_MODE=hfr
+Environment=PHONEPAD_VIRTUAL_MIRROR=1
 ExecStart=/usr/bin/python3 %h/.local/lib/phonepad/capture.py
+MemoryHigh=750M
+MemoryMax=1000M
 Restart=on-failure
 RestartSec=3
-TimeoutStopSec=15
+TimeoutStopSec=10
 KillMode=control-group
 [Install]
 WantedBy=graphical-session.target

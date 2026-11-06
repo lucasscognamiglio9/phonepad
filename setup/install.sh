@@ -2,7 +2,7 @@
 # User installation. Converges every machine to the same state: the repo's
 # binary, units and modules, with no drop-ins or leftovers from older releases.
 # Keeps pairing and service.env. Run setup.sh with sudo once before this.
-# Usage: PHONEPAD_PREBUILT=/path/phonepad bash setup/install.sh
+# Usage: PHONEPAD_PREBUILT=/path/phonepad PHONEPAD_PREBUILT_HELPERS=/dir bash setup/install.sh
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 repo_dir=$(cd -- "$script_dir/.." && pwd)
@@ -24,7 +24,7 @@ mkdir -p "$config_dir" "$unit_dir" "$bin_dir" "$ext_dst"
 if [[ -n ${PHONEPAD_PREBUILT:-} ]]; then
  install -m 755 "$PHONEPAD_PREBUILT" "$bin_dir/phonepad.new"
 else
- go_bin=$(command -v go || true)
+ go_bin=$(command -v go || ls "$HOME"/.local/sdk/go/bin/go /usr/local/go/bin/go 2>/dev/null | head -1 || true)
  [[ -n $go_bin ]] || { echo 'Falta Go o PHONEPAD_PREBUILT.' >&2; exit 1; }
  (cd "$repo_dir/daemon"; "$go_bin" build -trimpath -mod=vendor -o "$bin_dir/phonepad.new" .)
 fi
@@ -43,6 +43,16 @@ rm -rf "$lib_dir"
 mkdir -p "$lib_dir"
 install -m 644 "$script_dir/preview/"*.py "$lib_dir/"
 install -m 755 "$script_dir/indicator.py" "$lib_dir/indicator.py"
+# The cursor helper lets the phone draw its own pointer instead of the
+# desktop one burned into the video.
+if [[ -n ${PHONEPAD_PREBUILT_HELPERS:-} ]]; then
+ install -m 755 "$PHONEPAD_PREBUILT_HELPERS"/{phonepad-cursor-metadata,libphonepad-live-capture.so} "$lib_dir/"
+else
+ pkg-config --exists libpipewire-0.3 gstreamer-base-1.0 2>/dev/null \
+  || { echo 'Faltan los headers de PipeWire o GStreamer. Corré: sudo bash setup/setup.sh' >&2; exit 1; }
+ gcc -O2 -o "$lib_dir/phonepad-cursor-metadata" "$script_dir/preview/cursor_metadata.c" $(pkg-config --cflags --libs libpipewire-0.3)
+ gcc -O2 -shared -fPIC -o "$lib_dir/libphonepad-live-capture.so" "$script_dir/preview/live_capture.c" $(pkg-config --cflags --libs gstreamer-base-1.0)
+fi
 for unit in phonepad.service phonepad-preview.service phonepad-indicator.service; do
  install -m 644 "$script_dir/$unit" "$unit_dir/$unit"
 done
