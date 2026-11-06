@@ -15,6 +15,7 @@ from gi.repository import Gst, GstWebRTC, GstSdp, GstVideo, GLib
 from rtc_codecs import (disable_ice_upnp, modern_h264_encoder, available_codecs, enable_video_recovery, _caps_from_pipeline, _max_frame_age_ms, _lab_h264_config, _lab_encoder_options, desktop_quantizer_limit)
 from rate_control import RateController
 from rtc_session import Session
+import audio_bridge
 from media_contract import (MediaContractError, fit_square_pixel_size, requested_codecs,
                             unknown_media, validate_media)
 from cursor_lease import CursorGuardian
@@ -105,6 +106,7 @@ class Manager:
         self._shutdown_queued = False
         self._shutdown_event = threading.Event()
         self._shutdown_error = None
+        audio_bridge.recover()
         self._probe_media()
         self._expiry_source = GLib.timeout_add_seconds(2, self.expire)
 
@@ -374,6 +376,7 @@ class Manager:
                 self.session = Session(source, width, 1080, chosen,
                                        media_tracker=self.media_tracker,
                                        media_provider=self.media_provider, output_size=output_size,
+                                       audio=data.get('audio') is True,
                                        **({'cursor_metadata': True,
                                            'cursor_delivery': 2 if data.get('cursorDelivery') == 2 else 1}
                                           if data.get('cursorMode') == 'metadata' else {}))

@@ -42,7 +42,7 @@ echo "==> Instalando dependencias (portapapeles, accesibilidad, video, indicador
 packages=(wl-clipboard python3-gi gir1.2-gtk-4.0 gir1.2-atspi-2.0 xwayland
   gir1.2-ayatanaappindicator3-0.1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
   gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
-  gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire mesa-va-drivers
+  gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire pipewire-bin wireplumber mesa-va-drivers
   gcc pkg-config libpipewire-0.3-dev libgstreamer-plugins-base1.0-dev)
 if grep -q GenuineIntel /proc/cpuinfo && ! dpkg -s intel-media-va-driver-non-free >/dev/null 2>&1; then packages+=(intel-media-va-driver); fi
 apt-get install -y "${packages[@]}"

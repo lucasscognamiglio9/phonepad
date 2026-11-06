@@ -1,4 +1,4 @@
-import { RTCPeerConnection, RTCSessionDescription, MediaStream } from '@livekit/react-native-webrtc';
+import { RTCPeerConnection, RTCSessionDescription, MediaStream, mediaDevices, AudioDeviceModule, type AutomaticAudioSessionConfiguration } from '@livekit/react-native-webrtc';
 import { CursorReceiver, type CursorState } from './cursor';
 import { MediaBinding, parseMediaCapabilities, selectVideoCodec } from './media-capabilities';
 
@@ -7,6 +7,14 @@ type Stat = Record<string, unknown>;
 const metric = (stat: Stat | undefined, key: string) => {
   const value = stat?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+};
+
+// Voice processing (echo cancellation) needs playAndRecord; defaultToSpeaker keeps
+// the laptop's audio on the loudspeaker instead of the earpiece.
+const AUDIO_SESSION: AutomaticAudioSessionConfiguration = {
+  recording: { audioCategory: 'playAndRecord', audioMode: 'videoChat', audioCategoryOptions: ['defaultToSpeaker', 'allowBluetooth'] },
+  playout: { audioCategory: 'playback', audioMode: 'moviePlayback' },
+  deactivateOnStop: true,
 };
 
 // Missing stats are unknown, never evidence of a healthy interval.
@@ -73,6 +81,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   let activity = Promise.resolve();
   let phase = 'status';
   let id: string | undefined, released = false, stopped = false, started = false;
+  let microphone: MediaStream | undefined;
   let terminalError: Error | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let watchdog: ReturnType<typeof setInterval> | undefined;
@@ -119,7 +128,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     if (!stopped) {
       stopped = true;
       lifetime.abort(); clearTimeout(timer); clearInterval(watchdog);
-      onCursor?.(null); peer.close(); signal.removeEventListener('abort', stop);
+      onCursor?.(null); microphone?.getTracks().forEach(track => track.stop()); peer.close(); signal.removeEventListener('abort', stop);
     }
     // An offer may finish just as cancellation happens. Release a late session
     // too; the server's lease remains the fallback if the network is unavailable.
@@ -166,7 +175,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     // physical desktop resolution independent of screen orientation and zoom.
     phase = 'offer';
     const codec = selectVideoCodec(advertised);
-    const offer = await call({ op: 'start', ...(onCursor ? {cursorMode:'metadata', cursorDelivery:2} : {}), width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
+    const offer = await call({ op: 'start', ...(onCursor ? {cursorMode:'metadata', cursorDelivery:2} : {}), audio: true, width: 1920, codec, ...(receiverWidth ? { cursorSize: Math.max(24, Math.min(128, Math.ceil(28 * 1920 / Math.max(1, receiverWidth())))) } : {}), ...(advertised ? {codecs: [codec]} : {}) });
     if (typeof offer.id !== 'string' || typeof offer.sdp !== 'string') throw Error('La laptop no pudo preparar la pantalla.');
     id = offer.id;
     checkActive();
@@ -182,6 +191,18 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
     phase = 'remote-description';
     await native(peer.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offer.sdp })));
     checkActive();
+    phase = 'microphone';
+    // Without permission the screen and speaker still work; only the mic is missing.
+    try {
+      AudioDeviceModule?.setAutomaticAudioSessionConfiguration?.(AUDIO_SESSION);
+      const stream = await native(mediaDevices.getUserMedia({ audio: true }).then(value => {
+        if (stopped) value.getTracks().forEach(track => track.stop());
+        return value;
+      }));
+      microphone = stream;
+      checkActive();
+      stream.getAudioTracks().forEach(track => peer.addTrack(track, stream));
+    } catch { checkActive(); }
     phase = 'answer';
     const answer = await native(peer.createAnswer());
     checkActive();

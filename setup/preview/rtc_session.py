@@ -19,11 +19,17 @@ from gcc_controller import (GCCController, GCCControllerError, controller_name,
 from frame_freshness import FrameFreshness, memory_descriptor
 from live_capture import configure_live_capture
 from frame_cadence import FrameCadence
+import audio_bridge
 
 
 class Session:
-    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None, cursor_metadata=False, cursor_delivery=1):
+    def __init__(self, source, width, height, codec="H264", media_tracker=None, media_provider=None, output_size=None, cursor_metadata=False, cursor_delivery=1, audio=False):
         self.id = secrets.token_urlsafe(24)
+        self.audio_devices = audio_bridge.Devices() if audio and audio_bridge.available() else None
+        if self.audio_devices is not None and self.audio_devices.speaker is None:
+            self.audio_devices.close()
+            self.audio_devices = None
+        self.audio = self.audio_devices is not None
         self.touched = time.monotonic()
         self.ready = threading.Event()
         self.error = None
@@ -92,7 +98,10 @@ class Session:
             f'! {profile} '
             f'! {parser} config-interval=-1 ! {payloader} name=payloader pt=96 mtu=1200 config-interval=-1 aggregate-mode=zero-latency '
             f'! application/x-rtp,media=video,encoding-name={codec},payload=96 '
-            '! webrtcbin name=peer bundle-policy=max-bundle latency=30')
+            '! webrtcbin name=peer bundle-policy=max-bundle latency=30 '
+            + (audio_bridge.speaker_branch() if self.audio else ''))
+        if self.audio:
+            self.pipeline.get_by_name('speaker').set_property('stream-properties', audio_bridge.node_properties(audio_bridge.CAPTURE))
         def configure_transport(bin, sub_bin, element):
             factory = element.get_factory()
             if factory and factory.get_name() == 'nicesink':
@@ -288,7 +297,12 @@ class Session:
                 self.cursor_image_channel = self.peer.emit('create-data-channel', 'phonepad-cursor-image-v2', image_options)
                 if self.cursor_image_channel is None:
                     self.close(); raise RuntimeError('cursor image channel unavailable')
+        if self.audio:
+            microphone = audio_bridge.Microphone(self.pipeline, self.audio_devices)
+            self.handlers.append((self.peer, self.peer.connect('pad-added', lambda _peer, pad: microphone.attach(pad))))
         self.pipeline.set_state(Gst.State.PLAYING)
+        if self.audio:
+            self.audio_devices.claim('sink', audio_bridge.SPEAKER['node.name'])
         self.refresh_media()
 
     def refresh_media(self):
@@ -509,6 +523,9 @@ class Session:
             self.flow.set_property('drop', True)
             self.pipeline.send_event(Gst.Event.new_flush_start())
             self.pipeline.set_state(Gst.State.NULL)
+            if getattr(self, 'audio_devices', None) is not None:
+                self.audio_devices.close()
+                self.audio_devices = None
             self.bus.remove_signal_watch()
             # GObject callbacks retain Python closures; disconnect them explicitly
             # so old sessions and their GPU buffers cannot form ownership cycles.

@@ -29,6 +29,8 @@ class ArchiveTests(unittest.TestCase):
             'DTSDKName': 'iphoneos26.6', 'CFBundleExecutable': 'Phonepad',
             'CADisableMinimumFrameDurationOnPhone': True,
             'NSCameraUsageDescription': 'Take a photo to send to your computer',
+            'NSMicrophoneUsageDescription': 'Use the iPhone as the computer microphone',
+            'UIBackgroundModes': ['audio'],
         }
         self.write_info()
         (self.app / 'Phonepad').write_bytes(struct.pack('<II', 0xFEEDFACF, 0x0100000C))
@@ -78,10 +80,16 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'WebRTC'):
             self.check()
 
-    def test_accidental_recording_permission_is_rejected(self):
-        self.info['NSMicrophoneUsageDescription'] = 'unexpected'
+    def test_missing_microphone_permission_is_rejected(self):
+        del self.info['NSMicrophoneUsageDescription']
         self.write_info()
-        with self.assertRaisesRegex(ValueError, 'permisos'):
+        with self.assertRaisesRegex(ValueError, 'micrófono'):
+            self.check()
+
+    def test_missing_background_audio_is_rejected(self):
+        self.info['UIBackgroundModes'] = []
+        self.write_info()
+        with self.assertRaisesRegex(ValueError, 'segundo plano'):
             self.check()
 
     def test_pre_glass_sdk_is_rejected(self):

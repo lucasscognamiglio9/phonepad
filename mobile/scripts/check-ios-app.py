@@ -37,8 +37,10 @@ def check_app(app, config=None):
         raise ValueError('Falta el código incluido: esta app dependería de Metro.')
     if not (app / 'Frameworks/WebRTC.framework/WebRTC').is_file():
         raise ValueError('Falta WebRTC nativo en el archive.')
-    if info.get('NSMicrophoneUsageDescription'):
-        raise ValueError('El build agregó permisos de micrófono no usados por Phonepad.')
+    if not info.get('NSMicrophoneUsageDescription'):
+        raise ValueError('Falta el permiso de micrófono para usar el iPhone como micrófono.')
+    if 'audio' not in info.get('UIBackgroundModes', []):
+        raise ValueError('Falta el modo de audio en segundo plano.')
     if not info.get('NSCameraUsageDescription'):
         raise ValueError('Falta el permiso de cámara solicitado para fotos.')
     if not info.get('CADisableMinimumFrameDurationOnPhone'):

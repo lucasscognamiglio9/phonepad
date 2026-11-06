@@ -200,7 +200,7 @@ test('incompatible video formats fail before starting capture and malformed offe
 
 test('native preview requests desktop resolution and releases its encoder once on background', async () => {
   const h = video(); const stop = await h.start(); await drain();
-  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', width: 1920, codec: 'H264' });
+  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', audio: true, width: 1920, codec: 'H264' });
   assert.equal(h.shown.length, 1);
   await h.time.advance(1500);
   assert.ok(h.calls.filter(c => c.op === 'feedback').length >= 2);
