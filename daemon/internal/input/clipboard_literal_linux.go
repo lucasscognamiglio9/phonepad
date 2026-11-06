@@ -116,16 +116,28 @@ func (d *uinputDevice) clipboardLiteralText(ctx context.Context, text string) Li
 		_ = lease.send("cancel")
 		return LiteralResult{State: "rejected", Detail: "cancelled_before_dispatch"}
 	}
+	modifiers := []int{uinput.KeyLeftctrl}
+	if clipboardFallbackShortcut() == "ctrl-shift-v" {
+		modifiers = append(modifiers, uinput.KeyLeftshift)
+	}
 	d.mu.Lock()
-	down := d.keyDownResult(uinput.KeyLeftctrl)
-	if down.State != "executed" {
-		_ = d.keyUpResult(uinput.KeyLeftctrl)
-		d.mu.Unlock()
-		_ = lease.send("cancel")
-		return LiteralResult{State: "uncertain", Detail: "paste_dispatch_unconfirmed"}
+	for i, key := range modifiers {
+		if d.keyDownResult(key).State != "executed" {
+			for _, held := range modifiers[:i+1] {
+				_ = d.keyUpResult(held)
+			}
+			d.mu.Unlock()
+			_ = lease.send("cancel")
+			return LiteralResult{State: "uncertain", Detail: "paste_dispatch_unconfirmed"}
+		}
 	}
 	press := d.keyPressResult(uinput.KeyV)
-	up := d.keyUpResult(uinput.KeyLeftctrl)
+	up := ActionResult{State: "executed"}
+	for i := len(modifiers) - 1; i >= 0; i-- {
+		if r := d.keyUpResult(modifiers[i]); r.State != "executed" {
+			up = r
+		}
+	}
 	d.mu.Unlock()
 	if press.State != "executed" || up.State != "executed" || lease.send("sent") != nil {
 		_ = lease.send("cancel")

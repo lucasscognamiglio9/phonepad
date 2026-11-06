@@ -114,7 +114,7 @@ export async function startVideo(origin: string, signal: AbortSignal, show: (str
   };
   const call = (data: {op: string; [key: string]: unknown}) => request('/api/preview/rtc', {
     ...data, ...(!['start', 'stop', 'diagnostic'].includes(data.op) ? media.coordinates() : {}),
-  }, data.op === 'start' ? 20000 : 5000);
+  }, data.op === 'start' ? 35000 : 5000);
   const stop = () => {
     if (!stopped) {
       stopped = true;

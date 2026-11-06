@@ -25,6 +25,9 @@ type linearTouch struct {
 
 func (p *linearTouch) frame(cs []Contact, geometry PointerGeometry, now time.Time) {
 	if p.blocked {
+		// The native lease is gone; the libinput touchpad keeps the pointer alive
+		// until Reset recovers the lease.
+		p.multiTouch(cs)
 		return
 	}
 	w, h := geometry.WidthMM, geometry.HeightMM

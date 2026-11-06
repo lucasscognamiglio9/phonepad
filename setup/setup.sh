@@ -37,23 +37,14 @@ echo "==> Recargando reglas udev"
 udevadm control --reload-rules
 udevadm trigger --subsystem-match=misc --attr-match=name=uinput 2>/dev/null || udevadm trigger
 
-echo "==> Instalando herramientas de portapapeles"
-# Las transferencias explícitas usan wl-clipboard. El pegado temporal conserva
-# todos los formatos mediante GTK 4 y el puente XWayland de GNOME.
-if command -v wl-copy >/dev/null && command -v wl-paste >/dev/null; then
-  echo "  wl-clipboard ya instalado"
-else
-  if ! apt-get install -y wl-clipboard; then
-    echo "  ⚠ no pude instalar wl-clipboard; instalalo a mano: sudo apt install wl-clipboard"
-  fi
-  if ! command -v wl-copy >/dev/null || ! command -v wl-paste >/dev/null; then
-    echo "  ⚠ Las transferencias de portapapeles necesitan wl-copy y wl-paste."
-  fi
-fi
-
-if ! /usr/bin/python3 -c "import gi; gi.require_version('Gtk', '4.0'); from gi.repository import Gtk" >/dev/null 2>&1 || ! command -v Xwayland >/dev/null; then
-  apt-get install -y python3-gi gir1.2-gtk-4.0 xwayland
-fi
+echo "==> Instalando dependencias (portapapeles, accesibilidad, video, indicador)"
+# Todo sale de los paquetes del sistema: no hay runtime de video aparte.
+packages=(wl-clipboard python3-gi gir1.2-gtk-4.0 gir1.2-atspi-2.0 xwayland
+  gir1.2-ayatanaappindicator3-0.1 gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0
+  gir1.2-gst-plugins-bad-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+  gstreamer1.0-plugins-bad gstreamer1.0-nice gstreamer1.0-pipewire mesa-va-drivers)
+if grep -q GenuineIntel /proc/cpuinfo && ! dpkg -s intel-media-va-driver-non-free >/dev/null 2>&1; then packages+=(intel-media-va-driver); fi
+apt-get install -y "${packages[@]}"
 
 echo
 echo "Listo."

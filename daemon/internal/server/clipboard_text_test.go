@@ -96,3 +96,19 @@ func TestDirectPointerRequiresClientOptIn(t *testing.T) {
 		}
 	}
 }
+
+func TestClipboardWithoutTextIsNotAFailure(t *testing.T) {
+	s := New(staticAuth("tok"), &fakeInjector{}, nil, "")
+	s.sessionEpoch = "current"
+	s.currentProtocol = protocolVersion
+	s.readClipboardText = func(context.Context) (string, error) { return "", errNoClipboardText }
+	r := httptest.NewRequest("GET", "https://phonepad/api/clipboard", nil)
+	r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "tok"})
+	r.Header.Set("Origin", "https://phonepad")
+	r.Header.Set("X-PhonePad-Session", "current")
+	w := httptest.NewRecorder()
+	s.handleClipboardText(w, r)
+	if w.Code != 422 {
+		t.Fatalf("image-only clipboard: %d %s", w.Code, w.Body.String())
+	}
+}

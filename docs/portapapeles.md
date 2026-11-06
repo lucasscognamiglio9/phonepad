@@ -11,8 +11,8 @@
 
 Las transferencias entre portapapeles admiten texto Unicode de hasta 128 KiB. El texto vacío, incompleto o con caracteres nulos se rechaza sin reemplazar el destino. Fotos y archivos usan sus propias acciones. Las solicitudes verifican permisos y sesión; un error no provoca un segundo intento automático.
 
-En Linux, el servidor intenta insertar el bloque mediante accesibilidad. Si la instalación habilita el pegado alternativo, conserva temporalmente todos los formatos MIME del portapapeles en memoria, hasta 32 formatos y 16 MiB. Si no puede conservarlos, rechaza el envío. Esa ruta necesita Python GI, GTK 4 y una sesión gráfica, con XWayland en GNOME.
+En Linux, el servidor intenta insertar el bloque mediante accesibilidad. Si no encuentra un campo editable (Chrome y Electron no lo exponen sin la accesibilidad de GNOME), usa el pegado alternativo: conserva temporalmente todos los formatos MIME del portapapeles en memoria, hasta 32 formatos y 16 MiB. Si no puede conservarlos, rechaza el envío. Esa ruta necesita Python GI, GTK 4 y una sesión gráfica, con XWayland en GNOME.
 
-El pegado alternativo envía una sola combinación de teclas y espera dos segundos antes de restaurar. Si otra aplicación copia mientras tanto, conserva esa copia nueva. El resultado `dispatched` confirma las teclas y la restauración; no demuestra por sí solo que la aplicación de destino haya insertado el texto. Ante un resultado incierto, PhonePad conserva el borrador para revisión.
+El pegado alternativo envía Ctrl+V. En `~/.config/phonepad/service.env`, `PHONEPAD_CLIPBOARD_FALLBACK_SHORTCUT=ctrl-shift-v` lo cambia a Ctrl+Shift+V para terminales y `off` lo desactiva. Envía una sola combinación de teclas y espera dos segundos antes de restaurar. Si otra aplicación copia mientras tanto, conserva esa copia nueva. El resultado `dispatched` confirma las teclas y la restauración; no demuestra por sí solo que la aplicación de destino haya insertado el texto. Ante un resultado incierto, PhonePad conserva el borrador para revisión.
 
 La consulta de accesibilidad y la espera del pegado no bloquean el movimiento del cursor.

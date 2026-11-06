@@ -69,6 +69,12 @@ from live_capture import configure_live_capture
 from frame_cadence import FrameCadence
 
 
+def modern_h264_encoder():
+    # gstreamer1.0-vaapi is deprecated and absent from current Ubuntu; the VA
+    # plugin is the default whenever it exists.
+    return os.environ.get('PHONEPAD_ENCODER') != 'vaapi' and Gst.ElementFactory.find('vah264enc') is not None
+
+
 def available_codecs():
     """Return codecs whose complete local GStreamer path is present.
 
@@ -80,7 +86,7 @@ def available_codecs():
         if Gst.ElementFactory.find('webrtcbin') is None:
             return []
         result = []
-        modern = os.environ.get('PHONEPAD_ENCODER') == 'va' and Gst.ElementFactory.find('vah264enc') is not None
+        modern = modern_h264_encoder()
         h264_encoder = 'vah264enc' if modern else 'vaapih264enc'
         h264_postproc = 'vapostproc' if modern else 'vaapipostproc'
         if all(Gst.ElementFactory.find(name) is not None for name in (h264_postproc, h264_encoder, 'h264parse', 'rtph264pay')):
@@ -216,7 +222,7 @@ class Session:
         hevc = codec == 'H265'
         encoder = 'vaapih265enc' if hevc else 'vaapih264enc'
         # Modern VA imports PipeWire DMA-BUF; selection never changes monitors.
-        self.modern = codec == 'H264' and os.environ.get('PHONEPAD_ENCODER') == 'va' and Gst.ElementFactory.find('vah264enc') is not None
+        self.modern = codec == 'H264' and modern_h264_encoder()
         self.lab_config = _lab_h264_config(60 if self.modern else 30) if codec == 'H264' else None
         # VA treats unknown capture cadence as 30 fps. Explicitly bound sparse
         # capture to 60 without inventing idle frames. VCM is the driver's

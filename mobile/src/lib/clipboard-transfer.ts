@@ -28,6 +28,7 @@ export async function transferClipboard(connection: Connection, direction: 'phon
   headers: { Origin: connection.origin, 'Content-Type': 'application/json', 'X-PhonePad-Session': epoch },
   body: text === undefined ? undefined : JSON.stringify({ text }),
  });
+ if (response.status === 422) throw Error('El portapapeles del equipo no tiene texto.');
  if (!response.ok) throw Error('No se confirmó la copia. Revisá permisos y compatibilidad; no se reintenta automáticamente.');
  const result = await response.json();
  if (signal.aborted || controller.signal.aborted || epoch !== connection.capabilities?.sessionEpoch || result?.sessionEpoch !== epoch || !connection.canClipboard) throw Error('La sesión cambió. La copia requiere revisión.');

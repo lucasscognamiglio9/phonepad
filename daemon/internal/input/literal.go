@@ -48,12 +48,21 @@ func (d *uinputDevice) LiteralText(ctx context.Context, text, target string) Lit
 	return runLiteral(ctx, map[string]string{"op": "insert", "text": text, "target": target})
 }
 
-// The fallback has no portable way to infer a target's paste convention once
-// AT-SPI reports no EditableText. Require an explicit deployment capability;
-// Ctrl+V is intentionally never assumed for terminals or other consumers.
-func clipboardFallbackShortcutAvailable() bool {
-	return strings.EqualFold(strings.TrimSpace(os.Getenv(clipboardFallbackShortcutEnv)), "ctrl-v")
+// AT-SPI misses the fields of Chromium and Electron apps unless GNOME
+// accessibility is on, so the clipboard fallback is the default. Terminals
+// paste with Ctrl+Shift+V; "off" disables the fallback.
+func clipboardFallbackShortcut() string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(clipboardFallbackShortcutEnv))) {
+	case "off":
+		return ""
+	case "ctrl-shift-v":
+		return "ctrl-shift-v"
+	default:
+		return "ctrl-v"
+	}
 }
+
+func clipboardFallbackShortcutAvailable() bool { return clipboardFallbackShortcut() != "" }
 
 func clipboardFallbackAvailable() bool {
 	if os.Getenv("WAYLAND_DISPLAY") != "" {

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var previewClient = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 10 * time.Second, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+var previewClient = &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 30 * time.Second, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if !filepath.IsAbs(runtimeDir) {
 		return nil, errors.New("XDG_RUNTIME_DIR must be an absolute private runtime directory")
@@ -84,7 +84,7 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 	var observation uint64
 	if path != "/video" {
 		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, 15*time.Second)
+		ctx, cancel = context.WithTimeout(ctx, 32*time.Second)
 		defer cancel()
 		if operation == "status" || operation == "start" || operation == "feedback" || operation == "resume" {
 			observation = s.beginMediaObservation()

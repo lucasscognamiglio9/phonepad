@@ -94,6 +94,9 @@ func TestLinearFailedMotionDoesNotReplayAndReplacementDoesNotClick(t *testing.T)
 	if len(f.moves) != 1 || len(f.buttons) != 0 {
 		t.Fatal("failed input replayed", f)
 	}
+	if len(f.frames) != 2 || len(f.frames[0]) != 1 || len(f.frames[1]) != 0 {
+		t.Fatal("pointer did not fall back to the touchpad after losing the native lease", f.frames)
+	}
 	p, f = newLinearProbe()
 	p.frame([]Contact{{ID: 1, X: .5, Y: .5}}, g, now)
 	p.frame([]Contact{{ID: 2, X: .5, Y: .5}}, g, now)

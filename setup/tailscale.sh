@@ -12,8 +12,13 @@ config_dir=${XDG_CONFIG_HOME:-$HOME/.config}/phonepad
 mkdir -p "$config_dir"
 umask 077
 if [[ -f $config_dir/service.env ]]; then cp "$config_dir/service.env" "$config_dir/service.env.before-tailscale"; fi
-printf 'PHONEPAD_BIND=127.0.0.1\nPHONEPAD_HOST=localhost\nPHONEPAD_GATEWAY_PORT=8081\nPHONEPAD_PUBLIC_URL=https://%s\n' "$public_host" > "$config_dir/service.env"
-printf 'PHONEPAD_TRUSTED_NODE=%s\n' "$trusted_node" >> "$config_dir/service.env"
+managed='^(PHONEPAD_BIND|PHONEPAD_HOST|PHONEPAD_GATEWAY_PORT|PHONEPAD_PUBLIC_URL|PHONEPAD_TRUSTED_NODE)='
+{
+ grep -Ev "$managed" "$config_dir/service.env" 2>/dev/null || true
+ printf 'PHONEPAD_BIND=127.0.0.1\nPHONEPAD_HOST=localhost\nPHONEPAD_GATEWAY_PORT=8081\nPHONEPAD_PUBLIC_URL=https://%s\n' "$public_host"
+ printf 'PHONEPAD_TRUSTED_NODE=%s\n' "$trusted_node"
+} > "$config_dir/service.env.new"
+mv "$config_dir/service.env.new" "$config_dir/service.env"
 systemctl --user restart phonepad.service
 systemctl --user is-active --quiet phonepad.service
 # Auth must be refused while the unauthenticated shell is accessible.

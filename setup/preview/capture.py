@@ -147,7 +147,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
   if self.path=='/status':
    with lock:
     current=state
-    if current=='idle':state='selecting-screen';GLib.idle_add(begin)
+    if current in ('idle','permission-required') or (current=='capture-error' and remote_fd is None):state='selecting-screen';GLib.idle_add(begin)
    body=json.dumps({'state':current,'webrtc':rtc_manager is not None,'codec':'h264-vaapi','maxResolution':'1920x1080','bitrateKbps':6000,'media':current_media()}).encode()
    self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body);return
   if self.path!='/video':self.send_error(404);return

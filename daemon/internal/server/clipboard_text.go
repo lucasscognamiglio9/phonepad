@@ -17,6 +17,8 @@ import (
 
 const maxClipboardText = 128 << 10
 
+var errNoClipboardText = errors.New("clipboard holds no text")
+
 func readDesktopClipboardText(ctx context.Context) (string, error) {
 	var command *exec.Cmd
 	if runtime.GOOS == "darwin" {
@@ -24,6 +26,10 @@ func readDesktopClipboardText(ctx context.Context) (string, error) {
 	} else if runtime.GOOS == "windows" {
 		command = exec.CommandContext(ctx, "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; [Console]::Write([string](Get-Clipboard -Raw))")
 	} else if os.Getenv("WAYLAND_DISPLAY") != "" {
+		types, err := exec.CommandContext(ctx, "wl-paste", "--list-types").Output()
+		if err == nil && !strings.Contains(string(types), "text/plain") {
+			return "", errNoClipboardText
+		}
 		command = exec.CommandContext(ctx, "wl-paste", "--no-newline", "--type", "text/plain")
 	} else if os.Getenv("DISPLAY") != "" {
 		command = exec.CommandContext(ctx, "xclip", "-selection", "clipboard", "-o", "-t", "UTF8_STRING")
@@ -129,6 +135,10 @@ func (s *Server) handleClipboardText(w http.ResponseWriter, r *http.Request) {
 		}
 		return s.clipboard.Copy(file.Name(), clipboardText, "text/plain;charset=utf-8")
 	})
+	if errors.Is(err, errNoClipboardText) {
+		http.Error(w, "clipboard holds no text", 422)
+		return
+	}
 	if err != nil {
 		http.Error(w, "clipboard unavailable; do not retry automatically", 503)
 		return
