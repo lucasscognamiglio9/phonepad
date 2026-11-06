@@ -9,6 +9,18 @@ import { ActionIcon } from './action-icon';
 import { DismissibleNotice } from './dismissible-notice';
 import { addHost, hostSettingsAdapter, loadSelectedHost, selectHost, type HostSettings, type HostSettingsAdapter } from '../lib/host-settings';
 
+async function reachable(target: string) {
+  const request = new AbortController();
+  const timeout = setTimeout(() => request.abort(), 5000);
+  try {
+    const response = await fetch(target + '/api/auth', { signal: request.signal });
+    return response.status === 204 || response.status === 401 || response.status === 403;
+  } catch { return false; }
+  finally { clearTimeout(timeout); }
+}
+
+const statusText = { success: 'Disponible', warning: 'Comprobando', secondary: 'No disponible' } as const;
+
 export function HostMenu({ visible, activeOrigin, connected, close, select, canSwitch, adapter = hostSettingsAdapter }: {
   visible: boolean;
   activeOrigin: string;
@@ -27,6 +39,7 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
   const [origin, setOrigin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState<Record<string, boolean>>({});
   const busyRef = useRef(false);
   const generation = useRef(0);
 
@@ -42,25 +55,20 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
     }
     let current = true;
     setSettings(null);
+    setOnline({});
     setError('');
     void loadSelectedHost(adapter).then(result => {
       if (!current) return;
       setSettings(result.settings);
+      for (const device of result.settings?.devices ?? []) {
+        void reachable(device.origin).then(up => { if (current) setOnline(state => ({ ...state, [device.origin]: up })); });
+      }
       if (result.error) setError(hostSettingsNotice(result.error));
     }).catch(() => { if (current) setError('No se pudo cargar la lista de equipos.'); });
     return () => { current = false; generation.current++; };
   }, [visible, adapter]);
 
   if (!visible) return null;
-  const reachable = async (target: string) => {
-    const request = new AbortController();
-    const timeout = setTimeout(() => request.abort(), 5000);
-    try {
-      const response = await fetch(target + '/api/auth', { signal: request.signal });
-      return response.status === 204 || response.status === 401 || response.status === 403;
-    } catch { return false; }
-    finally { clearTimeout(timeout); }
-  };
   const choose = async (id: string) => {
     if (!settings || busyRef.current) return;
     const device = settings.devices.find(item => item.id === id);
@@ -108,6 +116,8 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
     } catch (caught) { if (current()) setError(hostSettingsNotice(caught)); }
     finally { if (current()) { busyRef.current = false; setBusy(false); } }
   };
+  const hostStatus = (target: string) => target === activeOrigin && connected ? 'success'
+    : online[target] === true ? 'success' : target === activeOrigin || online[target] === undefined ? 'warning' : 'secondary';
   const menuWidth = Math.min(appearance.control.menuWidth, width - insets.left - insets.right - 2 * appearance.control.margin);
   const top = insets.top + appearance.control.size + appearance.control.margin + appearance.control.gap;
   return <View style={{ position: 'absolute', inset: 0 }} accessibilityViewIsModal>
@@ -117,10 +127,11 @@ export function HostMenu({ visible, activeOrigin, connected, close, select, canS
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: appearance.control.margin, gap: appearance.spacing.xs }}>
         {settings ? settings.devices.map(device => <Pressable key={device.id} testID={`phonepad-menu-host-${device.id}`}
           accessibilityRole="button" accessibilityLabel={device.name} accessibilityState={{ selected: device.origin === activeOrigin }}
+          accessibilityValue={{ text: statusText[hostStatus(device.origin)] }}
           disabled={busy} onPress={() => { void choose(device.id); }}
           style={{ minHeight: appearance.control.size, flexDirection: 'row', alignItems: 'center', gap: appearance.spacing.md, paddingHorizontal: appearance.spacing.md, borderRadius: appearance.control.menuRadius }}>
           <View style={{ width: appearance.status.size, height: appearance.status.size, borderRadius: appearance.status.radius,
-            backgroundColor: device.origin === activeOrigin ? (connected ? appearance.color.success : appearance.color.warning) : appearance.color.secondary }} />
+            backgroundColor: appearance.color[hostStatus(device.origin)] }} />
           <ActionIcon action="hosts" size={appearance.control.iconSize} color={appearance.color.text} />
           <Text numberOfLines={1} style={{ color: appearance.color.text, fontSize: appearance.text.body, flex: 1 }}>{device.name}</Text>
         </Pressable>) : <ActivityIndicator accessibilityLabel="Cargando equipos" color={appearance.color.text} />}

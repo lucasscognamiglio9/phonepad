@@ -77,7 +77,7 @@ test('available computer is saved before switching the session',async()=>{
 
 test('double tapping a host while the reachability probe is pending cannot start two switches',async()=>{
  let finish,probes=0;const h=harness(204,{fetch:()=>{probes++;return new Promise(resolve=>finish=resolve);}});
- h.render();await new Promise(setImmediate);h.render();const choose=h.find('Mac').props.onPress;
+ h.render();await new Promise(setImmediate);h.render();const choose=h.find('Mac').props.onPress;probes=0;
  choose();choose();assert.equal(probes,1);finish({status:204});await new Promise(setImmediate);h.render();
  assert.equal(h.saved.length,1);assert.deepEqual(h.selected,['https://mac.example']);
 });
@@ -90,4 +90,14 @@ test('a save completing after unmount cannot switch the session',async()=>{
  let finish;const h=harness(204,{save:()=>new Promise(resolve=>finish=resolve)});
  h.render();await new Promise(setImmediate);h.render();h.find('Mac').props.onPress();await new Promise(setImmediate);
  h.unmount();finish({ok:true,settings:initial});await new Promise(setImmediate);assert.equal(h.selected.length,0);
+});
+test('every reachable computer shows as available, not only the active one',async()=>{
+ const h=harness(204);h.render();await new Promise(setImmediate);await new Promise(setImmediate);h.render();
+ assert.equal(h.find('Mac').props.accessibilityValue.text,'Disponible');
+ assert.equal(h.find('Ubuntu').props.accessibilityValue.text,'Disponible');
+});
+test('an unreachable computer shows as unavailable',async()=>{
+ const h=harness(503,{fetch:async target=>({status:target.startsWith('https://mac')?503:204})});
+ h.render();await new Promise(setImmediate);await new Promise(setImmediate);h.render();
+ assert.equal(h.find('Mac').props.accessibilityValue.text,'No disponible');
 });

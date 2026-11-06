@@ -270,25 +270,26 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
     const result = dispatchAction(key, [primaryModifier(connection.capabilities?.hostPlatform)]);
     if (!result.accepted) preserveActionContext();
   };
-  const copyClipboard = async (direction: 'phone' | 'host') => {
+  const copyClipboard = async (direction: 'phone' | 'host', pasted?: string) => {
     if (!canSendKey() || !connection.canClipboard) return;
     if (clipboardBusy.current) return;
     clipboardBusy.current = true;
     setSending(true); setActionStatus('');
     try {
-      await transferClipboard(connection, direction, new AbortController().signal);
+      await transferClipboard(connection, direction, new AbortController().signal, pasted);
       setActionStatus(direction === 'phone' ? 'Copiado al iPhone.' : 'Copiado al equipo.');
     } catch (error) {
       setActionStatus(noticeMessage(error, 'No se pudo copiar.'));
     } finally { clipboardBusy.current = false; setSending(false); }
   };
-  const pasteClipboardIntoDraft = async () => {
+  const pasteClipboardIntoDraft = async (pasted?: string) => {
     if (!canSendKey() || clipboardBusy.current || interrupted.current || literal?.pending) return;
     const generation = editorGeneration.current, original = draft.current;
     const selection = draftSelection.current;
     clipboardBusy.current = true;
     try {
-      const copied = await readPhoneClipboardText();
+      const copied = pasted ?? await readPhoneClipboardText();
+      validateClipboardText(copied);
       if (generation !== editorGeneration.current || original !== draft.current) return;
       const start = Math.min(original.length, Math.max(0, selection?.start ?? original.length));
       const end = Math.min(original.length, Math.max(start, selection?.end ?? start));
@@ -464,8 +465,8 @@ export function NativeKeyboard({ connection, active, open, close, disabled, choo
         platform={connection.capabilities?.hostPlatform} modifiers={mods} page={shortcutPage} onPageChange={setShortcutPage}
         toggleModifier={mod => { if (canSendKey()) setMods(current => current.includes(mod) ? current.filter(m => m !== mod) : [...current, mod]); }}
         special={special} copy={() => clipboard('c')} paste={() => clipboard('v')}
-        pasteDraft={() => { void pasteClipboardIntoDraft(); }}
-        toPhone={() => { void copyClipboard('phone'); }} toHost={() => { void copyClipboard('host'); }} />}
+        pasteDraft={text => { void pasteClipboardIntoDraft(text); }}
+        toPhone={() => { void copyClipboard('phone'); }} toHost={text => { void copyClipboard('host', text); }} />}
       <GlassSurface glassPointer={glassPointer} style={{ borderRadius: compact ? appearance.control.capsuleRadius : appearance.control.menuRadius, padding: appearance.composer.padding }}>
         <View style={{ position: 'relative', marginLeft: compactLeft, marginRight: compactRight }}>
           <TextInput ref={input} value={caretMode ? CARET_CONTEXT : value} selection={caretMode || draft.current ? caretSelection : undefined}

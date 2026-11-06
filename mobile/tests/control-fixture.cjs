@@ -15,7 +15,8 @@ function install(modules, jsx) {
  modules['../lib/notice-message']=load('lib/notice-message.ts');
  const native={'react-native':{Pressable:'Pressable',Text:'Text',View:'View',ScrollView:'ScrollView'},'react/jsx-runtime':{jsx,jsxs:jsx},'./appearance':require('./appearance-fixture.cjs'),'./action-icon':{ActionIcon:'ActionIcon'}};
  const key=load('components/shortcut-key.tsx',native);
- const panel=load('components/shortcut-panel.tsx',{...native,react:modules.react,'./shortcut-key':key,'./glass-surface':{GlassSurface:'GlassSurface'},'react-native-worklets':{scheduleOnRN:(fn,...args)=>fn(...args)},'react-native-gesture-handler':gestureModule,'../lib/control-layout':control});
+ const paste=load('components/paste-key.tsx',{...native,'./shortcut-key':key,'expo-clipboard':{isPasteButtonAvailable:false}});
+ const panel=load('components/shortcut-panel.tsx',{...native,react:modules.react,'./shortcut-key':key,'./paste-key':paste,'./glass-surface':{GlassSurface:'GlassSurface'},'react-native-worklets':{scheduleOnRN:(fn,...args)=>fn(...args)},'react-native-gesture-handler':gestureModule,'../lib/control-layout':control});
  modules['./dismissible-notice']={DismissibleNotice:props=>jsx('Notice',{...props,children:[jsx('Text',{children:props.message}),props.children,props.action&&jsx('GlassButton',{label:props.action.label,onPress:props.action.run}),jsx('GlassButton',{label:'Cerrar aviso',onPress:props.dismiss})]})};
  modules['./shortcut-panel']=panel;modules['../lib/control-layout']=control;
  modules['../lib/text-delivery']=load('lib/text-delivery.ts',{'./clipboard-transfer':modules['../lib/clipboard-transfer'],'./control-layout':control});

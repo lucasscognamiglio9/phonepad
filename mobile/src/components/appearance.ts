@@ -1,6 +1,6 @@
 /** Shared native controls. GlassSurface owns material and accessibility fallback. */
 export const appearance = {
-  color: { background: '#0a0a0a', surface: 'transparent', text: '#f5f5f5', secondary: '#ababab', pressed: 'transparent', success: '#70dbab', warning: '#ffd7a6', border: '#ffffff24' },
+  color: { background: '#0a0a0a', surface: 'transparent', text: '#f5f5f5', secondary: '#ababab', pressed: 'transparent', success: '#70dbab', warning: '#ffd7a6', paste: '#2c2c2e', border: '#ffffff24' },
   glass: { edgeWidth: 1, edgeBase: 'rgba(255,255,255,0.09)', fallback: 'rgba(12,12,14,0.14)', accessibleFill: '#242424', restX: .5, restY: .78, followDuration: 90, settleDuration: 710 },
   spacing: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 },
   text: { title: 24, heading: 17, body: 15, caption: 13, compact: 12, bodyLineHeight: 22, captionLineHeight: 18 },

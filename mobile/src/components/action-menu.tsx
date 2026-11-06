@@ -289,6 +289,11 @@ export function ActionMenu({ anchor, presentationKey = 0, close, choose, onDismi
     scheduleOverlayDismiss();
   }, [scheduleOverlayDismiss]);
 
+  const pasteNative = (item: PasteEventPayload) => {
+    if (!anchor || anchorRef.current !== anchor || !overlayWasPresented.current || pendingAction.current || pendingPaste.current || pasteRead.current) return;
+    if (item.type === 'text' ? !textPasteAllowed || !item.text : !attachmentsAllowed) return;
+    pendingPaste.current = item; closeRef.current(); scheduleOverlayDismiss();
+  };
   const paste = async () => {
     if (!anchor || anchorRef.current !== anchor || !overlayWasPresented.current || pendingAction.current || pendingPaste.current || pasteRead.current) return;
     const request = {};
@@ -348,7 +353,14 @@ export function ActionMenu({ anchor, presentationKey = 0, close, choose, onDismi
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.rows}
           >
-            {hasPaste && <Pressable testID="phonepad-action-paste" accessibilityRole="button" accessibilityLabel="Pegar del iPhone"
+            {hasPaste && Clipboard.isPasteButtonAvailable && <View testID="phonepad-action-paste" style={styles.row}>
+              <Clipboard.ClipboardPasteButton onPress={pasteNative} displayMode="iconOnly" cornerStyle="capsule"
+                acceptedContentTypes={[...(textPasteAllowed ? ['plain-text' as const] : []), ...(attachmentsAllowed ? ['image' as const] : [])]}
+                imageOptions={{ format: 'png' }} backgroundColor={appearance.color.paste} foregroundColor={appearance.color.text}
+                style={{ width: appearance.control.size, height: appearance.control.size }} />
+              <Text style={styles.label}>{ACTIONS.paste.label}</Text>
+            </View>}
+            {hasPaste && !Clipboard.isPasteButtonAvailable && <Pressable testID="phonepad-action-paste" accessibilityRole="button" accessibilityLabel="Pegar del iPhone"
               accessibilityState={{disabled:readingPaste,busy:readingPaste}} disabled={readingPaste}
               style={({pressed})=>[styles.row,pressed && styles.rowPressed]} onPress={paste}>
               <View style={styles.icon}>

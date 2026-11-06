@@ -12,11 +12,12 @@ export async function readPhoneClipboardText() {
  validateClipboardText(text);
  return text;
 }
-export async function transferClipboard(connection: Connection, direction: 'phone' | 'host', signal: AbortSignal) {
+export async function transferClipboard(connection: Connection, direction: 'phone' | 'host', signal: AbortSignal, pasted?: string) {
  const epoch = connection.capabilities?.sessionEpoch;
  if (!epoch || !connection.canClipboard) throw Error('El portapapeles no está disponible en esta sesión.');
  if (signal.aborted) throw Error('La copia se canceló.');
- const text = direction === 'host' ? await readPhoneClipboardText() : undefined;
+ if (pasted !== undefined) validateClipboardText(pasted);
+ const text = direction === 'host' ? pasted ?? await readPhoneClipboardText() : undefined;
  if (signal.aborted || epoch !== connection.capabilities?.sessionEpoch || !connection.canClipboard) throw Error('La sesión cambió.');
  const controller = new AbortController();
  const abort = () => controller.abort();
