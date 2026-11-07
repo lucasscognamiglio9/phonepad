@@ -1,4 +1,4 @@
-"""Write the phone's camera track into the v4l2loopback webcam made by setup.sh."""
+"""The v4l2loopback webcam made by setup.sh and the phone's H264 camera track."""
 from pathlib import Path
 
 import gi
@@ -38,24 +38,3 @@ def add_receiver(peer):
     transceiver.set_property('do-nack', True)
     return transceiver
 
-
-class Camera:
-    def __init__(self, pipeline, path):
-        self.pipeline = pipeline
-        self.path = path
-        self.linked = False
-
-    def attach(self, pad):
-        caps = pad.get_current_caps()
-        if self.linked or caps is None or caps.get_structure(0).get_value('media') != 'video':
-            return False
-        branch = Gst.parse_bin_from_description(
-            'queue max-size-buffers=4 leaky=downstream '
-            '! rtph264depay request-keyframe=true wait-for-keyframe=true ! h264parse '
-            f'! {decoder()} ! videoconvert ! videoscale add-borders=true ! {OUTPUT} '
-            f'! v4l2sink device={self.path} sync=false', True)
-        self.pipeline.add(branch)
-        branch.sync_state_with_parent()
-        pad.link(branch.get_static_pad('sink'))
-        self.linked = True
-        return True

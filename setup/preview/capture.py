@@ -125,25 +125,38 @@ def current_media():
   return rtc_manager.media_snapshot()
  return portal_media.snapshot()
 
+try:
+ import sensors as sensor_module
+ sensors=sensor_module.Sensors()
+except (ImportError,ValueError) as e:print('sensors unavailable: '+str(e),flush=True);sensors=None
+
 class Handler(http.server.BaseHTTPRequestHandler):
+ def reply(self,code,result):
+  body=json.dumps(result).encode()
+  self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
  def do_POST(self):
-  if closing or self.path!='/rtc' or rtc_manager is None:self.send_error(503);return
+  target={'/rtc':rtc_manager,'/sensors':sensors}.get(self.path)
+  if closing or target is None:self.send_error(503);return
   try:
    size=int(self.headers.get('Content-Length','0'))
    if not 0<size<=65536:raise ValueError('invalid body')
    data=json.loads(self.rfile.read(size))
    if not isinstance(data,dict):raise ValueError('invalid body')
-   result=rtc_manager.handle(data);code=200
+   result=target.handle(data);code=200
   except (ValueError,TypeError) as e:
    if str(e)=='media_stale':result={'error':'media_stale'};code=409
    else:result={'error':'invalid request'};code=400
   except Exception as e:print(str(e),flush=True);result={'error':'WebRTC unavailable'};code=503
-  body=json.dumps(result).encode()
-  self.send_response(code);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
+  self.reply(code,result)
 
  def do_GET(self):
   global state
   if closing:self.send_error(503);return
+  if self.path.startswith('/sensors?after='):
+   if sensors is None:self.send_error(503);return
+   try:after=int(self.path.split('=',1)[1])
+   except ValueError:self.send_error(400);return
+   self.reply(200,sensors.watch(after));return
   if self.path=='/status':
    with lock:
     current=state
@@ -194,6 +207,9 @@ def shutdown_on_loop():
   except Exception as error:print(str(error),flush=True)
   pipeline=None
  active_stream=None
+ if sensors is not None:
+  try:sensors.shutdown()
+  except Exception as error:print(str(error),flush=True)
  fd,remote_fd=remote_fd,None
  if fd is not None:
   try:os.close(fd)

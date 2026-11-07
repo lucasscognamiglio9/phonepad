@@ -1,4 +1,4 @@
-"""Virtual PipeWire speaker and microphone backed by the phone's WebRTC audio."""
+"""Virtual PipeWire speaker for the phone and the default-device bookkeeping shared with sensors.py."""
 import json
 import os
 import shutil
@@ -15,11 +15,9 @@ SPEAKER = {'factory.name': 'support.null-audio-sink', 'media.class': 'Audio/Sink
            'node.name': 'phonepad-iphone', 'node.description': 'iPhone',
            'audio.position': '[ FL FR ]', 'object.linger': True}
 CAPTURE = {'node.name': 'phonepad-iphone-capture', 'stream.capture.sink': True, 'node.dont-reconnect': True}
-MICROPHONE = {'media.class': 'Audio/Source', 'node.name': 'phonepad-mic',
-              'node.description': 'Micrófono del iPhone', 'node.want-driver': True, 'node.always-process': True}
 STATE = Path(os.environ.get('XDG_STATE_HOME', Path.home() / '.local/state')) / 'phonepad/audio-defaults.json'
 DEFAULTS = {'sink': '@DEFAULT_AUDIO_SINK@', 'source': '@DEFAULT_AUDIO_SOURCE@'}
-ELEMENTS = ('pipewiresrc', 'pipewiresink', 'opusenc', 'opusdec', 'rtpopuspay', 'rtpopusdepay')
+ELEMENTS = ('pipewiresrc', 'opusenc', 'rtpopuspay')
 
 
 def available():
@@ -108,20 +106,41 @@ def _write_state(value):
     temporary.replace(STATE)
 
 
-def restore_defaults():
-    """Return the user's previous devices, also after a crashed session."""
-    for kind, previous in _read_state().items():
-        _run('wpctl', 'set-default', str(previous))
-    STATE.unlink(missing_ok=True)
+_state_lock = threading.Lock()
+
+
+def restore_defaults(kind):
+    """Return the user's previous device, also after a crashed session."""
+    with _state_lock:
+        state = _read_state()
+        if kind in state:
+            _run('wpctl', 'set-default', str(state.pop(kind)))
+        if state:
+            _write_state(state)
+        else:
+            STATE.unlink(missing_ok=True)
+
+
+def claim_default(kind, name):
+    """Make our node the default, remembering the user's device once."""
+    ours = node_id(name)
+    if ours is None:
+        return False
+    with _state_lock:
+        previous = _read_state()
+        current = default_id(kind)
+        if kind not in previous and current is not None and current != ours:
+            _write_state({**previous, kind: current})
+        return _run('wpctl', 'set-default', str(ours)).returncode == 0
 
 
 def recover():
-    restore_defaults()
+    restore_defaults('sink')
     destroy_speaker()
 
 
 class Devices:
-    """The phone is the default speaker and microphone while it is connected."""
+    """The phone is the default speaker while the screen session runs."""
 
     def __init__(self):
         self.cancelled = threading.Event()
@@ -142,11 +161,7 @@ class Devices:
         with self.lock:
             if ours is None or self.cancelled.is_set():
                 return
-            previous = _read_state()
-            current = default_id(kind)
-            if kind not in previous and current is not None and current != ours:
-                _write_state({**previous, kind: current})
-            _run('wpctl', 'set-default', str(ours))
+            claim_default(kind, name)
 
     def close(self):
         self.cancelled.set()
@@ -155,27 +170,3 @@ class Devices:
         with self.lock:
             recover()
 
-
-class Microphone:
-    """Decode the phone's Opus track into a virtual PipeWire source."""
-
-    def __init__(self, pipeline, devices):
-        self.pipeline = pipeline
-        self.devices = devices
-        self.linked = False
-
-    def attach(self, pad):
-        caps = pad.get_current_caps()
-        if self.linked or caps is None or caps.get_structure(0).get_value('media') != 'audio':
-            return False
-        branch = Gst.parse_bin_from_description(
-            'queue max-size-time=40000000 leaky=downstream ! rtpopusdepay ! opusdec plc=true '
-            '! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=1 '
-            '! pipewiresink name=microphone mode=provide sync=false', True)
-        branch.get_by_name('microphone').set_property('stream-properties', node_properties(MICROPHONE))
-        self.pipeline.add(branch)
-        branch.sync_state_with_parent()
-        pad.link(branch.get_static_pad('sink'))
-        self.linked = True
-        self.devices.claim('source', MICROPHONE['node.name'])
-        return True
