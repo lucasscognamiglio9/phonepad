@@ -64,7 +64,4 @@ if ! has_camera && ! modprobe v4l2loopback 2>/dev/null; then
 fi
 has_camera && echo "Cámara lista: $(grep -lxF "$camera_label" /sys/class/video4linux/video*/name | cut -d/ -f5)"
 
-echo
-echo "Listo."
-echo "IMPORTANTE: cerrá sesión y volvé a entrar (o reiniciá) para que el grupo 'phonepad' tome efecto."
-echo "Verificá después con:  ls -l /dev/uinput   (esperado: grupo 'phonepad', modo crw-rw----)"
+echo "Sistema listo."

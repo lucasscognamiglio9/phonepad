@@ -28,10 +28,9 @@ Los paquetes candidatos de esta revisión se identifican por su commit y checksu
 Los scripts están orientados a GNOME en Ubuntu. Todas las máquinas usan el mismo procedimiento y quedan en el mismo estado.
 
 1. Instalá Go 1.26.10 o posterior.
-2. Ejecutá `sudo bash setup/setup.sh`. Crea el grupo `phonepad` con acceso a `/dev/uinput` e instala desde apt el portapapeles, la accesibilidad, GStreamer con WebRTC y el indicador. Cerrá sesión y volvé a entrar para aplicar el grupo.
-3. Desde la sesión gráfica, ejecutá `bash setup/install.sh` como tu usuario. Compila el servidor, reemplaza unidades y módulos, borra restos de versiones anteriores, conserva el emparejamiento y `service.env`, y reinicia los servicios. Al final muestra qué capa usa el puntero: `linear native motion` es la capa propia de GNOME; si no aparece, el puntero se comporta como el touchpad de la máquina.
-4. Con Tailscale conectado en ambos equipos, obtené el `ID` estable del iPhone en `Peer` dentro de `tailscale status --json`. Ejecutá `bash setup/tailscale.sh ID_ESTABLE_DEL_IPHONE`. El script configura Serve y autoriza ese nodo; rechaza una configuración Serve existente para no reemplazar otro servicio.
-5. Agregá en PhonePad la dirección HTTPS que muestra el script. Abrí monitor para autorizar la captura del escritorio cuando el sistema lo solicite.
+2. Desde la sesión gráfica, ejecutá `bash setup/install.sh` como tu usuario. Si al sistema le falta algo, pide la contraseña una vez y corre `setup/setup.sh` con sudo: carga `uinput`, da acceso a `/dev/uinput` al usuario de la sesión sin volver a entrar, e instala desde apt el portapapeles, la accesibilidad, GStreamer con WebRTC, la webcam virtual y el indicador. Después compila el servidor, reemplaza unidades y módulos, borra restos de versiones anteriores, conserva el emparejamiento y `service.env`, y reinicia los servicios. Al final muestra qué capa usa el puntero: `linear native motion` es la capa propia de GNOME; si no aparece, el puntero se comporta como el touchpad de la máquina.
+3. Con Tailscale conectado en ambos equipos, obtené el `ID` estable del iPhone en `Peer` dentro de `tailscale status --json`. Ejecutá `bash setup/tailscale.sh ID_ESTABLE_DEL_IPHONE`. El script configura Serve y autoriza ese nodo; rechaza una configuración Serve existente para no reemplazar otro servicio.
+4. Agregá en PhonePad la dirección HTTPS que muestra el script. Abrí monitor para autorizar la captura del escritorio cuando el sistema lo solicite.
 
 ## Usar PhonePad con un equipo preparado
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # User installation. Converges every machine to the same state: the repo's
 # binary, units and modules, with no drop-ins or leftovers from older releases.
-# Keeps pairing and service.env. Run setup.sh with sudo once before this.
+# Keeps pairing and service.env. Runs setup.sh with sudo when the system lacks something.
 # Usage: PHONEPAD_PREBUILT=/path/phonepad PHONEPAD_PREBUILT_HELPERS=/dir bash setup/install.sh
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -13,12 +13,16 @@ lib_dir=$HOME/.local/lib/phonepad
 ext_dst=$HOME/.local/share/gnome-shell/extensions/phonepad@local
 [[ $# == 0 ]] || { echo 'Uso: install.sh' >&2; exit 1; }
 
-[[ -w /dev/uinput ]] || { echo 'No puedo escribir /dev/uinput. Corré: sudo bash setup/setup.sh y volvé a entrar a la sesión.' >&2; exit 1; }
-for tool in wl-copy wl-paste; do
- command -v "$tool" >/dev/null || { echo "Falta $tool. Corré: sudo bash setup/setup.sh" >&2; exit 1; }
-done
-/usr/bin/python3 -c "import gi; gi.require_version('GstWebRTC', '1.0'); gi.require_version('AyatanaAppIndicator3', '0.1')" 2>/dev/null \
- || { echo 'Faltan GStreamer WebRTC o el indicador. Corré: sudo bash setup/setup.sh' >&2; exit 1; }
+system_ready() {
+ [[ -w /dev/uinput ]] && command -v wl-copy >/dev/null && command -v wl-paste >/dev/null \
+  && /usr/bin/python3 -c "import gi; gi.require_version('GstWebRTC', '1.0'); gi.require_version('AyatanaAppIndicator3', '0.1')" 2>/dev/null \
+  && { [[ -n ${PHONEPAD_PREBUILT_HELPERS:-} ]] || pkg-config --exists libpipewire-0.3 gstreamer-base-1.0 2>/dev/null; }
+}
+if ! system_ready; then
+ echo '==> Faltan paquetes del sistema: te pido la contraseña una vez'
+ sudo bash "$script_dir/setup.sh"
+ system_ready || { echo 'El sistema sigue incompleto. Reiniciá la compu y corré de nuevo: bash setup/install.sh' >&2; exit 1; }
+fi
 
 mkdir -p "$config_dir" "$unit_dir" "$bin_dir" "$ext_dst"
 if [[ -n ${PHONEPAD_PREBUILT:-} ]]; then
@@ -48,8 +52,6 @@ install -m 755 "$script_dir/indicator.py" "$lib_dir/indicator.py"
 if [[ -n ${PHONEPAD_PREBUILT_HELPERS:-} ]]; then
  install -m 755 "$PHONEPAD_PREBUILT_HELPERS"/{phonepad-cursor-metadata,libphonepad-live-capture.so} "$lib_dir/"
 else
- pkg-config --exists libpipewire-0.3 gstreamer-base-1.0 2>/dev/null \
-  || { echo 'Faltan los headers de PipeWire o GStreamer. Corré: sudo bash setup/setup.sh' >&2; exit 1; }
  gcc -O2 -o "$lib_dir/phonepad-cursor-metadata" "$script_dir/preview/cursor_metadata.c" $(pkg-config --cflags --libs libpipewire-0.3)
  gcc -O2 -shared -fPIC -o "$lib_dir/libphonepad-live-capture.so" "$script_dir/preview/live_capture.c" $(pkg-config --cflags --libs gstreamer-base-1.0)
 fi

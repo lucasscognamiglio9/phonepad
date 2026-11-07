@@ -1,3 +1,4 @@
 # phonepad: dar acceso solo a /dev/uinput al grupo "phonepad"
-# para que el daemon inyecte input sin correr como root.
-KERNEL=="uinput", GROUP="phonepad", MODE="0660", OPTIONS+="static_node=uinput"
+# para que el daemon inyecte input sin correr como root. uaccess da acceso
+# al usuario de la sesión activa al instante, sin volver a entrar.
+KERNEL=="uinput", GROUP="phonepad", MODE="0660", OPTIONS+="static_node=uinput", TAG+="uaccess"
