@@ -41,7 +41,9 @@ for unit in phonepad-health.timer phonepad-health.service; do
 done
 rm -rf "$unit_dir"/phonepad*.service.d
 rm -f "$unit_dir"/phonepad*.previous "$unit_dir"/phonepad-health.{service,timer} \
- "$bin_dir"/phonepad.pre-* "$config_dir"/video.env "$config_dir"/hfr.env
+ "$bin_dir"/phonepad.pre-* "$config_dir"/video.env "$config_dir"/hfr.env \
+ "$config_dir"/service.env.before-device-auth "$config_dir"/service.env.before-security-review \
+ "$config_dir"/video.env.pre-webrtc
 
 rm -rf "$lib_dir"
 mkdir -p "$lib_dir"
