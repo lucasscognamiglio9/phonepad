@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,10 +29,22 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", 401)
 		return
 	}
-	rtc := r.URL.Path == "/api/preview/rtc"
-	if (rtc && r.Method != "POST") || (!rtc && r.Method != "GET") {
+	// Sensors: GET long-polls the laptop's camera and microphone demand,
+	// POST negotiates the session that carries them.
+	sensors := r.URL.Path == "/api/preview/sensors"
+	rtc := r.URL.Path == "/api/preview/rtc" || (sensors && r.Method == "POST")
+	if (r.URL.Path == "/api/preview/rtc" && r.Method != "POST") || (!rtc && r.Method != "GET") {
 		http.Error(w, "method", 405)
 		return
+	}
+	sensorsAfter := ""
+	if sensors && !rtc {
+		after, err := strconv.ParseInt(r.URL.Query().Get("after"), 10, 64)
+		if err != nil || after < -1 {
+			http.Error(w, "after", 400)
+			return
+		}
+		sensorsAfter = strconv.FormatInt(after, 10)
 	}
 	var body io.Reader
 	var requestData []byte
@@ -63,7 +76,11 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := "/status"
-	if rtc {
+	if sensors && rtc {
+		path = "/sensors"
+	} else if sensors {
+		path = "/sensors?after=" + sensorsAfter
+	} else if rtc {
 		path = "/rtc"
 	} else if r.URL.Path == "/api/preview/video" {
 		path = "/video"
@@ -86,9 +103,13 @@ func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, 32*time.Second)
 		defer cancel()
-		if operation == "status" || operation == "start" || operation == "feedback" || operation == "resume" {
+		if !sensors && (operation == "status" || operation == "start" || operation == "feedback" || operation == "resume") {
 			observation = s.beginMediaObservation()
 		}
+	}
+	if s.browserPreview && sensors {
+		http.NotFound(w, r)
+		return
 	}
 	if s.browserPreview {
 		s.handleBrowserPreview(w, ctx, path, operation, requestData)
