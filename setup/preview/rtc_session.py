@@ -392,6 +392,8 @@ class Session:
             self.suspended = True
             self.touched = time.monotonic()
             self.flow.set_property('drop', True)
+            if self.audio:
+                self.audio_devices.release('sink')
         return {'ok': True}
 
     def resume(self):
@@ -399,6 +401,8 @@ class Session:
         if self.suspended and time.monotonic() - self.touched >= 300:
             self.close()
             raise ValueError('session expired')
+        if self.suspended and self.audio:
+            self.audio_devices.claim('sink', audio_bridge.SPEAKER['node.name'])
         self.suspended = False
         controller_mode = getattr(self, 'controller_name', 'legacy')
         if controller_mode != 'gcc':

@@ -140,18 +140,27 @@ def recover():
 
 
 class Devices:
-    """The phone is the default speaker while the screen session runs."""
+    """The phone is the default speaker while the user watches the screen session."""
 
     def __init__(self):
         self.cancelled = threading.Event()
         self.lock = threading.Lock()
         self.threads = []
+        self.wanted = set()
         self.speaker = create_speaker()
 
     def claim(self, kind, name):
+        with self.lock:
+            self.wanted.add(kind)
         thread = threading.Thread(target=self._claim, args=(kind, name), daemon=True)
-        self.threads.append(thread)
+        self.threads = [item for item in self.threads if item.is_alive()] + [thread]
         thread.start()
+
+    def release(self, kind):
+        """Give the default back while the phone is not showing the screen."""
+        with self.lock:
+            self.wanted.discard(kind)
+            restore_defaults(kind)
 
     def _claim(self, kind, name):
         deadline = time.monotonic() + 3
@@ -159,7 +168,7 @@ class Devices:
         while ours is None and time.monotonic() < deadline and not self.cancelled.wait(0.1):
             ours = node_id(name)
         with self.lock:
-            if ours is None or self.cancelled.is_set():
+            if ours is None or self.cancelled.is_set() or kind not in self.wanted:
                 return
             claim_default(kind, name)
 
