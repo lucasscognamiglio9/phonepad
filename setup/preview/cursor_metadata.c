@@ -1,3 +1,4 @@
+#include <string.h>
 /* Read cursor metadata only. Desktop pixels are never mapped or copied. */
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
@@ -78,14 +79,21 @@ static void state(void *p,enum pw_stream_state old,enum pw_stream_state now,cons
 }
 static const struct pw_stream_events events={PW_VERSION_STREAM_EVENTS,.state_changed=state,.param_changed=changed,.process=process};
 int main(int argc,char **argv) {
- if(argc!=3)return 2;
+ /* node, DRM fourcc, width, height, max fps numerator, modifier: the format
+    the video consumer already negotiated, so this second consumer matches it. */
+ if(argc!=7)return 2;
+ static const struct{const char *drm;uint32_t spa;}formats[]={{"AR24",SPA_VIDEO_FORMAT_BGRA},{"XR24",SPA_VIDEO_FORMAT_BGRx},
+  {"AB24",SPA_VIDEO_FORMAT_RGBA},{"XB24",SPA_VIDEO_FORMAT_RGBx}};
+ uint32_t video_format=SPA_VIDEO_FORMAT_UNKNOWN;
+ for(size_t i=0;i<SPA_N_ELEMENTS(formats);i++) if(!strcmp(argv[2],formats[i].drm)) video_format=formats[i].spa;
+ if(video_format==SPA_VIDEO_FORMAT_UNKNOWN)return 2;
  prctl(PR_SET_PDEATHSIG,SIGTERM);if(getppid()==1)return 1;
  setvbuf(stdout,NULL,_IOLBF,0);pw_init(&argc,&argv);struct reader r={0};r.loop=pw_main_loop_new(NULL);
  pw_loop_add_signal(pw_main_loop_get_loop(r.loop),SIGTERM,quit,&r);pw_loop_add_signal(pw_main_loop_get_loop(r.loop),SIGINT,quit,&r);
  r.stream=pw_stream_new_simple(pw_main_loop_get_loop(r.loop),"PhonePad cursor metadata",
   pw_properties_new(PW_KEY_MEDIA_TYPE,"Video",PW_KEY_MEDIA_CATEGORY,"Capture",NULL),&events,&r);
  uint8_t space[1024];struct spa_pod_builder b=SPA_POD_BUILDER_INIT(space,sizeof(space));
- struct spa_video_info_raw info={.format=SPA_VIDEO_FORMAT_BGRA,.size=SPA_RECTANGLE(1920,1080),.framerate=SPA_FRACTION(0,1),.max_framerate=SPA_FRACTION(120,1),.flags=SPA_VIDEO_FLAG_MODIFIER,.modifier=strtoull(argv[2],NULL,0)};
+ struct spa_video_info_raw info={.format=video_format,.size=SPA_RECTANGLE((uint32_t)strtoul(argv[3],NULL,10),(uint32_t)strtoul(argv[4],NULL,10)),.framerate=SPA_FRACTION(0,1),.max_framerate=SPA_FRACTION((uint32_t)strtoul(argv[5],NULL,10),1),.flags=SPA_VIDEO_FLAG_MODIFIER,.modifier=strtoull(argv[6],NULL,0)};
  const struct spa_pod *format=spa_format_video_raw_build(&b,SPA_PARAM_EnumFormat,&info);
  /* No MAP_BUFFERS: only PipeWire's small metadata is read, never video data. */
  int result=pw_stream_connect(r.stream,PW_DIRECTION_INPUT,(uint32_t)strtoul(argv[1],NULL,10),PW_STREAM_FLAG_AUTOCONNECT,&format,1);

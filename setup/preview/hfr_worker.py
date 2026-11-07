@@ -89,7 +89,7 @@ try:
                         if initial.get('image') or time.monotonic()>=deadline: break
                         time.sleep(.01)
                     if initial.get('image'):
-                        result['cursorInitial']={**initial,'t':'cursor','version':1,'sequence':0,'sourceWidth':1920,'sourceHeight':1080}
+                        result['cursorInitial']={**initial,'t':'cursor','version':1,'sequence':0,'sourceWidth':reader.size[0],'sourceHeight':reader.size[1]}
                 if data['cursorMode'] != 'metadata' and 'PHONEPAD_CURSOR_FD' in os.environ:
                     source_caps=manager.session.pipeline.get_by_name('capture').get_static_pad('src').get_current_caps()
                     cursor=EmbeddedCursor(int(os.environ['PHONEPAD_CURSOR_FD']),int(os.environ['PHONEPAD_CURSOR_NODE']),source_caps)

@@ -19,7 +19,7 @@ class CursorTests(unittest.TestCase):
   sent=[];state={'buffered-amount':1,'ready-state':2}
   channel=SimpleNamespace(get_property=lambda k:state[k],emit=lambda _,v:sent.append(json.loads(v)))
   session=SimpleNamespace(closed=False,suspended=False,cursor_channel=channel,cursor_open_state=2)
-  reader=SimpleNamespace(failed=False,snapshot=lambda:(3,{'visible':False}),close=lambda:None)
+  reader=SimpleNamespace(size=(1920,1080),failed=False,snapshot=lambda:(3,{'visible':False}),close=lambda:None)
   glib=SimpleNamespace(timeout_add=lambda *_:1,source_remove=lambda _:None)
   sender=CursorSender(session,reader,glib)
   sender.send();self.assertEqual(sent,[])
@@ -34,7 +34,7 @@ class CursorTests(unittest.TestCase):
   session=SimpleNamespace(closed=False,suspended=False,cursor_channel=channel(position_props,positions),cursor_image_channel=channel(image_props,images),cursor_open_state=2,cursor_delivery=2)
   state={'visible':True,'x':10,'y':20,'w':96,'h':96,'hx':4,'hy':5,'imageId':'0123456789abcdef','image':'data:image/png;base64,'+'A'*50000}
   version=[1]
-  reader=SimpleNamespace(failed=False,snapshot=lambda:(version[0],dict(state)),close=lambda:None)
+  reader=SimpleNamespace(size=(1920,1080),failed=False,snapshot=lambda:(version[0],dict(state)),close=lambda:None)
   glib=SimpleNamespace(timeout_add=lambda *_:1,source_remove=lambda _:None)
   sender=CursorSender(session,reader,glib)
   for i in range(100):
@@ -54,7 +54,7 @@ class CursorTests(unittest.TestCase):
   sent=[];channel=SimpleNamespace(get_property=lambda k:2 if k=='ready-state' else 0,emit=lambda _,v:sent.append(json.loads(v)))
   session=SimpleNamespace(closed=False,suspended=False,cursor_channel=channel,cursor_open_state=2)
   state={'visible':True,'x':0,'imageId':'0123456789abcdef','image':'png'};version=[0]
-  reader=SimpleNamespace(failed=False,snapshot=lambda:(version[0],dict(state)),close=lambda:None)
+  reader=SimpleNamespace(size=(1920,1080),failed=False,snapshot=lambda:(version[0],dict(state)),close=lambda:None)
   sender=CursorSender(session,reader,SimpleNamespace(timeout_add=lambda *_:1,source_remove=lambda _:None))
   with patch('cursor_metadata.time.monotonic') as clock:
    for tick in range(180):

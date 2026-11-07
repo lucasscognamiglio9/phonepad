@@ -21,9 +21,15 @@ def png_rgba(width, height, pixels):
 
 class CursorMetadata:
     def __init__(self, node, source_caps):
-        modifier = re.search(r'0x[0-9a-fA-F]+', source_caps)
-        if not modifier or 'AR24:' not in source_caps:
-            raise RuntimeError('cursor metadata requires the validated BGRA DMA source')
+        # The helper is a second consumer of the same node, so it must ask for
+        # exactly the format the video consumer negotiated.
+        drm = re.search(r'drm-format=\(string\)(AR24|XR24|AB24|XB24):(0x[0-9a-fA-F]+)', source_caps)
+        size = re.search(r'width=\(int\)(\d+).*height=\(int\)(\d+)', source_caps)
+        rate = re.search(r'max-framerate=\(fraction\)(\d+)/(\d+)', source_caps)
+        if not drm or not size:
+            raise RuntimeError('cursor metadata needs a negotiated RGB DMA-BUF source')
+        self.size = (int(size.group(1)), int(size.group(2)))
+        fps = int(rate.group(1)) // max(1, int(rate.group(2))) if rate else 0
         self.lock = threading.Lock(); self.ready = threading.Event(); self.failed = False
         self.latest = {'visible': False}; self.version = 0
         self.theme = CursorTheme(); self.image_scale = (1,1); self.hotspot_offset = (0,0)
@@ -31,7 +37,7 @@ class CursorMetadata:
         lab = os.environ.get('PHONEPAD_HFR_ROOT', '')
         isolated = lab.startswith('/tmp/phonepad-hfr-') and lab in os.environ.get('DBUS_SESSION_BUS_ADDRESS', '')
         self.log = (Path(lab) / 'cursor-helper.log').open('w') if isolated else None
-        self.process = subprocess.Popen([str(HELPER), str(node), modifier.group(0)], stdout=subprocess.PIPE, stderr=self.log or subprocess.DEVNULL)
+        self.process = subprocess.Popen([str(HELPER), str(node), drm.group(1), str(self.size[0]), str(self.size[1]), str(fps), drm.group(2)], stdout=subprocess.PIPE, stderr=self.log or subprocess.DEVNULL)
         self.shape_thread = threading.Thread(target=self.shapes, daemon=True); self.shape_thread.start()
         self.thread = threading.Thread(target=self.read, daemon=True); self.thread.start()
         if not self.ready.wait(2) or self.failed:
@@ -146,7 +152,7 @@ class CursorSender:
         full = now - self.full_at >= 1 or state.get('imageId') != self.image
         if version == self.version and now - self.position_at < 1: return True
         self.sequence += 1
-        state.update(t='cursor', version=self.delivery, sequence=self.sequence, sourceWidth=1920, sourceHeight=1080)
+        state.update(t='cursor', version=self.delivery, sequence=self.sequence, sourceWidth=self.reader.size[0], sourceHeight=self.reader.size[1])
         if self.delivery == 2 or not full: state.pop('image', None)
         payload = json.dumps(state, separators=(',', ':'), allow_nan=False)
         channel.emit('send-string', payload)
