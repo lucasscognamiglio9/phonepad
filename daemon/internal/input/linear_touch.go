@@ -1,6 +1,7 @@
 package input
 
 import (
+	"log"
 	"math"
 	"time"
 )
@@ -21,12 +22,23 @@ type linearTouch struct {
 	moved, multi, down, blocked bool
 	lastTap                     time.Time
 	lastTapContact              Contact
+	recoveryLogged              bool
+}
+
+// idle reports that no finger is down, so a new lease cannot split a gesture.
+func (p *linearTouch) idle() bool { return p.previous == nil && !p.multi && !p.down }
+
+func (p *linearTouch) recoveryFailed(err error) {
+	if !p.recoveryLogged {
+		p.recoveryLogged = true
+		log.Printf("PhonePad linear pointer recovery unavailable: %v", err)
+	}
 }
 
 func (p *linearTouch) frame(cs []Contact, geometry PointerGeometry, now time.Time) {
 	if p.blocked {
 		// The native lease is gone; the libinput touchpad keeps the pointer alive
-		// until Reset recovers the lease.
+		// until the next gesture or Reset takes a new lease.
 		p.multiTouch(cs)
 		return
 	}

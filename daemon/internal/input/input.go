@@ -183,6 +183,11 @@ func (d *uinputDevice) Touch(contacts []Contact) {
 		return
 	}
 	if d.linear != nil {
+		if d.linear.blocked && d.linear.idle() && len(contacts) > 0 {
+			// Mutter closes the lease or a call times out; take a new one at
+			// the next gesture instead of leaving motion degraded until reconnect.
+			d.recoverLinearLocked("next gesture")
+		}
 		d.linear.frame(contacts, *d.geometry, time.Now())
 		return
 	}
@@ -582,18 +587,26 @@ func (d *uinputDevice) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.resetLocked()
-	if d.motion != nil && d.linear != nil && d.linear.blocked {
-		// A new connection/input epoch may recover the native lease. The old
-		// gesture is cancelled first and is never replayed into this session.
-		d.motion.Close()
-		if motion, err := newMutterMotion(); err == nil {
-			d.motion = motion
-			d.linear = &linearTouch{move: motion.Move, button: motion.Button, multiTouch: func(cs []Contact) { d.mt.touch(cs) }, cancelMulti: func() { d.mt.cancel() }}
-			log.Print("PhonePad linear pointer recovered on input reset")
-		} else {
-			log.Printf("PhonePad linear pointer recovery unavailable: %v", err)
-		}
+	if d.linear != nil && d.linear.blocked {
+		d.recoverLinearLocked("input reset")
 	}
+}
+
+// recoverLinearLocked replaces a lost native lease. The old gesture was
+// already cancelled and is never replayed into the new session.
+func (d *uinputDevice) recoverLinearLocked(reason string) {
+	if d.motion == nil {
+		return
+	}
+	motion, err := newMutterMotion()
+	if err != nil {
+		d.linear.recoveryFailed(err)
+		return
+	}
+	d.motion.Close()
+	d.motion = motion
+	d.linear = &linearTouch{move: motion.Move, button: motion.Button, multiTouch: func(cs []Contact) { d.mt.touch(cs) }, cancelMulti: func() { d.mt.cancel() }}
+	log.Printf("PhonePad linear pointer recovered on %s", reason)
 }
 
 func (d *uinputDevice) resetLocked() {
