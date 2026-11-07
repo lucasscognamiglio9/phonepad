@@ -61,3 +61,17 @@ class CadenceTests(unittest.TestCase):
                       + (700_000 if i % 2 else -700_000) for i in range(120)]
         accepted = [pts for pts in timestamps if limiter.accept(pts)]
         self.assertTrue(58 <= len(accepted) <= 61, len(accepted))
+
+    def test_source_at_the_cap_keeps_every_frame_despite_jitter(self):
+        limiter = FrameCadence(60)
+        # PipeWire stamps frames on arrival, so a 60 Hz source jitters around its slots.
+        timestamps = [i * 1_000_000_000 // 60 + (2_000_000 if i % 3 == 1 else -1_500_000) for i in range(1, 121)]
+        accepted = [pts for pts in timestamps if limiter.accept(pts)]
+        self.assertGreaterEqual(len(accepted), 119, limiter.dropped)
+
+    def test_faster_source_never_exceeds_the_cap(self):
+        limiter = FrameCadence(60)
+        timestamps = [i * 1_000_000_000 // 144 + (300_000 if i % 2 else -300_000) for i in range(1, 289)]
+        accepted = [pts for pts in timestamps if limiter.accept(pts)]
+        self.assertLessEqual(len(accepted), 121)
+        self.assertGreaterEqual(len(accepted), 115)

@@ -20,11 +20,14 @@ class FrameCadence:
         if self.previous_fps != self.fps:
             self.previous_fps = self.fps
             self.next_due = self.last_pts + interval if self.last_pts is not None else None
-        if self.last_pts == pts or (self.next_due is not None and pts + 1 < self.next_due):
+        # A frame belongs to the nearest slot. PipeWire stamps frames when they
+        # arrive, so a source at the cap lands a little before or after its
+        # slot; only frames closer to the previous slot are excess.
+        if self.last_pts == pts or (self.next_due is not None and pts < self.next_due - interval / 2):
             self.dropped += 1
             return False
-        # Preserve phase through small scheduling jitter. Restart after idle
-        # rather than spending old frame slots as a burst of new frames.
+        # Preserve phase through scheduling jitter. Restart after idle rather
+        # than spending old frame slots as a burst of new frames.
         self.next_due = (self.next_due + interval if self.next_due is not None
                          and pts < self.next_due + interval else pts + interval)
         self.last_pts = pts
