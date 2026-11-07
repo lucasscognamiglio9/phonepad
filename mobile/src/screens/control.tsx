@@ -3,7 +3,7 @@ import { reflectionRest } from '../components/glass-reflection';
 import { appearance } from '../components/appearance';
 import { CursorFeed } from '../lib/cursor';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Dimensions, Keyboard, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { AppState, Dimensions, Keyboard, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { keepSessionAwake } from '../lib/session-awake';
@@ -22,6 +22,7 @@ import { SessionOptions } from '../components/session-options';
 import { loadControlPreferences, saveControlPreferences, type ControlPreferences } from '../lib/control-preferences';
 import { Connection, type ConnectionState } from '../lib/connection';
 import { startVideo } from '../lib/video';
+import { startSensors, type SensorUse } from '../lib/sensors';
 import { UpdateLifecycle } from '../lib/updates';
 import { PreviewLifecycle } from '../lib/preview-lifecycle';
 import { selectPointerGeometry } from '../lib/pointer-geometry';
@@ -37,6 +38,9 @@ const messages: Record<ConnectionState, string> = {
   unauthorized: 'Autorizá el iPhone en el equipo.', paused: 'Sesión pausada.',
   incompatible: 'Actualizá PhonePad y el equipo.',
 };
+const sensorNames = { mic: 'micrófono', camera: 'cámara' } as const;
+const sensorList = (kinds: SensorUse['kinds']) => kinds.map(kind => sensorNames[kind]).sort().join(' y ');
+const NO_SENSORS: SensorUse = { kinds: [], denied: [] };
 export function Control({ origin, onSelectHost, initialPreview = false, onStartupComplete }: { origin: string; onSelectHost: (origin: string) => void; initialPreview?: boolean; onStartupComplete?: () => void }) {
   const insets = useSafeAreaInsets();
   const glassPointer = useSharedValue<{ x: number; y: number; active: boolean }>({ ...reflectionRest, active: false });
@@ -94,6 +98,14 @@ export function Control({ origin, onSelectHost, initialPreview = false, onStartu
   useEffect(() => {
     if (foreground && state === 'connected') return keepSessionAwake(activateKeepAwakeAsync, deactivateKeepAwake, `phonepad-${Date.now()}-${Math.random()}`);
   }, [foreground, state, connection]);
+  const sessionEpoch = connection.capabilities?.sessionEpoch ?? null;
+  const [sensorUse, setSensorUse] = useState<SensorUse>(NO_SENSORS);
+  useEffect(() => {
+    if (!foreground || state !== 'connected') { setSensorUse(NO_SENSORS); return; }
+    // The laptop asks for the camera or microphone; the phone only answers while open.
+    const stop = startSensors(origin, () => connection.capabilities?.sessionEpoch ?? null, setSensorUse);
+    return () => { stop(); setSensorUse(NO_SENSORS); };
+  }, [origin, connection, foreground, state, sessionEpoch]);
   const attachments = useAttachmentTransfer(origin, state === 'connected' && connection.canTransfer,
     () => pasteToHost(connection), connection.canClipboard, connection.capabilities?.sessionEpoch, connection.canInput);
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent({ scheme: 'phonepad' });
@@ -159,7 +171,8 @@ export function Control({ origin, onSelectHost, initialPreview = false, onStartu
     return false;
   };
   const capturePreparing = preview && /Preparando|Reconectando|Conectando la pantalla|Reintentando/.test(videoError);
-  const globalNotice = controlError || (['unauthorized', 'incompatible'].includes(state) ? messages[state] : '') ||
+  const sensorNotice = sensorUse.denied.length ? `Permití ${sensorList(sensorUse.denied)} para PhonePad en Ajustes > Privacidad.` : '';
+  const globalNotice = controlError || (['unauthorized', 'incompatible'].includes(state) ? messages[state] : '') || sensorNotice ||
     (preview && videoError && !capturePreparing ? noticeMessage(videoError, 'No se pudo abrir la pantalla.') : '');
   const status = <View accessibilityLabel={state === 'connected' ? 'Conectado' : messages[state]} style={{ width: appearance.status.size, height: appearance.status.size, borderRadius: appearance.status.radius, backgroundColor: state === 'connected' ? appearance.color.success : appearance.color.secondary }} />;
   // Keep the RTC view mounted while its visible rectangle follows the actual
@@ -180,7 +193,12 @@ export function Control({ origin, onSelectHost, initialPreview = false, onStartu
     <SessionControls preview={preview} openKeyboard={() => { if (keyboard) closeKeyboard(); else openKeyboard(); }} keyboardOpen={keyboard}
       reconnect={() => { closeKeyboard(); reconnect(); }} openOptions={openOptions} togglePreview={togglePreview}
       disabled={!inputReady} bottomInset={residualKeyboardOverlap} />
-    {!landscapePreview && <View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:insets.top+appearance.control.gap,height:appearance.control.size,alignItems:'center',justifyContent:'center'}}>{status}</View>}
+    {!landscapePreview && <View pointerEvents="none" style={{position:'absolute',left:0,right:0,top:insets.top+appearance.control.gap,height:appearance.control.size,flexDirection:'row',gap:appearance.control.gap,alignItems:'center',justifyContent:'center'}}>
+      {status}
+      {sensorUse.kinds.length > 0 && <Text accessibilityLiveRegion="polite" style={{ color: appearance.color.warning, fontSize: appearance.text.caption }}>
+        La laptop usa tu {sensorList(sensorUse.kinds)}
+      </Text>}
+    </View>}
     {!!globalNotice && globalNotice !== dismissedNotice && <View pointerEvents="box-none" style={{ position: 'absolute',
       left: insets.left + appearance.control.margin, top: insets.top + appearance.control.size + appearance.control.gap * 2,
       width: Math.min(appearance.control.menuWidth, width - insets.left - insets.right - appearance.control.margin * 2) }}>

@@ -200,7 +200,7 @@ test('incompatible video formats fail before starting capture and malformed offe
 
 test('native preview requests desktop resolution and releases its encoder once on background', async () => {
   const h = video(); const stop = await h.start(); await drain();
-  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', audio: true, camera: true, width: 1920, codec: 'H264' });
+  assert.deepEqual(h.calls.find(c => c.op === 'start'), { op: 'start', audio: true, width: 1920, codec: 'H264' });
   assert.equal(h.shown.length, 1);
   await h.time.advance(1500);
   assert.ok(h.calls.filter(c => c.op === 'feedback').length >= 2);
@@ -496,11 +496,44 @@ test('pointer recovery invalidates input immediately and starts a fresh transpor
  await h.time.advance(250);h.sockets[1].ack();assert.notEqual(h.connection.inputEpoch,epoch);assert.equal(h.sockets[1].sent.length,0);h.connection.stop();assert.equal(h.time.pending,0);
 });
 
-test('phone camera goes on the receive-only m-line the computer offers', () => {
-  const { cameraMid } = load('video.ts', { require: () => ({}) });
-  const offer = ['v=0', 'm=video 9 UDP/TLS/RTP/SAVPF 96', 'a=sendrecv', 'a=mid:video0',
-    'm=audio 0 UDP/TLS/RTP/SAVPF 111', 'a=sendrecv', 'a=mid:audio1',
-    'm=video 0 UDP/TLS/RTP/SAVPF 102 97', 'a=bundle-only', 'a=recvonly', 'a=mid:video2', ''].join('\r\n');
-  assert.equal(cameraMid(offer), 'video2');
-  assert.equal(cameraMid(offer.replace('a=recvonly', 'a=inactive')), undefined);
+test('the phone captures only the sensors a laptop app is reading, and stops when it closes them', async t => {
+  const settle = async () => { for (let i = 0; i < 5; i++) await drain(); };
+  const plain = value => JSON.parse(JSON.stringify(value));
+  const polls = [], posts = [], captured = [], stopped = [];
+  let answerPoll;
+  const fetch = async (url, init) => {
+    if (init.method === 'GET') {
+      polls.push(url);
+      return await new Promise((resolve, reject) => { answerPoll = body => resolve({ ok: true, json: async () => body });
+        init.signal.addEventListener('abort', () => reject(Error('aborted'))); });
+    }
+    const body = JSON.parse(init.body); posts.push(body);
+    return { ok: true, json: async () => body.op === 'start' ? { id: 's1', sdp: 'v=0' } : { ok: true } };
+  };
+  class Peer {
+    iceGatheringState = 'complete'; localDescription = { sdp: 'v=0 answer' }; closed = false;
+    transceivers = [{ receiver: { track: { kind: 'audio' } }, sender: { replaceTrack: async () => {} }, direction: 'recvonly' }];
+    async setRemoteDescription() {} getTransceivers() { return this.transceivers; }
+    async createAnswer() { return {}; } async setLocalDescription() {} close() { this.closed = true; }
+  }
+  const webrtc = { RTCPeerConnection: Peer, RTCSessionDescription: class { constructor(value) { Object.assign(this, value); } },
+    mediaDevices: { getUserMedia: async constraints => { captured.push(constraints);
+      return { getTracks: () => [{ stop: () => stopped.push(constraints) }] }; } } };
+  const { startSensors } = load('sensors.ts', { fetch, setTimeout, clearTimeout, require: () => webrtc });
+  const reports = [];
+  const stop = startSensors('https://laptop', () => 'epoch', use => reports.push(plain(use)));
+  t.after(stop);
+  await drain();
+  answerPoll({ version: 0, mic: false, camera: false, cameraAvailable: true }); await settle();
+  assert.equal(captured.length, 0);
+  answerPoll({ version: 1, mic: true, camera: false, cameraAvailable: true }); await settle();
+  assert.deepEqual(plain(captured), [{ audio: true }]);
+  assert.deepEqual(posts.map(post => post.op), ['start', 'answer']);
+  assert.deepEqual(plain(posts[0].kinds), ['mic']);
+  assert.deepEqual(reports.at(-1), { kinds: ['mic'], denied: [] });
+  assert.equal(polls.at(-1), 'https://laptop/api/preview/sensors?after=1');
+  answerPoll({ version: 2, mic: false, camera: false, cameraAvailable: true }); await settle();
+  assert.deepEqual(plain(stopped), [{ audio: true }]);
+  assert.deepEqual(posts.at(-1), { op: 'stop', id: 's1' });
+  assert.deepEqual(reports.at(-1), { kinds: [], denied: [] });
 });

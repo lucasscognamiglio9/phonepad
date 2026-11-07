@@ -233,6 +233,7 @@ function harness(options = {}) {
     },
     '../lib/connection': { Connection: FakeConnection },
     '../lib/video': { startVideo },
+    '../lib/sensors': { startSensors: () => () => {} },
     '../lib/cursor': controlFixture.load('lib/cursor.ts'),
     '../lib/updates': { UpdateLifecycle: FakeUpdateLifecycle },
     '../lib/preview-lifecycle': { PreviewLifecycle: FakePreviewLifecycle },
